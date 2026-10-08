@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ETL Migration Command Center | SQL Server ➔ PostgreSQL</title>
+  <meta name="description" content="Dashboard pemantauan sumber data SQL Server Views, master config, log proses migrasi, dan rekonsiliasi hasil migrasi data">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Header / Navbar -->
+    <header class="top-nav">
+      <div class="nav-brand">
+        <div class="brand-logo">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+          </svg>
+        </div>
+        <div>
+          <h1 class="brand-title">Migration Command Center</h1>
+          <p class="brand-subtitle">
+            <span class="badge-source-db">SQL Server</span> antam_scm.dbo 
+            <span class="arrow-accent">➔</span> 
+            <span class="badge-target-db">PostgreSQL</span> db_procsi.etl_antam
+          </p>
+        </div>
+      </div>
+
+      <!-- Live Connection Status Badges -->
+      <div class="connection-status-group">
+        <div id="mssql-status" class="db-badge loading">
+          <span class="status-dot"></span>
+          <div class="db-info">
+            <span class="db-name">SQL Server (Source)</span>
+            <span class="db-meta" id="mssql-meta">Memeriksa...</span>
+          </div>
+        </div>
+
+        <div id="pg-status" class="db-badge loading">
+          <span class="status-dot"></span>
+          <div class="db-info">
+            <span class="db-name">PostgreSQL (Target)</span>
+            <span class="db-meta" id="pg-meta">Memeriksa...</span>
+          </div>
+        </div>
+
+        <button id="btn-refresh-all" class="btn btn-secondary btn-icon" title="Refresh Seluruh Data">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Navigation Bar -->
+    <nav class="main-tabs-nav">
+      <button class="nav-tab-btn active" data-tab="tab-source">
+        <span class="tab-icon">🌐</span>
+        <div class="tab-label-group">
+          <span class="tab-title">1. Source Data (SQL Server Views)</span>
+          <span class="tab-sub">antam_scm • schema dbo</span>
+        </div>
+      </button>
+
+      <button class="nav-tab-btn" data-tab="tab-etl">
+        <span class="tab-icon">⚙️</span>
+        <div class="tab-label-group">
+          <span class="tab-title">2. Monitoring Config & Proses ETL</span>
+          <span class="tab-sub">db_procsi • schema etl_antam</span>
+        </div>
+      </button>
+
+      <button class="nav-tab-btn" data-tab="tab-pipeline">
+        <span class="tab-icon">🎯</span>
+        <div class="tab-label-group">
+          <span class="tab-title">3. Hasil Migrasi (Pipeline 3-Tier)</span>
+          <span class="tab-sub">Source ➔ Staging ➔ Target</span>
+        </div>
+      </button>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      
+      <!-- ============================================================== -->
+      <!-- TAB 1: SOURCE DATA (SQL SERVER DBO VIEWS)                      -->
+      <!-- ============================================================== -->
+      <section id="tab-source" class="tab-pane active">
+        <!-- KPI Cards Modul 1 -->
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-label">Total SQL Server Views</span>
+              <div class="kpi-icon icon-cyan">👁️</div>
+            </div>
+            <div class="kpi-value" id="kpi-source-views-count">-</div>
+            <div class="kpi-foot">Schema [dbo] di antam_scm</div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-label">Total Baris Seluruh View</span>
+              <div class="kpi-icon icon-indigo">📊</div>
+            </div>
+            <div class="kpi-value font-mono" id="kpi-source-total-rows">-</div>
+            <div class="kpi-foot">Akumulasi seluruh record views</div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-label">View Utama Migrasi</span>
+              <div class="kpi-icon icon-emerald">⭐</div>
+            </div>
+            <div class="kpi-value font-mono" style="font-size: 1.25rem; color: var(--accent-emerald);" id="kpi-source-main-view">v_migration_vendor</div>
+            <div class="kpi-foot" id="kpi-source-main-count">Memuat baris...</div>
+          </div>
+        </div>
+
+        <div class="grid-2-cols">
+          <!-- Daftar & Summary Views -->
+          <div class="panel-card">
+            <div class="panel-header">
+              <div>
+                <h2 class="panel-title">Daftar Views di dbo (SQL Server)</h2>
+                <p class="panel-desc">Ringkasan seluruh object VIEW dan jumlah data aktual</p>
+              </div>
+              <button id="btn-refresh-views" class="btn btn-secondary btn-sm">Refresh Views</button>
+            </div>
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>No</th>
+                    <th>Nama View</th>
+                    <th>Schema</th>
+                    <th>Total Baris</th>
+                    <th>Aksi</th>
+                  </tr>
+                </thead>
+                <tbody id="source-views-table-body">
+                  <tr><td colspan="5" class="text-center py-8 text-muted">Memuat daftar view SQL Server...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Data Inspector untuk View Terpilih -->
+          <div class="panel-card">
+            <div class="panel-header flex-wrap">
+              <div>
+                <h2 class="panel-title" id="source-inspector-title">Data Inspector: v_migration_vendor</h2>
+                <p class="panel-desc">Menampilkan baris data aktual langsung dari SQL Server</p>
+              </div>
+              <div class="inspector-controls">
+                <select id="select-source-limit" class="select-input select-sm">
+                  <option value="10">10 Baris</option>
+                  <option value="25" selected>25 Baris</option>
+                  <option value="50">50 Baris</option>
+                </select>
+                <button id="btn-reload-view-data" class="btn btn-primary btn-sm">Reload</button>
+              </div>
+            </div>
+
+            <!-- Alert box jika view memiliki binding error atau warning -->
+            <div id="source-view-alert" class="hidden mb-4 p-4 rounded-md border text-sm"></div>
+
+            <!-- Meta bar -->
+            <div class="sub-meta-bar" id="source-meta-bar">
+              <span>Total: <strong class="font-mono text-cyan" id="source-view-total-records">0</strong></span>
+              <span>Kolom: <strong class="font-mono text-cyan" id="source-view-col-count">0</strong></span>
+              <span>Halaman: <strong class="font-mono text-cyan" id="source-view-page-indicator">1/1</strong></span>
+            </div>
+
+            <div class="table-container inspector-grid">
+              <table class="data-table" id="source-data-table">
+                <thead id="source-data-thead">
+                  <tr><th>Pilih view pada tabel di sebelah kiri</th></tr>
+                </thead>
+                <tbody id="source-data-tbody">
+                  <tr><td class="text-center py-8 text-muted">Belum ada view yang dimuat.</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Paginasi -->
+            <div class="pagination-footer">
+              <span id="source-pagination-info">Menampilkan 0 baris</span>
+              <div class="pagination-buttons">
+                <button id="btn-source-prev" class="btn btn-secondary btn-sm" disabled>❮ Prev</button>
+                <div id="source-page-numbers" class="page-numbers-container"></div>
+                <button id="btn-source-next" class="btn btn-secondary btn-sm" disabled>Next ❯</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================== -->
+      <!-- TAB 2: MONITORING CONFIG & PROSES ETL (etl_antam)              -->
+      <!-- ============================================================== -->
+      <section id="tab-etl" class="tab-pane">
+        <!-- KPI Cards Modul 2 -->
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-label">Total Eksekusi (Runs)</span>
+              <div class="kpi-icon icon-indigo">🚀</div>
+            </div>
+            <div class="kpi-value font-mono" id="kpi-etl-total-runs">-</div>
+            <div class="kpi-foot">Tercatat di migration_run</div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-label">Sukses / Berhasil</span>
+              <div class="kpi-icon icon-emerald">✓</div>
+            </div>
+            <div class="kpi-value font-mono value-emerald" id="kpi-etl-success-runs">-</div>
+            <div class="kpi-foot">Status SUCCESS / COMPLETED</div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-label">Gagal / Error Runs</span>
+              <div class="kpi-icon icon-rose">⚠️</div>
+            </div>
+            <div class="kpi-value font-mono value-rose" id="kpi-etl-failed-runs">-</div>
+            <div class="kpi-foot">Status FAILED</div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-label">Total Log Error</span>
+              <div class="kpi-icon icon-amber">🐞</div>
+            </div>
+            <div class="kpi-value font-mono value-amber" id="kpi-etl-total-errors">-</div>
+            <div class="kpi-foot">Tercatat di migration_error_log</div>
+          </div>
+        </div>
+
+        <!-- Sub Tabs untuk ETL -->
+        <div class="sub-tabs-header">
+          <button class="sub-tab-btn active" data-subtab="subtab-runs">
+            <span>📋 Riwayat Eksekusi (migration_run)</span>
+          </button>
+          <button class="sub-tab-btn" data-subtab="subtab-steplogs">
+            <span>👣 Log Langkah (migration_step_log)</span>
+          </button>
+          <button class="sub-tab-btn" data-subtab="subtab-errorlogs">
+            <span class="text-rose">🐞 Log Error (migration_error_log)</span>
+          </button>
+          <button class="sub-tab-btn" data-subtab="subtab-masters">
+            <span>⚙️ Master Config (4 Tabel)</span>
+          </button>
+        </div>
+
+        <!-- Subtab 1: Riwayat Runs -->
+        <div id="subtab-runs" class="subtab-content active">
+          <div class="panel-card">
+            <div class="panel-header">
+              <div>
+                <h3 class="panel-title">Riwayat Batch Migrasi (migration_run)</h3>
+                <p class="panel-desc">Klik salah satu baris untuk melihat Step Log dan Error Log spesifik run tersebut</p>
+              </div>
+              <button id="btn-refresh-runs" class="btn btn-secondary btn-sm">Refresh Runs</button>
+            </div>
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Run ID</th>
+                    <th>Run TS</th>
+                    <th>Workflow</th>
+                    <th>Config ID</th>
+                    <th>Status</th>
+                    <th>Waktu Mulai</th>
+                    <th>Durasi</th>
+                    <th>Posting</th>
+                    <th>Rollback</th>
+                    <th>Hop Host</th>
+                    <th>Catatan</th>
+                    <th>Aksi</th>
+                  </tr>
+                </thead>
+                <tbody id="etl-runs-table-body">
+                  <tr><td colspan="12" class="text-center py-8 text-muted">Memuat data migration_run...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Subtab 2: Step Logs -->
+        <div id="subtab-steplogs" class="subtab-content">
+          <div class="panel-card">
+            <div class="panel-header">
+              <div>
+                <h3 class="panel-title">Log Langkah Migrasi (migration_step_log)</h3>
+                <p class="panel-desc" id="steplogs-filter-desc">Menampilkan seluruh riwayat langkah proses ETL</p>
+              </div>
+              <button id="btn-clear-step-filter" class="btn btn-secondary btn-sm hidden">Reset Filter Run</button>
+            </div>
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Log ID</th>
+                    <th>Run ID</th>
+                    <th>Config ID</th>
+                    <th>Step Name</th>
+                    <th>Status</th>
+                    <th>Rows Src</th>
+                    <th>Rows Stg</th>
+                    <th>Rows New</th>
+                    <th>Rows Chg</th>
+                    <th>Rows Del</th>
+                    <th>Durasi</th>
+                    <th>Pesan</th>
+                  </tr>
+                </thead>
+                <tbody id="etl-steps-table-body">
+                  <tr><td colspan="12" class="text-center py-8 text-muted">Memuat data migration_step_log...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Subtab 3: Error Logs -->
+        <div id="subtab-errorlogs" class="subtab-content">
+          <div class="panel-card">
+            <div class="panel-header">
+              <div>
+                <h3 class="panel-title text-rose">Log Error Migrasi (migration_error_log)</h3>
+                <p class="panel-desc" id="errorlogs-filter-desc">Rincian error transformasi dan sampel data baris bermasalah</p>
+              </div>
+              <button id="btn-clear-error-filter" class="btn btn-secondary btn-sm hidden">Reset Filter Run</button>
+            </div>
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Error ID</th>
+                    <th>Run ID</th>
+                    <th>Config ID</th>
+                    <th>Step Name</th>
+                    <th>Pipeline / Transform</th>
+                    <th>Error Code</th>
+                    <th>Waktu</th>
+                    <th>Pesan Error</th>
+                    <th>Field</th>
+                    <th>Row Data (JSON)</th>
+                  </tr>
+                </thead>
+                <tbody id="etl-errors-table-body">
+                  <tr><td colspan="10" class="text-center py-8 text-muted">Memuat data migration_error_log...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Subtab 4: Master Configs -->
+        <div id="subtab-masters" class="subtab-content">
+          <!-- Accordion or Tabbed Master Config Tables -->
+          <div class="master-tables-grid">
+            
+            <!-- Table 1: migration_config -->
+            <div class="panel-card mb-4">
+              <div class="panel-header">
+                <div>
+                  <h3 class="panel-title">1. migration_config</h3>
+                  <p class="panel-desc">Pemetaan tabel sumber, staging, dan target utama beserta kunci verifikasi</p>
+                </div>
+              </div>
+              <div class="table-container">
+                <table class="data-table" id="table-master-config">
+                  <thead>
+                    <tr>
+                      <th>Config ID</th>
+                      <th>Exec Order</th>
+                      <th>Source (SQL Server)</th>
+                      <th>Staging (PostgreSQL)</th>
+                      <th>Target (PostgreSQL)</th>
+                      <th>PK Columns</th>
+                      <th>Compare Columns</th>
+                      <th>ID Generator</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="master-config-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Table 2: migration_convert_rule -->
+            <div class="panel-card mb-4">
+              <div class="panel-header">
+                <div>
+                  <h3 class="panel-title">2. migration_convert_rule</h3>
+                  <p class="panel-desc">Aturan konversi kolom, lookup, normalisasi, dan nilai default</p>
+                </div>
+              </div>
+              <div class="table-container">
+                <table class="data-table" id="table-master-rules">
+                  <thead>
+                    <tr>
+                      <th>Rule ID</th>
+                      <th>Config ID</th>
+                      <th>Column Name</th>
+                      <th>Source Column</th>
+                      <th>Lookup Name</th>
+                      <th>Master Table</th>
+                      <th>On Unmapped</th>
+                      <th>Default Value</th>
+                      <th>Normalize</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody id="master-rules-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Table 3: migration_target_config -->
+            <div class="panel-card mb-4">
+              <div class="panel-header">
+                <div>
+                  <h3 class="panel-title">3. migration_target_config</h3>
+                  <p class="panel-desc">Konfigurasi mapping SQL, precheck, postcheck, dan rollback</p>
+                </div>
+              </div>
+              <div class="table-container">
+                <table class="data-table" id="table-master-targets">
+                  <thead>
+                    <tr>
+                      <th>Target Config ID</th>
+                      <th>Config ID</th>
+                      <th>Exec Order</th>
+                      <th>Target Table</th>
+                      <th>PK Columns</th>
+                      <th>Mapping SQL</th>
+                      <th>Precheck SQL</th>
+                      <th>Rollback SQL</th>
+                    </tr>
+                  </thead>
+                  <tbody id="master-targets-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Table 4: migration_lookup -->
+            <div class="panel-card">
+              <div class="panel-header">
+                <div>
+                  <h3 class="panel-title">4. migration_lookup</h3>
+                  <p class="panel-desc">Kamus lookup data master, mapping nilai, filter kondisi, dan penanganan unmapped</p>
+                </div>
+              </div>
+              <div class="table-container">
+                <table class="data-table" id="table-master-lookups">
+                  <thead>
+                    <tr>
+                      <th>Lookup Name</th>
+                      <th>Master Table</th>
+                      <th>Src Col</th>
+                      <th>Tgt Col</th>
+                      <th>Filter Condition</th>
+                      <th>On Unmapped</th>
+                      <th>Default Value</th>
+                      <th>Normalize</th>
+                      <th>Deskripsi</th>
+                    </tr>
+                  </thead>
+                  <tbody id="master-lookups-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================== -->
+      <!-- TAB 3: HASIL MIGRASI (BERDASARKAN MIGRATION_CONFIG)             -->
+      <!-- ============================================================== -->
+      <section id="tab-pipeline" class="tab-pane">
+        <!-- Section A: Master Table List migration_config -->
+        <div class="panel-card mb-6">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Daftar Konfigurasi Migrasi (etl_antam.migration_config)</h2>
+              <p class="panel-desc">Pilih salah satu konfigurasi di bawah untuk meninjau rekonsiliasi dan isi datanya secara mendalam</p>
+            </div>
+            <button id="btn-refresh-pipeline" class="btn btn-primary btn-sm">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+              Refresh Configs
+            </button>
+          </div>
+          <div class="table-container">
+            <table class="data-table" id="pipeline-master-table">
+              <thead>
+                <tr>
+                  <th>Config ID</th>
+                  <th>Order</th>
+                  <th>Source View (SQL Server)</th>
+                  <th>Staging Table (PG stg_antam)</th>
+                  <th>Final Target (PG vendor)</th>
+                  <th>Perbandingan Baris (Src ➔ Stg ➔ Tgt)</th>
+                  <th>Status Alur</th>
+                  <th>Errors Logged</th>
+                  <th>Aksi</th>
+                </tr>
+              </thead>
+              <tbody id="pipeline-master-tbody">
+                <tr><td colspan="9" class="text-center py-8 text-muted">Memuat daftar konfigurasi migration_config...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Section B: Detail Hasil Migrasi Terpilih -->
+        <div id="pipeline-detail-section" class="pipeline-detail-section">
+          
+          <!-- Stepper & Parameter Header -->
+          <div class="pipeline-hero-card">
+            <div class="pipeline-hero-header">
+              <div>
+                <h3 class="hero-title" id="pipeline-detail-title">Detail Pipeline: Config #1</h3>
+                <p class="hero-desc" id="pipeline-detail-desc">Alur rekonsiliasi Source View ➔ Staging ➔ Target</p>
+              </div>
+              <div class="pipeline-header-badges" id="pipeline-detail-badges">
+                <!-- Status Badges will be rendered here -->
+              </div>
+              <div>
+                <button id="btn-open-ba" class="btn btn-primary btn-sm">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                  Cetak Berita Acara Validasi
+                </button>
+              </div>
+            </div>
+
+            <!-- 3-Tier Visual Flow Diagram -->
+            <div id="pipeline-flow-diagram" class="pipeline-flow">
+              <!-- Rendered via JS -->
+            </div>
+
+            <!-- Kartu Informasi Terkait migration_run -->
+            <div class="panel-card mt-6" id="pipeline-run-card" style="background: rgba(15, 23, 42, 0.45); border: 1px solid var(--border-subtle);">
+              <div class="panel-header">
+                <div>
+                  <h4 class="panel-title" style="font-size: 0.95rem;">Informasi Eksekusi Terkait (migration_run)</h4>
+                  <p class="panel-desc" id="pipeline-run-desc">Status eksekusi Apache Hop dan riwayat run untuk konfigurasi ini</p>
+                </div>
+                <div id="pipeline-run-badge">
+                  <!-- Rendered via JS -->
+                </div>
+              </div>
+              <div id="pipeline-run-summary-grid" class="pipeline-params-grid">
+                <!-- Rendered via JS -->
+              </div>
+            </div>
+
+            <!-- Technical Parameters Grid -->
+            <div class="pipeline-params-grid mt-4" id="pipeline-params-container">
+              <!-- Rendered via JS -->
+            </div>
+          </div>
+
+          <!-- Section C: 3-Stage Data Inspector -->
+          <div class="panel-card mt-6">
+            <div class="panel-header flex-wrap">
+              <div>
+                <h3 class="panel-title" id="stage-inspector-title">Data Inspector: Config #1</h3>
+                <p class="panel-desc">Periksa record data aktual langsung dari database pada tiap tahapan</p>
+              </div>
+
+              <div class="stage-controls flex items-center gap-3">
+                <!-- Stage Switcher Tabs -->
+                <div class="stage-toggle-group">
+                  <button id="stage-btn-source" class="stage-btn" data-stage="source">
+                    <span>1. Source View (SQL Server)</span>
+                  </button>
+                  <button id="stage-btn-staging" class="stage-btn active" data-stage="staging">
+                    <span>2. Staging Table (PG stg_antam)</span>
+                  </button>
+                  <button id="stage-btn-target" class="stage-btn" data-stage="target">
+                    <span>3. Final Target (PG vendor)</span>
+                  </button>
+                </div>
+
+                <!-- Stage Limit Selector -->
+                <select id="select-stage-limit" class="select-input select-sm">
+                  <option value="10">10 Baris</option>
+                  <option value="25" selected>25 Baris</option>
+                  <option value="50">50 Baris</option>
+                  <option value="100">100 Baris</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Stage Alert Box jika tabel belum dibuat atau terjadi kendala -->
+            <div id="stage-alert-box" class="hidden mb-4 p-4 rounded-md border text-sm"></div>
+
+            <!-- Meta bar -->
+            <div class="sub-meta-bar">
+              <span>Lokasi Tabel: <strong class="font-mono text-cyan" id="stage-meta-location">-</strong></span>
+              <span>Total Baris: <strong class="font-mono text-cyan" id="stage-meta-total">0</strong></span>
+              <span>Halaman: <strong class="font-mono text-cyan" id="stage-meta-page">1/1</strong></span>
+            </div>
+
+            <!-- Grid data -->
+            <div class="table-container inspector-grid">
+              <table class="data-table" id="stage-data-table">
+                <thead id="stage-data-thead">
+                  <tr><th>Memuat data tahapan...</th></tr>
+                </thead>
+                <tbody id="stage-data-tbody">
+                  <tr><td class="text-center py-8 text-muted">Memuat data...</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Paginasi -->
+            <div class="pagination-footer">
+              <span id="stage-pagination-info">Menampilkan 0 baris</span>
+              <div class="pagination-buttons">
+                <button id="btn-stage-prev" class="btn btn-secondary btn-sm" disabled>❮ Prev</button>
+                <div id="stage-page-numbers" class="page-numbers-container"></div>
+                <button id="btn-stage-next" class="btn btn-secondary btn-sm" disabled>Next ❯</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section D: Aturan Konversi Khusus Config Ini -->
+          <div class="panel-card mt-6">
+            <div class="panel-header">
+              <div>
+                <h3 class="panel-title" id="config-rules-title">Aturan Konversi (migration_convert_rule) untuk Config Terpilih</h3>
+                <p class="panel-desc">Mapping kolom, kamus lookup, dan normalisasi yang diterapkan pada config ini</p>
+              </div>
+            </div>
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Rule ID</th>
+                    <th>Target Column</th>
+                    <th>Source Column</th>
+                    <th>Lookup Name</th>
+                    <th>Master Table</th>
+                    <th>On Unmapped</th>
+                    <th>Default Value</th>
+                    <th>Normalisasi</th>
+                  </tr>
+                </thead>
+                <tbody id="config-rules-tbody">
+                  <tr><td colspan="8" class="text-center py-8 text-muted">Memuat aturan konversi...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Modal Detail Row Data JSON -->
+    <div id="modal-json" class="modal-backdrop hidden">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <h3 class="modal-title">Detail Row Data (JSON)</h3>
+          <button id="btn-close-modal" class="modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <pre id="modal-json-content" class="code-block"></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal Berita Acara Validasi Data & Lampiran Staging -->
+    <div id="modal-berita-acara" class="modal-backdrop hidden">
+      <div class="ba-modal-dialog">
+        <!-- Floating Action Header (Only on Screen) -->
+        <div class="ba-action-bar no-print">
+          <div class="ba-bar-left">
+            <span class="badge badge-success" id="ba-status-badge">✓ Validasi Selesai</span>
+            <span class="text-muted" id="ba-doc-info">Dokumen Berita Acara Validasi & Rekonsiliasi</span>
+          </div>
+          <div class="ba-bar-right">
+            <button id="btn-export-stg-csv" class="btn btn-secondary btn-sm">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Ekspor CSV Staging
+            </button>
+            <button id="btn-print-ba" class="btn btn-primary btn-sm">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+              Cetak / Simpan PDF
+            </button>
+            <button id="btn-close-ba" class="modal-close" title="Tutup">&times;</button>
+          </div>
+        </div>
+
+        <!-- Printable Document Sheet (A4 White Corporate Theme) -->
+        <div class="ba-sheet" id="ba-printable-sheet">
+          <!-- Kop Surat / Header Resmi -->
+          <div class="ba-header">
+            <div class="ba-kop-left">
+              <div class="ba-logo-mark">ANTAM</div>
+              <div>
+                <h2 class="ba-company-name">PT ANTAM Tbk</h2>
+                <p class="ba-company-sub">Supply Chain Management & Procurement Division</p>
+              </div>
+            </div>
+            <div class="ba-kop-right">
+              <div class="ba-doc-num" id="ba-print-docnum">BA-VAL/ANTAM/20261008/CFG-001</div>
+              <div class="ba-doc-date" id="ba-print-date">Kamis, 08 Oktober 2026</div>
+            </div>
+          </div>
+
+          <div class="ba-divider"></div>
+
+          <!-- Judul Dokumen -->
+          <div class="ba-title-box">
+            <h1 class="ba-main-title">BERITA ACARA VALIDASI DAN REKONSILIASI HASIL MIGRASI DATA</h1>
+            <p class="ba-title-sub">Proses Migrasi Basis Data Sistem SCM (SQL Server) ke PROCSI (PostgreSQL)</p>
+          </div>
+
+          <!-- Pernyataan Pembuka -->
+          <p class="ba-par">
+            Pada hari ini, <strong id="ba-body-daydate">-</strong>, telah dilaksanakan proses validasi, verifikasi, dan rekonsiliasi data hasil migrasi antara sistem sumber (Source Database) dan sistem tujuan (Target Database) dengan rincian teknis sebagai berikut:
+          </p>
+
+          <!-- Section 1: Identitas Parameter Migrasi -->
+          <h3 class="ba-section-heading">I. IDENTITAS PARAMETER KONFIGURASI MIGRASI</h3>
+          <table class="ba-table ba-meta-table">
+            <tbody>
+              <tr>
+                <td style="width: 25%;"><strong>Nomor Konfigurasi</strong></td>
+                <td style="width: 25%;" id="ba-cfg-id">Config #1</td>
+                <td style="width: 25%;"><strong>Urutan Eksekusi</strong></td>
+                <td style="width: 25%;" id="ba-cfg-order">1</td>
+              </tr>
+              <tr>
+                <td><strong>Database Sumber (Source)</strong></td>
+                <td id="ba-cfg-source">SQL Server [antam_scm].[dbo].[v_migration_vendor]</td>
+                <td><strong>Kunci Primer (PK)</strong></td>
+                <td id="ba-cfg-pk">id</td>
+              </tr>
+              <tr>
+                <td><strong>Tabel Staging (Staging)</strong></td>
+                <td id="ba-cfg-staging">PostgreSQL db_procsi.stg_antam.stg_vendors_src</td>
+                <td><strong>Kolom Verifikasi</strong></td>
+                <td id="ba-cfg-compare">-</td>
+              </tr>
+              <tr>
+                <td><strong>Tabel Akhir (Final Target)</strong></td>
+                <td id="ba-cfg-target">PostgreSQL db_procsi.vendor.slave_vendors</td>
+                <td><strong>Aturan Generate ID</strong></td>
+                <td id="ba-cfg-idrule">-</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <!-- Section 2: Hasil Rekonsiliasi & Uji Banding -->
+          <h3 class="ba-section-heading">II. HASIL REKONSILIASI JUMLAH DATA & KESESUAIAN</h3>
+          <table class="ba-table ba-summary-table">
+            <thead>
+              <tr>
+                <th>Titik Pemeriksaan Data</th>
+                <th>Lokasi Objek / Tabel</th>
+                <th>Total Baris Data</th>
+                <th>Selisih (Delta)</th>
+                <th>Status Kesesuaian</th>
+              </tr>
+            </thead>
+            <tbody id="ba-reconciliation-tbody">
+              <!-- Rendered via JS -->
+            </tbody>
+          </table>
+
+          <!-- Kesimpulan & Pernyataan -->
+          <div class="ba-verdict-box" id="ba-verdict-container">
+            <!-- Rendered via JS -->
+          </div>
+
+          <!-- Section 3: Lembar Tanda Tangan Pengesahan -->
+          <h3 class="ba-section-heading">III. PENGESAHAN DAN PERSETUJUAN</h3>
+          <div class="ba-signatures-grid">
+            <div class="ba-sign-box">
+              <div class="ba-sign-role">Pihak I (Pelaksana Migrasi/ETL)</div>
+              <div class="ba-sign-space"></div>
+              <div class="ba-sign-name">_________________________</div>
+              <div class="ba-sign-title">ETL & Migration Engineer</div>
+            </div>
+
+            <div class="ba-sign-box">
+              <div class="ba-sign-role">Pihak II (Verifikator / QA)</div>
+              <div class="ba-sign-space"></div>
+              <div class="ba-sign-name">_________________________</div>
+              <div class="ba-sign-title">Database Administrator / QA</div>
+            </div>
+
+            <div class="ba-sign-box">
+              <div class="ba-sign-role">Pihak III (Menyetujui / Lead)</div>
+              <div class="ba-sign-space"></div>
+              <div class="ba-sign-name">_________________________</div>
+              <div class="ba-sign-title">Project Manager / IT Lead</div>
+            </div>
+          </div>
+
+          <!-- Page Break Sebelum Lampiran -->
+          <div class="page-break"></div>
+
+          <!-- Section 4: Lampiran Data Staging -->
+          <div class="ba-attachment-header">
+            <div class="ba-attachment-tag">LAMPIRAN BERITA ACARA</div>
+            <h2 class="ba-attachment-title" id="ba-attachment-heading">REKAPITULASI DATA STAGING (stg_antam.stg_vendors_src)</h2>
+            <p class="ba-attachment-sub" id="ba-attachment-meta">Menampilkan seluruh baris data aktual yang berhasil di-ekstrak ke lingkungan staging</p>
+          </div>
+
+          <div class="ba-table-container">
+            <table class="ba-table ba-attachment-table" id="ba-attachment-table">
+              <thead id="ba-attachment-thead">
+                <!-- Rendered via JS -->
+              </thead>
+              <tbody id="ba-attachment-tbody">
+                <!-- Rendered via JS -->
+              </tbody>
+            </table>
+          </div>
+
+          <div class="ba-footer-note">
+            <span>Dokumen ini dihasilkan secara otomatis oleh Migration Command Center ANTAM. Dokumen sah untuk keperluan audit dan serah terima data migrasi.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <div>Migration Command Center • SQL Server (antam_scm.dbo) ➔ PostgreSQL (db_procsi.etl_antam & vendor)</div>
+      <div class="footer-links">
+        <a href="/api/health" target="_blank">Health API</a>
+        <span>•</span>
+        <a href="/api/source/views" target="_blank">Views API</a>
+        <span>•</span>
+        <a href="/api/reconciliation/pipeline" target="_blank">Pipeline API</a>
+      </div>
+    </footer>
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
