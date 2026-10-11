@@ -45,41 +45,88 @@ class SourceService {
     let totalRowsAllViews = 0;
 
     if (dbType === 'MSSQL') {
-      const viewsQuery = await querySqlServer(`
-        SELECT TABLE_SCHEMA AS [schema], TABLE_NAME AS [name]
-        FROM INFORMATION_SCHEMA.TABLES
-        WHERE TABLE_SCHEMA = '${schemaName}' AND TABLE_TYPE = 'VIEW'
-        ORDER BY TABLE_NAME
-      `);
-      views = viewsQuery.recordset || [];
+      try {
+        const viewsQuery = await querySqlServer(`
+          SELECT 
+            t.TABLE_SCHEMA AS [schema], 
+            t.TABLE_NAME AS [name],
+            CAST(ep.value AS NVARCHAR(MAX)) AS [description]
+          FROM INFORMATION_SCHEMA.TABLES t
+          LEFT JOIN sys.extended_properties ep 
+            ON ep.major_id = OBJECT_ID(QUOTENAME(t.TABLE_SCHEMA) + '.' + QUOTENAME(t.TABLE_NAME))
+            AND ep.minor_id = 0
+            AND ep.name = 'MS_Description'
+          WHERE t.TABLE_SCHEMA = '${schemaName}' AND t.TABLE_TYPE = 'VIEW'
+          ORDER BY t.TABLE_NAME
+        `);
+        views = viewsQuery.recordset || [];
+      } catch (e) {
+        const viewsQuery = await querySqlServer(`
+          SELECT TABLE_SCHEMA AS [schema], TABLE_NAME AS [name]
+          FROM INFORMATION_SCHEMA.TABLES
+          WHERE TABLE_SCHEMA = '${schemaName}' AND TABLE_TYPE = 'VIEW'
+          ORDER BY TABLE_NAME
+        `);
+        views = viewsQuery.recordset || [];
+      }
     } else {
       // PostgreSQL Views
-      const viewsQuery = await queryPostgres(`
-        SELECT table_schema AS "schema", table_name AS "name"
-        FROM information_schema.views
-        WHERE table_schema = $1
-        ORDER BY table_name
-      `, [schemaName]);
-      views = viewsQuery.rows || [];
+      try {
+        const viewsQuery = await queryPostgres(`
+          SELECT 
+            c.relname AS "name",
+            n.nspname AS "schema",
+            d.description AS "description"
+          FROM pg_class c
+          JOIN pg_namespace n ON n.oid = c.relnamespace
+          LEFT JOIN pg_description d ON d.objoid = c.oid AND d.objsubid = 0
+          WHERE n.nspname = $1 AND c.relkind = 'v'
+          ORDER BY c.relname
+        `, [schemaName]);
+        views = viewsQuery.rows || [];
+      } catch (e) {
+        const viewsQuery = await queryPostgres(`
+          SELECT table_schema AS "schema", table_name AS "name"
+          FROM information_schema.views
+          WHERE table_schema = $1
+          ORDER BY table_name
+        `, [schemaName]);
+        views = viewsQuery.rows || [];
+      }
     }
 
     // Ambil metadata dari etl_antam.master_source_view
     let configuredMap = {};
     try {
-      let q = 'SELECT view_id, view_name, query_sql, is_active, is_synced, connection_id FROM etl_antam.master_source_view';
+      let q = 'SELECT view_id, view_name, query_sql, description, is_active, is_synced, connection_id FROM etl_antam.master_source_view';
       const params = [];
       if (connectionId) {
         q += ' WHERE connection_id = $1';
         params.push(parseInt(connectionId, 10));
       }
+      q += ' ORDER BY view_id ASC';
       const cfgRes = await queryPostgres(q, params);
       cfgRes.rows.forEach((r) => {
         configuredMap[r.view_name] = r;
       });
     } catch (e) {
-      inMemoryConfiguredViews.forEach((r) => {
-        configuredMap[r.view_name] = r;
-      });
+      try {
+        let q = 'SELECT view_id, view_name, query_sql, is_active, is_synced, connection_id FROM etl_antam.master_source_view';
+        const params = [];
+        if (connectionId) {
+          q += ' WHERE connection_id = $1';
+          params.push(parseInt(connectionId, 10));
+        }
+        q += ' ORDER BY view_id ASC';
+        const cfgRes = await queryPostgres(q, params);
+        cfgRes.rows.forEach((r) => {
+          configuredMap[r.view_name] = r;
+        });
+      } catch (err2) {
+        inMemoryConfiguredViews.forEach((r) => {
+          configuredMap[r.view_name] = r;
+        });
+      }
     }
 
     const viewList = [];
@@ -104,9 +151,11 @@ class SourceService {
       }
 
       const cfg = configuredMap[v.name];
+      const viewDesc = (cfg && cfg.description) ? cfg.description : (v.description || '');
       viewList.push({
         schema: schemaName,
         name: v.name,
+        description: viewDesc,
         count,
         error,
         connectionId: connectionId ? parseInt(connectionId, 10) : (conn?.connection_id || 1),
@@ -160,7 +209,7 @@ class SourceService {
 
     if (dbType === 'MSSQL') {
       const colQuery = await querySqlServer(`
-        SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE
+        SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE
         FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = '${schemaName}' AND TABLE_NAME = '${cleanView}'
         ORDER BY ORDINAL_POSITION
@@ -169,6 +218,9 @@ class SourceService {
         name: c.COLUMN_NAME,
         type: c.DATA_TYPE,
         nullable: c.IS_NULLABLE === 'YES',
+        maxLength: c.CHARACTER_MAXIMUM_LENGTH,
+        precision: c.NUMERIC_PRECISION,
+        scale: c.NUMERIC_SCALE,
       }));
 
       if (columns.length === 0) {
@@ -193,7 +245,7 @@ class SourceService {
     } else {
       // PostgreSQL
       const colQuery = await queryPostgres(`
-        SELECT column_name, data_type, is_nullable
+        SELECT column_name, data_type, is_nullable, character_maximum_length, numeric_precision, numeric_scale
         FROM information_schema.columns
         WHERE table_schema = $1 AND table_name = $2
         ORDER BY ordinal_position
@@ -203,6 +255,9 @@ class SourceService {
         name: c.column_name,
         type: c.data_type,
         nullable: c.is_nullable === 'YES',
+        maxLength: c.character_maximum_length,
+        precision: c.numeric_precision,
+        scale: c.numeric_scale,
       }));
 
       if (columns.length === 0) {
@@ -236,6 +291,30 @@ class SourceService {
       rows,
       error: bindingError,
     };
+  }
+
+  /**
+   * Helper untuk mengekstrak perintah query SELECT murni
+   * Menghilangkan komentar awalan, opsi SET/GO, serta klausa CREATE/ALTER VIEW ... AS
+   */
+  extractSelectQuery(rawSql) {
+    if (!rawSql || typeof rawSql !== 'string') return '';
+    let sql = rawSql.trim();
+
+    // 1. Bersihkan komentar awal (-- baris atau /* blok */), opsi SET, dan GO dari skrip SQL Server
+    sql = sql.replace(/^(?:\s*(?:--[^\r\n]*|\/\*[\s\S]*?\*\/|SET\s+[^;\r\n]+;?|GO\b)\s*)+/gi, '').trim();
+
+    // 2. Regex mencocokkan pola CREATE (OR ALTER|REPLACE) VIEW <apapun> AS <query> atau ALTER VIEW <apapun> AS <query>
+    const match = sql.match(/^(?:CREATE(?:\s+OR\s+(?:ALTER|REPLACE))?|ALTER)\s+VIEW\s+[\s\S]*?\bAS\b\s*([\s\S]*)$/i);
+    if (match && match[1]) {
+      sql = match[1].trim();
+    }
+
+    // 3. Bersihkan titik koma di akhir
+    while (sql.endsWith(';')) {
+      sql = sql.slice(0, -1).trim();
+    }
+    return sql;
   }
 
   /**
@@ -285,11 +364,40 @@ class SourceService {
       savedConfig = inMemoryConfiguredViews.find((v) => v.view_name === cleanView) || null;
     }
 
+    let dbDescription = null;
+    try {
+      if (dbType === 'MSSQL') {
+        const epRes = await querySqlServer(`
+          SELECT CAST(ep.value AS NVARCHAR(MAX)) AS [description]
+          FROM sys.extended_properties ep
+          WHERE ep.major_id = OBJECT_ID(QUOTENAME('${schemaName}') + '.' + QUOTENAME('${cleanView}'))
+            AND ep.minor_id = 0
+            AND ep.name = 'MS_Description'
+        `);
+        dbDescription = epRes.recordset[0]?.description || null;
+      } else {
+        const descRes = await queryPostgres(`
+          SELECT d.description
+          FROM pg_class c
+          JOIN pg_namespace n ON n.oid = c.relnamespace
+          LEFT JOIN pg_description d ON d.objoid = c.oid AND d.objsubid = 0
+          WHERE n.nspname = $1 AND c.relname = $2
+        `, [schemaName, cleanView]);
+        dbDescription = descRes.rows[0]?.description || null;
+      }
+    } catch (e) {}
+
+    const resolvedDescription = savedConfig?.description || dbDescription || '';
+    const rawSql = savedConfig?.query_sql || dbDefinition || '';
+    const cleanSelect = this.extractSelectQuery(rawSql);
+
     return {
       viewName: cleanView,
       schema: schemaName,
       connectionId: connectionId ? parseInt(connectionId, 10) : (conn?.connection_id || null),
       sqlServerDefinition: dbDefinition,
+      querySql: cleanSelect || rawSql,
+      description: resolvedDescription,
       savedConfig,
       isConfigured: Boolean(savedConfig),
     };
@@ -303,7 +411,28 @@ class SourceService {
     const cleanView = sanitizeIdentifier(view_name);
     if (!cleanView || !query_sql) throw new Error('Nama view dan Query SQL wajib diisi.');
 
+    // Selalu pastikan hanya klausa SELECT murni yang disimpan (tanpa pembungkus CREATE/ALTER VIEW ... AS)
+    const pureQuerySql = this.extractSelectQuery(query_sql);
+    if (!pureQuerySql) throw new Error('Query SQL tidak valid atau tidak memuat klausa query pembentuk.');
+
     try {
+      // Upsert: periksa apakah sudah tercatat sebelumnya
+      const checkQ = connection_id
+        ? 'SELECT view_id FROM etl_antam.master_source_view WHERE view_name = $1 AND schema_name = $2 AND connection_id = $3'
+        : 'SELECT view_id FROM etl_antam.master_source_view WHERE view_name = $1 AND schema_name = $2';
+      const checkParams = connection_id ? [cleanView, schema_name, parseInt(connection_id, 10)] : [cleanView, schema_name];
+      const existing = await queryPostgres(checkQ, checkParams);
+
+      if (existing.rows.length > 0) {
+        const updateRes = await queryPostgres(`
+          UPDATE etl_antam.master_source_view
+          SET query_sql = $1, description = $2, is_active = true, is_synced = true, last_synced_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+          WHERE view_id = $3
+          RETURNING *
+        `, [pureQuerySql, description, existing.rows[0].view_id]);
+        return updateRes.rows[0];
+      }
+
       const res = await queryPostgres(`
         INSERT INTO etl_antam.master_source_view (
           schema_name, view_name, query_sql, description, connection_id, is_active, is_synced, last_synced_at
@@ -312,7 +441,7 @@ class SourceService {
       `, [
         schema_name,
         cleanView,
-        query_sql.trim(),
+        pureQuerySql,
         description,
         connection_id ? parseInt(connection_id, 10) : null,
       ]);
@@ -323,7 +452,7 @@ class SourceService {
         view_id: existingIdx !== -1 ? inMemoryConfiguredViews[existingIdx].view_id : inMemoryConfiguredViews.length + 1,
         schema_name,
         view_name: cleanView,
-        query_sql: query_sql.trim(),
+        query_sql: pureQuerySql,
         description,
         connection_id: connection_id ? parseInt(connection_id, 10) : null,
         is_active: true,
@@ -348,9 +477,16 @@ class SourceService {
     const dbType = conn ? conn.db_type.toUpperCase() : 'MSSQL';
     const effSchema = schema_name || (conn ? conn.db_schema : 'dbo') || 'dbo';
 
-    let cleanQuery = query_sql.trim();
-    if (cleanQuery.endsWith(';')) {
+    let cleanQuery = this.extractSelectQuery(query_sql);
+    if (!cleanQuery) cleanQuery = query_sql.trim();
+    while (cleanQuery.endsWith(';')) {
       cleanQuery = cleanQuery.slice(0, -1).trim();
+    }
+
+    // Pastikan uji validitas query lolos sebelum mengubah / membentuk View di database
+    const valResult = await this.validateQuery(cleanQuery, connection_id);
+    if (!valResult.valid) {
+      throw new Error(`Uji validitas query gagal: ${valResult.error}`);
     }
 
     if (dbType === 'MSSQL') {
@@ -375,6 +511,7 @@ class SourceService {
       success: true,
       message: `View [${effSchema}].[${cleanView}] berhasil dibuat / diperbarui di database target (${conn?.connection_name || 'Default'}) dan disinkronkan ke katalog view.`,
       view: saved,
+      columns: valResult.columns || [],
     };
   }
 
@@ -387,14 +524,30 @@ class SourceService {
     const conn = await this.getConnectionMeta(connectionId);
     const dbType = conn ? conn.db_type.toUpperCase() : 'MSSQL';
 
-    let cleanQuery = querySql.trim();
-    if (cleanQuery.endsWith(';')) cleanQuery = cleanQuery.slice(0, -1).trim();
+    let cleanQuery = this.extractSelectQuery(querySql);
+    if (!cleanQuery) cleanQuery = querySql.trim();
+    while (cleanQuery.endsWith(';')) {
+      cleanQuery = cleanQuery.slice(0, -1).trim();
+    }
 
     const startTime = Date.now();
     try {
       if (dbType === 'MSSQL') {
-        const testSql = `SELECT TOP 1 * FROM (${cleanQuery}) AS __syntax_validation_subquery`;
-        const res = await querySqlServer(testSql);
+        let res;
+        // Jika query memiliki klausa WITH (CTE), jalankan parse metadata langsung
+        if (/^\s*WITH\s+/i.test(cleanQuery)) {
+          const testSql = `SET FMTONLY ON;\n${cleanQuery};\nSET FMTONLY OFF;`;
+          res = await querySqlServer(testSql);
+        } else {
+          try {
+            const testSql = `SELECT TOP 1 * FROM (\n${cleanQuery}\n) AS __syntax_validation_subquery`;
+            res = await querySqlServer(testSql);
+          } catch (subErr) {
+            // Fallback ke SET FMTONLY jika pembungkusan subquery terkendala klausa ORDER BY
+            const testSql = `SET FMTONLY ON;\n${cleanQuery};\nSET FMTONLY OFF;`;
+            res = await querySqlServer(testSql);
+          }
+        }
         const durationMs = Date.now() - startTime;
         const columns = res.recordset && res.recordset.length > 0 ? Object.keys(res.recordset[0]) : [];
         return {
@@ -402,9 +555,10 @@ class SourceService {
           message: 'Query SQL valid dan siap dieksekusi sebagai View di SQL Server.',
           durationMs,
           columns,
+          cleanQuery,
         };
       } else {
-        const testSql = `SELECT * FROM (${cleanQuery}) AS __syntax_validation_subquery LIMIT 1`;
+        const testSql = `SELECT * FROM (\n${cleanQuery}\n) AS __syntax_validation_subquery LIMIT 1`;
         const res = await queryPostgres(testSql);
         const durationMs = Date.now() - startTime;
         const columns = res.fields ? res.fields.map((f) => f.name) : [];
@@ -413,6 +567,7 @@ class SourceService {
           message: 'Query SQL valid dan siap dieksekusi sebagai View di PostgreSQL.',
           durationMs,
           columns,
+          cleanQuery,
         };
       }
     } catch (err) {
@@ -483,10 +638,15 @@ class SourceService {
           const defRes = await querySqlServer(`SELECT OBJECT_DEFINITION(OBJECT_ID('[${schemaName}].[${cleanName}]')) AS definition`);
           let def = defRes.recordset[0]?.definition;
           if (def) {
+            const cleanSql = this.extractSelectQuery(def);
+            if (!cleanSql) {
+              console.warn(`Gagal ekstrak query SELECT dari view [${schemaName}].[${cleanName}]`);
+              continue;
+            }
             const item = await this.saveViewDefinition({
               schema_name: schemaName,
               view_name: cleanName,
-              query_sql: def,
+              query_sql: cleanSql,
               description: `Auto-synced dari SQL Server [${schemaName}].[${cleanName}]`,
               connection_id: connectionId ? parseInt(connectionId, 10) : (conn?.connection_id || null),
             });
@@ -515,10 +675,15 @@ class SourceService {
           `, [schemaName, cleanName]);
           let def = defRes.rows[0]?.view_definition;
           if (def) {
+            const cleanSql = this.extractSelectQuery(def);
+            if (!cleanSql) {
+              console.warn(`Gagal ekstrak query SELECT dari view "${schemaName}"."${cleanName}"`);
+              continue;
+            }
             const item = await this.saveViewDefinition({
               schema_name: schemaName,
               view_name: cleanName,
-              query_sql: def,
+              query_sql: cleanSql,
               description: `Auto-synced dari PostgreSQL "${schemaName}"."${cleanName}"`,
               connection_id: connectionId ? parseInt(connectionId, 10) : (conn?.connection_id || null),
             });

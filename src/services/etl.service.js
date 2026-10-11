@@ -77,6 +77,7 @@ class EtlService {
         );
 
         ALTER TABLE etl_antam.master_source_view ADD COLUMN IF NOT EXISTS connection_id INTEGER;
+        ALTER TABLE etl_antam.master_source_view ADD COLUMN IF NOT EXISTS description TEXT;
         CREATE TABLE IF NOT EXISTS etl_antam.master_source_view (
           view_id SERIAL PRIMARY KEY,
           client_id INTEGER,
