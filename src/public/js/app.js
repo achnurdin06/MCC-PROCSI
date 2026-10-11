@@ -24,13 +24,23 @@ const state = {
   // Modul 1: Source Data
   source: {
     views: [],
-    selectedView: null,
     page: 1,
     limit: 25,
-    totalPages: 1,
-    total: 0,
-    columns: [],
-    rows: [],
+    search: '',
+    configFilter: 'ALL',
+    sortBy: 'name',
+    sortDir: 'ASC',
+
+    // Modal Inspector state
+    selectedView: null,
+    modalTab: 'sitab-preview',
+    modalPage: 1,
+    modalLimit: 25,
+    modalTotalPages: 1,
+    modalTotal: 0,
+    modalColumns: [],
+    modalRows: [],
+    modalDdl: '',
   },
 
   // Modul 2: Migration Config
@@ -230,7 +240,7 @@ function setupEventListeners() {
   // Settings Subtabs Filter Listeners
   initSettingFilterListeners();
 
-  // Tab 1: Source View Controls
+  // Tab 1: Source View Controls & Full-Width Table
   document.getElementById('btn-refresh-views').addEventListener('click', () => loadSourceViews());
   document.getElementById('btn-sync-all-views').addEventListener('click', () => syncAllViews());
   document.getElementById('btn-open-create-view').addEventListener('click', () => openViewEditor());
@@ -239,25 +249,147 @@ function setupEventListeners() {
   document.getElementById('btn-ve-validate').addEventListener('click', () => validateViewQuery());
   document.getElementById('btn-ve-save').addEventListener('click', () => saveOrExecuteView());
 
-  document.getElementById('select-source-limit').addEventListener('change', (e) => {
-    state.source.limit = parseInt(e.target.value, 10);
-    state.source.page = 1;
-    loadSourceViewData();
+  const btnVeFormat = document.getElementById('btn-ve-format');
+  if (btnVeFormat) btnVeFormat.addEventListener('click', () => formatViewEditorQuery());
+
+  const btnVeFormatFooter = document.getElementById('btn-ve-format-footer');
+  if (btnVeFormatFooter) btnVeFormatFooter.addEventListener('click', () => formatViewEditorQuery());
+
+  const btnVeCopy = document.getElementById('btn-ve-copy');
+  if (btnVeCopy) btnVeCopy.addEventListener('click', () => copyViewEditorQuery());
+
+  const veQuerySql = document.getElementById('ve-query-sql');
+  if (veQuerySql) {
+    veQuerySql.addEventListener('input', () => updateVeQueryStats());
+    veQuerySql.addEventListener('keydown', (e) => {
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        const start = veQuerySql.selectionStart;
+        const end = veQuerySql.selectionEnd;
+        veQuerySql.value = veQuerySql.value.substring(0, start) + '  ' + veQuerySql.value.substring(end);
+        veQuerySql.selectionStart = veQuerySql.selectionEnd = start + 2;
+        updateVeQueryStats();
+      } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'F' || e.key === 'f')) {
+        e.preventDefault();
+        formatViewEditorQuery();
+      }
+    });
+  }
+
+  const searchSourceViews = document.getElementById('search-source-views');
+  if (searchSourceViews) {
+    searchSourceViews.addEventListener('input', (e) => {
+      state.source.search = e.target.value.trim().toLowerCase();
+      state.source.page = 1;
+      renderSourceViewsTable();
+    });
+  }
+
+  const filterSourceConfig = document.getElementById('filter-source-config-status');
+  if (filterSourceConfig) {
+    filterSourceConfig.addEventListener('change', (e) => {
+      state.source.configFilter = e.target.value;
+      state.source.page = 1;
+      renderSourceViewsTable();
+    });
+  }
+
+  const selectSourceLimit = document.getElementById('select-source-views-limit');
+  if (selectSourceLimit) {
+    selectSourceLimit.addEventListener('change', (e) => {
+      state.source.limit = parseInt(e.target.value, 10);
+      state.source.page = 1;
+      renderSourceViewsTable();
+    });
+  }
+
+  const btnSourcePrev = document.getElementById('btn-source-views-prev');
+  if (btnSourcePrev) {
+    btnSourcePrev.addEventListener('click', () => {
+      if (state.source.page > 1) {
+        state.source.page--;
+        renderSourceViewsTable();
+      }
+    });
+  }
+
+  const btnSourceNext = document.getElementById('btn-source-views-next');
+  if (btnSourceNext) {
+    btnSourceNext.addEventListener('click', () => {
+      state.source.page++;
+      renderSourceViewsTable();
+    });
+  }
+
+  // Sortable table headers on source views table
+  document.querySelectorAll('#table-source-views-full th.sortable').forEach((th) => {
+    th.addEventListener('click', () => {
+      const colKey = th.getAttribute('data-sort');
+      if (state.source.sortBy === colKey) {
+        state.source.sortDir = state.source.sortDir === 'ASC' ? 'DESC' : 'ASC';
+      } else {
+        state.source.sortBy = colKey;
+        state.source.sortDir = 'ASC';
+      }
+      renderSourceViewsTable();
+    });
   });
 
-  document.getElementById('btn-reload-view-data').addEventListener('click', () => loadSourceViewData());
-  document.getElementById('btn-source-prev').addEventListener('click', () => {
-    if (state.source.page > 1) {
-      state.source.page--;
-      loadSourceViewData();
-    }
-  });
-  document.getElementById('btn-source-next').addEventListener('click', () => {
-    if (state.source.page < state.source.totalPages) {
-      state.source.page++;
-      loadSourceViewData();
-    }
-  });
+  // Modal Inspector Event Listeners
+  const modalSourceInspector = document.getElementById('modal-source-inspector');
+  if (modalSourceInspector) {
+    document.getElementById('btn-close-source-inspector')?.addEventListener('click', () => {
+      modalSourceInspector.classList.add('hidden');
+    });
+    document.getElementById('btn-close-source-inspector-footer')?.addEventListener('click', () => {
+      modalSourceInspector.classList.add('hidden');
+    });
+    modalSourceInspector.addEventListener('click', (e) => {
+      if (e.target === modalSourceInspector) {
+        modalSourceInspector.classList.add('hidden');
+      }
+    });
+    document.getElementById('btn-si-reload')?.addEventListener('click', () => {
+      loadModalSourceViewData();
+      loadModalSourceViewDdl();
+    });
+    document.getElementById('btn-si-export-csv')?.addEventListener('click', () => {
+      exportSourceViewToCsv();
+    });
+    document.getElementById('btn-si-export-json')?.addEventListener('click', () => {
+      exportSourceViewToJson();
+    });
+    document.getElementById('select-si-limit')?.addEventListener('change', (e) => {
+      state.source.modalLimit = parseInt(e.target.value, 10);
+      state.source.modalPage = 1;
+      loadModalSourceViewData();
+    });
+    document.getElementById('btn-si-prev')?.addEventListener('click', () => {
+      if (state.source.modalPage > 1) {
+        state.source.modalPage--;
+        loadModalSourceViewData();
+      }
+    });
+    document.getElementById('btn-si-next')?.addEventListener('click', () => {
+      if (state.source.modalPage < state.source.modalTotalPages) {
+        state.source.modalPage++;
+        loadModalSourceViewData();
+      }
+    });
+    document.querySelectorAll('#modal-source-inspector .sub-tab-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const tabId = btn.getAttribute('data-sitab');
+        if (tabId) switchSourceInspectorTab(tabId);
+      });
+    });
+    document.getElementById('btn-si-copy-ddl')?.addEventListener('click', () => {
+      if (state.source.modalDdl) {
+        navigator.clipboard.writeText(state.source.modalDdl).then(() => {
+          showToast('Query SQL berhasil disalin ke clipboard!', 'success');
+        });
+      }
+    });
+  }
 
   // Tab 2: Config Controls & Pagination
   document.getElementById('btn-refresh-configs').addEventListener('click', () => loadEtlMasters());
@@ -1640,25 +1772,27 @@ window.testPingConnection = async function (connId) {
 // =========================================================================
 async function loadSourceViews() {
   const tbody = document.getElementById('source-views-table-body');
-  tbody.innerHTML = `<tr><td colspan="6" class="text-center py-8 text-muted">Memuat daftar view SQL Server...</td></tr>`;
+  if (tbody) {
+    tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-muted">Memuat daftar view SQL Server...</td></tr>`;
+  }
 
   if (!state.selectedSourceConnectionId) {
-    tbody.innerHTML = `<tr><td colspan="6" class="text-center py-8 text-amber font-medium">⚠️ Belum ada koneksi SOURCE (SQL Server) yang terdaftar untuk Environment ini.<br><span class="text-xs text-muted">Silakan buka menu <strong>Setting ⚙️ ➔ 3. Master Connection</strong> untuk menambahkan koneksi database sumber.</span></td></tr>`;
-    document.getElementById('kpi-source-views-count').textContent = '0';
-    document.getElementById('kpi-source-total-rows').textContent = '0';
-    document.getElementById('kpi-source-main-view').textContent = '-';
-    document.getElementById('kpi-source-main-count').textContent = '0 baris';
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-amber font-medium">⚠️ Belum ada koneksi SOURCE (SQL Server) yang terdaftar untuk Environment ini.<br><span class="text-xs text-muted">Silakan buka menu <strong>Setting ⚙️ ➔ 3. Master Connection</strong> untuk menambahkan koneksi database sumber.</span></td></tr>`;
+    }
+    const resetValues = [
+      ['kpi-source-views-count', '0'],
+      ['kpi-source-total-rows', '0'],
+      ['kpi-source-mapping-count', '-'],
+      ['kpi-source-sync-status', '-'],
+      ['kpi-source-health-status', '-'],
+    ];
+    resetValues.forEach(([id, val]) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = val;
+    });
     state.source.views = [];
     state.source.selectedView = null;
-    document.getElementById('source-inspector-title').textContent = 'Data Inspector';
-    document.getElementById('source-data-thead').innerHTML = '<tr><th>Pilih view pada tabel di sebelah kiri</th></tr>';
-    document.getElementById('source-data-tbody').innerHTML = '<tr><td class="text-center py-8 text-muted">Belum ada koneksi SOURCE untuk environment ini.</td></tr>';
-    document.getElementById('source-view-total-records').textContent = '0';
-    document.getElementById('source-view-col-count').textContent = '0';
-    document.getElementById('source-view-page-indicator').textContent = '1/1';
-    document.getElementById('source-pagination-info').textContent = '0 baris';
-    const alertEl = document.getElementById('source-view-alert');
-    if (alertEl) alertEl.className = 'hidden';
     return;
   }
 
@@ -1668,119 +1802,325 @@ async function loadSourceViews() {
     const json = await res.json();
     if (!json.success) throw new Error(json.error);
     const data = json.data;
+    const views = data.views || [];
 
-    document.getElementById('kpi-source-views-count').textContent = data.totalViews;
-    document.getElementById('kpi-source-total-rows').textContent = formatNumber(data.totalRowsAllViews);
+    // Card 1: Total Views
+    const elViewsCount = document.getElementById('kpi-source-views-count');
+    if (elViewsCount) elViewsCount.textContent = views.length;
+    const elViewsFoot = document.getElementById('kpi-source-views-foot');
+    if (elViewsFoot) elViewsFoot.textContent = `Schema [${data.schema || 'dbo'}] di ${data.database || 'antam_scm'}`;
 
-    const mainViewItem = data.views.find((v) => v.name === 'v_migration_vendor') || data.views[0];
-    if (mainViewItem) {
-      document.getElementById('kpi-source-main-view').textContent = mainViewItem.name;
-      document.getElementById('kpi-source-main-count').textContent = mainViewItem.error
-        ? 'Error query'
-        : `${formatNumber(mainViewItem.count)} baris`;
+    // Card 2: Total Rows
+    const elTotalRows = document.getElementById('kpi-source-total-rows');
+    if (elTotalRows) elTotalRows.textContent = formatNumber(data.totalRowsAllViews || 0);
+
+    // Card 3: Mapping Coverage
+    const configuredCount = views.filter((v) => v.isConfigured).length;
+    const unconfiguredCount = views.length - configuredCount;
+    const mappingPct = views.length > 0 ? Math.round((configuredCount / views.length) * 100) : 0;
+    const elMappingCount = document.getElementById('kpi-source-mapping-count');
+    if (elMappingCount) {
+      elMappingCount.innerHTML = `<span style="color: ${mappingPct === 100 ? 'var(--accent-emerald)' : 'var(--accent-cyan)'};">${configuredCount} / ${views.length}</span> <span class="text-xs text-muted" style="font-size: 0.75rem; font-weight: normal;">(${mappingPct}%)</span>`;
+    }
+    const elMappingBar = document.getElementById('kpi-source-mapping-bar');
+    if (elMappingBar) {
+      elMappingBar.style.width = `${mappingPct}%`;
+    }
+    const elMappingFoot = document.getElementById('kpi-source-mapping-foot');
+    if (elMappingFoot) {
+      elMappingFoot.textContent = unconfiguredCount === 0 
+        ? '✓ Seluruh view telah tercatat di config' 
+        : `${unconfiguredCount} view belum tercatat di config`;
     }
 
-    state.source.views = data.views;
-
-    if (data.views.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="6" class="text-center py-8 text-muted">Tidak ada VIEW di schema dbo SQL Server.</td></tr>`;
-      state.source.views = [];
-      state.source.selectedView = null;
-      document.getElementById('kpi-source-views-count').textContent = '0';
-      document.getElementById('kpi-source-total-rows').textContent = '0';
-      document.getElementById('kpi-source-main-view').textContent = '-';
-      document.getElementById('kpi-source-main-count').textContent = '0 baris';
-      document.getElementById('source-inspector-title').textContent = 'Data Inspector';
-      document.getElementById('source-data-thead').innerHTML = '<tr><th>Pilih view pada tabel di sebelah kiri</th></tr>';
-      document.getElementById('source-data-tbody').innerHTML = '<tr><td class="text-center py-8 text-muted">Tidak ada view yang tersedia.</td></tr>';
-      document.getElementById('source-view-total-records').textContent = '0';
-      document.getElementById('source-view-col-count').textContent = '0';
-      document.getElementById('source-view-page-indicator').textContent = '1/1';
-      document.getElementById('source-pagination-info').textContent = '0 baris';
-      document.getElementById('source-page-numbers').innerHTML = '';
-      document.getElementById('btn-source-prev').disabled = true;
-      document.getElementById('btn-source-next').disabled = true;
-      const alertEl = document.getElementById('source-view-alert');
-      if (alertEl) alertEl.className = 'hidden';
-      return;
+    // Card 4: DDL Sync Status
+    const syncedCount = views.filter((v) => v.isConfigured && v.isSynced).length;
+    const needSyncCount = views.filter((v) => v.isConfigured && !v.isSynced).length;
+    const elSyncStatus = document.getElementById('kpi-source-sync-status');
+    const elSyncFoot = document.getElementById('kpi-source-sync-foot');
+    const elSyncDot = document.getElementById('kpi-source-sync-dot');
+    if (elSyncStatus) {
+      if (needSyncCount === 0) {
+        elSyncStatus.innerHTML = `<span style="color: var(--accent-emerald);">100% Up to Date</span>`;
+        if (elSyncFoot) elSyncFoot.textContent = `${configuredCount} view tersinkronisasi`;
+        if (elSyncDot) elSyncDot.className = 'status-pulse-dot bg-emerald';
+      } else {
+        elSyncStatus.innerHTML = `<span style="color: var(--accent-amber);">${needSyncCount} Perlu Sync ⚠️</span>`;
+        if (elSyncFoot) elSyncFoot.textContent = 'Klik "Sinkronkan Semua" untuk update';
+        if (elSyncDot) elSyncDot.className = 'status-pulse-dot bg-amber';
+      }
     }
 
-    // Pastikan selectedView sinkron dengan daftar views aktual
-    if (!state.source.selectedView || !data.views.some((v) => v.name === state.source.selectedView)) {
-      const defaultView = data.views.find((v) => v.name === 'v_migration_vendor') || data.views[0];
-      state.source.selectedView = defaultView ? defaultView.name : null;
-      state.source.page = 1;
+    // Card 5: Object Health / Validity
+    const errorViews = views.filter((v) => v.error);
+    const elHealthStatus = document.getElementById('kpi-source-health-status');
+    const elHealthFoot = document.getElementById('kpi-source-health-foot');
+    const elHealthDot = document.getElementById('kpi-source-health-dot');
+    if (elHealthStatus) {
+      if (errorViews.length === 0) {
+        elHealthStatus.innerHTML = `<span style="color: var(--accent-emerald);">100% Valid</span>`;
+        if (elHealthFoot) elHealthFoot.textContent = '0 error binding query di database sumber';
+        if (elHealthDot) elHealthDot.className = 'status-pulse-dot bg-emerald';
+      } else {
+        elHealthStatus.innerHTML = `<span style="color: var(--accent-rose);">${errorViews.length} Bermasalah ⚠️</span>`;
+        if (elHealthFoot) elHealthFoot.textContent = `${errorViews[0].name}: ${errorViews[0].error.slice(0, 32)}...`;
+        if (elHealthDot) elHealthDot.className = 'status-pulse-dot bg-rose';
+      }
     }
 
-    tbody.innerHTML = data.views.map((v, idx) => {
-      const isSelected = state.source.selectedView === v.name;
+    state.source.views = views;
+    renderSourceViewsTable();
+  } catch (err) {
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-rose">${err.message}</td></tr>`;
+    }
+  }
+}
+
+function renderSourceViewsTable() {
+  const tbody = document.getElementById('source-views-table-body');
+  if (!tbody) return;
+
+  if (!state.source.views || state.source.views.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-muted">Tidak ada VIEW di schema dbo SQL Server.</td></tr>`;
+    const pagInfo = document.getElementById('source-views-pagination-info');
+    if (pagInfo) pagInfo.textContent = '0 views';
+    const pagNumbers = document.getElementById('source-views-page-numbers');
+    if (pagNumbers) pagNumbers.innerHTML = '';
+    const btnPrev = document.getElementById('btn-source-views-prev');
+    if (btnPrev) btnPrev.disabled = true;
+    const btnNext = document.getElementById('btn-source-views-next');
+    if (btnNext) btnNext.disabled = true;
+    return;
+  }
+
+  // 1. Filter
+  let items = [...state.source.views];
+  if (state.source.search) {
+    const q = state.source.search.toLowerCase();
+    items = items.filter((v) => 
+      v.name.toLowerCase().includes(q) || 
+      (v.schema && v.schema.toLowerCase().includes(q)) ||
+      (v.description && v.description.toLowerCase().includes(q))
+    );
+  }
+
+  if (state.source.configFilter === 'CONFIGURED') {
+    items = items.filter((v) => v.isConfigured);
+  } else if (state.source.configFilter === 'UNCONFIGURED') {
+    items = items.filter((v) => !v.isConfigured);
+  }
+
+  // 2. Sort
+  const sortBy = state.source.sortBy || 'name';
+  const sortDir = state.source.sortDir || 'ASC';
+  items.sort((a, b) => {
+    let valA = a[sortBy];
+    let valB = b[sortBy];
+    if (sortBy === 'count') {
+      valA = parseInt(valA, 10) || 0;
+      valB = parseInt(valB, 10) || 0;
+      return sortDir === 'ASC' ? valA - valB : valB - valA;
+    }
+    valA = (valA || '').toString().toLowerCase();
+    valB = (valB || '').toString().toLowerCase();
+    return sortDir === 'ASC' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+  });
+
+  // Update header sort icons
+  document.querySelectorAll('#table-source-views-full th.sortable').forEach((th) => {
+    const colKey = th.getAttribute('data-sort');
+    const icon = th.querySelector('.sort-icon');
+    if (colKey === sortBy) {
+      th.classList.remove('sorted-asc', 'sorted-desc');
+      th.classList.add(sortDir === 'ASC' ? 'sorted-asc' : 'sorted-desc');
+      if (icon) icon.textContent = sortDir === 'ASC' ? '▲' : '▼';
+    } else {
+      th.classList.remove('sorted-asc', 'sorted-desc');
+      if (icon) icon.textContent = '↕';
+    }
+  });
+
+  const totalFiltered = items.length;
+  const limit = state.source.limit || 25;
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / limit));
+  state.source.page = Math.min(state.source.page || 1, totalPages);
+  const page = state.source.page || 1;
+
+  const startIdx = (page - 1) * limit;
+  const endIdx = Math.min(startIdx + limit, totalFiltered);
+  const pagedItems = items.slice(startIdx, endIdx);
+
+  if (pagedItems.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-muted">Tidak ada view yang sesuai dengan filter pencarian.</td></tr>`;
+  } else {
+    tbody.innerHTML = pagedItems.map((v, idx) => {
+      const globalIndex = startIdx + idx + 1;
       const configBadge = v.isConfigured
         ? `<span class="badge badge-success">✓ Tercatat (${v.isSynced ? 'Sinkron' : 'Perlu Sync'})</span>`
         : `<span class="badge badge-neutral">Belum Dicatat</span>`;
 
       return `
-        <tr class="${isSelected ? 'active-row' : ''}">
-          <td class="font-mono text-muted">${idx + 1}</td>
-          <td><strong class="font-mono text-cyan">${v.name}</strong></td>
-          <td><span class="badge badge-neutral">${v.schema}</span></td>
-          <td class="font-mono ${v.error ? 'text-rose' : ''}">
+        <tr>
+          <td class="font-mono text-muted text-center col-order">${globalIndex}</td>
+          <td class="col-name">
+            <div class="flex-center gap-2" style="justify-content: flex-start;">
+              <span class="text-sm">👁️</span>
+              <strong class="font-mono text-cyan" style="cursor: pointer; text-decoration: underline;" onclick="openSourceInspectorModal('${v.name}')" title="Klik untuk inspeksi data & skema view">${escapeHtml(v.name)}</strong>
+            </div>
+          </td>
+          <td class="col-desc">
+            ${v.description ? `<span class="text-sm" title="${escapeHtml(v.description)}">${escapeHtml(v.description)}</span>` : `<span class="text-muted text-xs italic">-</span>`}
+          </td>
+          <td class="col-schema text-center"><span class="badge badge-neutral">${escapeHtml(v.schema || 'dbo')}</span></td>
+          <td class="col-num font-mono ${v.error ? 'text-rose' : ''}" style="text-align: right; font-weight: 600;">
             ${v.error ? `<span title="${escapeHtml(v.error)}">Error</span>` : formatNumber(v.count)}
           </td>
-          <td>${configBadge}</td>
-          <td>
-            <div class="flex-gap-2">
-              <button class="btn btn-secondary btn-sm" onclick="inspectView('${v.name}')">Inspect</button>
-              <button class="btn btn-secondary btn-sm" onclick="quickSyncView('${v.name}')" title="Simpan query view ke tabel konfigurasi">💾 Sync</button>
-              <button class="btn btn-secondary btn-sm" onclick="openViewEditor('${v.name}')" title="Edit query view">✏️ Edit</button>
-              <button class="btn btn-danger btn-sm" onclick="openDeleteModal('source_view', '${v.name}', '${v.name}')" title="Hapus view dari DB">🗑️</button>
+          <td class="col-status text-center">${configBadge}</td>
+          <td class="col-action">
+            <div class="flex-gap-2 flex-wrap" style="justify-content: center;">
+              <button class="btn btn-primary btn-xs" onclick="openSourceInspectorModal('${v.name}')" title="Buka dialog data inspector, skema kolom, dan DDL">🔍 Detail</button>
+              ${!v.isConfigured ? `<button class="btn btn-emerald btn-xs" onclick="quickRegisterViewToConfig('${v.name}')" title="Daftarkan view ini ke Migration Config">⚡ Daftarkan</button>` : ''}
+              <button class="btn btn-secondary btn-xs" onclick="quickSyncView('${v.name}')" title="Simpan query view ke tabel konfigurasi">💾 Sync</button>
+              <button class="btn btn-secondary btn-xs" onclick="openViewEditor('${v.name}')" title="Edit query view">✏️ Edit</button>
+              <button class="btn btn-danger btn-xs" onclick="openDeleteModal('source_view', '${v.name}', '${v.name}')" title="Hapus view dari DB">🗑️</button>
             </div>
           </td>
         </tr>
       `;
     }).join('');
-
-    // Load data inspector for selected view
-    loadSourceViewData();
-  } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="6" class="text-center py-8 text-rose">${err.message}</td></tr>`;
   }
+
+  // Update pagination bar
+  const pagInfoEl = document.getElementById('source-views-pagination-info');
+  if (pagInfoEl) {
+    pagInfoEl.textContent = totalFiltered > 0
+      ? `Menampilkan ${formatNumber(startIdx + 1)} - ${formatNumber(endIdx)} dari total ${formatNumber(totalFiltered)} views`
+      : '0 views ditemukan';
+  }
+
+  const btnPrevEl = document.getElementById('btn-source-views-prev');
+  if (btnPrevEl) btnPrevEl.disabled = page <= 1;
+  const btnNextEl = document.getElementById('btn-source-views-next');
+  if (btnNextEl) btnNextEl.disabled = page >= totalPages;
+
+  renderPaginationNumbers('source-views-page-numbers', page, totalPages, (newPage) => {
+    state.source.page = newPage;
+    renderSourceViewsTable();
+  });
 }
 
-window.inspectView = function (viewName) {
+// Dialog Modal Data Inspector
+window.openSourceInspectorModal = function (viewName) {
   state.source.selectedView = viewName;
-  state.source.page = 1;
-  document.querySelectorAll('#source-views-table-body tr').forEach((tr) => tr.classList.remove('active-row'));
-  event?.currentTarget?.closest('tr')?.classList.add('active-row');
-  loadSourceViewData();
+  state.source.modalPage = 1;
+  state.source.modalTab = 'sitab-preview';
+
+  const modal = document.getElementById('modal-source-inspector');
+  if (!modal) return;
+  modal.classList.remove('hidden');
+
+  document.getElementById('si-modal-title').textContent = `🔍 Data Inspector: [dbo].[${viewName}]`;
+  document.getElementById('si-modal-subtitle').textContent = `Database: antam_scm • Schema: dbo • Inspeksi data aktual, struktur kolom, dan DDL`;
+
+  const viewObj = (state.source.views || []).find((v) => v.name === viewName);
+  const descEl = document.getElementById('si-modal-desc-badge');
+  if (descEl) {
+    descEl.textContent = viewObj?.description ? `📝 Deskripsi: ${viewObj.description}` : '';
+  }
+
+  const footerLeft = document.getElementById('si-footer-left-actions');
+  if (footerLeft) {
+    if (viewObj && !viewObj.isConfigured) {
+      footerLeft.innerHTML = `
+        <button class="btn btn-emerald btn-sm" onclick="quickRegisterViewToConfig('${viewName}')">
+          ⚡ Daftarkan View Ini ke Migration Config
+        </button>
+      `;
+    } else {
+      footerLeft.innerHTML = `
+        <span class="badge badge-success text-xs">✓ View sudah terdaftar di Migration Config</span>
+      `;
+    }
+  }
+
+  switchSourceInspectorTab('sitab-preview');
+  loadModalSourceViewData();
+  loadModalSourceViewDdl();
 };
 
-async function loadSourceViewData() {
+window.inspectView = function (viewName) {
+  openSourceInspectorModal(viewName);
+};
+
+function switchSourceInspectorTab(tabId) {
+  state.source.modalTab = tabId;
+  document.querySelectorAll('#modal-source-inspector .sub-tab-btn').forEach((btn) => {
+    btn.classList.toggle('active', btn.getAttribute('data-sitab') === tabId);
+  });
+  document.querySelectorAll('#modal-source-inspector .sitab-content').forEach((pane) => {
+    pane.classList.toggle('active', pane.id === tabId);
+    pane.classList.toggle('hidden', pane.id !== tabId);
+  });
+}
+
+function getPostgresTypeSuggestion(sqlType, maxLen, prec, scale) {
+  if (!sqlType) return 'TEXT';
+  const t = sqlType.toLowerCase();
+  if (t === 'nvarchar' || t === 'varchar') {
+    return maxLen && maxLen > 0 && maxLen < 4000 ? `VARCHAR(${maxLen})` : 'TEXT';
+  }
+  if (t === 'nchar' || t === 'char') {
+    return maxLen && maxLen > 0 ? `CHAR(${maxLen})` : 'CHAR(1)';
+  }
+  if (t === 'int') return 'INTEGER';
+  if (t === 'bigint') return 'BIGINT';
+  if (t === 'smallint' || t === 'tinyint') return 'SMALLINT';
+  if (t === 'bit') return 'BOOLEAN';
+  if (t === 'datetime' || t === 'datetime2' || t === 'smalldatetime') return 'TIMESTAMP';
+  if (t === 'date') return 'DATE';
+  if (t === 'time') return 'TIME';
+  if (t === 'decimal' || t === 'numeric') {
+    const p = prec || 18;
+    const s = scale || 2;
+    return `NUMERIC(${p}, ${s})`;
+  }
+  if (t === 'float' || t === 'real') return 'DOUBLE PRECISION';
+  if (t === 'money' || t === 'smallmoney') return 'NUMERIC(19, 4)';
+  if (t === 'uniqueidentifier') return 'UUID';
+  return sqlType.toUpperCase();
+}
+
+async function loadModalSourceViewData() {
   const viewName = state.source.selectedView;
   if (!viewName) return;
 
-  document.getElementById('source-inspector-title').textContent = `Data Inspector: ${viewName}`;
-  const thead = document.getElementById('source-data-thead');
-  const tbody = document.getElementById('source-data-tbody');
-  const alertEl = document.getElementById('source-view-alert');
+  const thead = document.getElementById('si-data-thead');
+  const tbody = document.getElementById('si-data-tbody');
+  const schemaTbody = document.getElementById('si-schema-tbody');
+  const alertEl = document.getElementById('si-alert-box');
 
-  thead.innerHTML = `<tr><th class="text-center py-8 text-muted">Memuat struktur kolom & baris data...</th></tr>`;
+  thead.innerHTML = `<tr><th class="text-center py-6 text-muted">Memuat data baris...</th></tr>`;
   tbody.innerHTML = '';
+  schemaTbody.innerHTML = `<tr><td colspan="6" class="text-center py-6 text-muted">Memuat skema kolom...</td></tr>`;
 
   try {
     const connParam = state.selectedSourceConnectionId ? `&connection_id=${state.selectedSourceConnectionId}` : '';
-    const url = `/api/source/view-data?view=${encodeURIComponent(viewName)}&page=${state.source.page}&limit=${state.source.limit}${connParam}`;
+    const page = state.source.modalPage || 1;
+    const limit = state.source.modalLimit || 25;
+    const url = `/api/source/view-data?view=${encodeURIComponent(viewName)}&page=${page}&limit=${limit}${connParam}`;
     const res = await fetch(url);
     const json = await res.json();
     if (!json.success) throw new Error(json.error);
     const data = json.data;
 
-    state.source.total = data.total;
-    state.source.totalPages = data.totalPages;
-    state.source.columns = data.columns || [];
-    state.source.rows = data.rows || [];
+    state.source.modalTotal = data.total || 0;
+    state.source.modalTotalPages = data.totalPages || 1;
+    state.source.modalColumns = data.columns || [];
+    state.source.modalRows = data.rows || [];
 
     if (data.error) {
-      alertEl.className = 'alert-box-warning mb-4 p-4 rounded-md border text-sm';
+      alertEl.className = 'alert-box-warning mb-3 p-3 rounded-md border text-sm';
       alertEl.innerHTML = `
         <div style="font-weight: 600; margin-bottom: 0.25rem;">⚠️ Catatan Database SQL Server: View Binding Error</div>
         <div>${escapeHtml(data.error)}</div>
@@ -1790,58 +2130,769 @@ async function loadSourceViewData() {
       alertEl.innerHTML = '';
     }
 
-    document.getElementById('source-view-total-records').textContent = data.error ? '0 (Error)' : formatNumber(data.total);
-    document.getElementById('source-view-col-count').textContent = data.columns.length;
-    document.getElementById('source-view-page-indicator').textContent = `${data.page} / ${data.totalPages}`;
+    document.getElementById('si-total-rows').textContent = data.error ? '0 (Error)' : formatNumber(data.total);
+    document.getElementById('si-total-cols').textContent = data.columns.length;
+    document.getElementById('si-page-indicator').textContent = `${data.page} / ${data.totalPages}`;
+    document.getElementById('si-tab-rows-count').textContent = formatNumber(data.total);
+    document.getElementById('si-tab-cols-count').textContent = data.columns.length;
 
     const startIdx = (data.page - 1) * data.limit + 1;
     const endIdx = Math.min(data.page * data.limit, data.total);
-    document.getElementById('source-pagination-info').textContent = data.total > 0
+    document.getElementById('si-pagination-info').textContent = data.total > 0
       ? `Menampilkan ${formatNumber(startIdx)} - ${formatNumber(endIdx)} dari total ${formatNumber(data.total)} baris`
-      : (data.error ? 'Query data gagal karena kendala binding di SQL Server.' : '0 baris ditemukan.');
+      : '0 baris ditemukan.';
 
-    document.getElementById('btn-source-prev').disabled = data.page <= 1;
-    document.getElementById('btn-source-next').disabled = data.page >= data.totalPages;
+    document.getElementById('btn-si-prev').disabled = data.page <= 1;
+    document.getElementById('btn-si-next').disabled = data.page >= data.totalPages;
 
-    renderPaginationNumbers('source-page-numbers', data.page, data.totalPages, (newPage) => {
-      state.source.page = newPage;
-      loadSourceViewData();
+    renderPaginationNumbers('si-page-numbers', data.page, data.totalPages, (newPage) => {
+      state.source.modalPage = newPage;
+      loadModalSourceViewData();
     });
 
+    // Render Preview Table
     if (data.columns.length === 0) {
-      thead.innerHTML = `<tr><th class="text-center py-6 text-muted">Tidak ada kolom yang terdeteksi.</th></tr>`;
+      thead.innerHTML = `<tr><th class="text-center py-6 text-muted">Tidak ada kolom terdeteksi.</th></tr>`;
       tbody.innerHTML = `<tr><td class="text-center py-8 text-muted">Kolom view tidak tersedia.</td></tr>`;
-      return;
+    } else {
+      thead.innerHTML = `
+        <tr>
+          <th style="width: 50px;">#</th>
+          ${data.columns.map((c) => `<th>${escapeHtml(c.name)} <span class="text-muted" style="font-size: 0.68rem; font-weight: normal;">(${escapeHtml(c.type)})</span></th>`).join('')}
+        </tr>
+      `;
+
+      if (data.rows.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="${data.columns.length + 1}" class="text-center py-8 text-muted">Tidak ada baris data pada halaman ini.</td></tr>`;
+      } else {
+        tbody.innerHTML = data.rows.map((r, rIdx) => {
+          const rowNum = (data.page - 1) * data.limit + rIdx + 1;
+          const cells = data.columns.map((c) => {
+            const val = r[c.name];
+            if (val === null || val === undefined) return `<td><span class="text-muted font-italic">NULL</span></td>`;
+            if (typeof val === 'boolean') return `<td><span class="badge ${val ? 'badge-success' : 'badge-danger'}">${val}</span></td>`;
+            return `<td>${escapeHtml(String(val))}</td>`;
+          }).join('');
+          return `<tr><td class="font-mono text-muted text-center">${rowNum}</td>${cells}</tr>`;
+        }).join('');
+      }
     }
 
-    thead.innerHTML = `
+    // Render Schema Table
+    if (data.columns.length === 0) {
+      schemaTbody.innerHTML = `<tr><td colspan="6" class="text-center py-8 text-muted">Tidak ada kolom yang terdeteksi.</td></tr>`;
+    } else {
+      schemaTbody.innerHTML = data.columns.map((c, cIdx) => {
+        const lenDisplay = c.maxLength && c.maxLength > 0
+          ? (c.maxLength === -1 ? 'MAX' : c.maxLength)
+          : (c.precision ? `(${c.precision}, ${c.scale || 0})` : '-');
+        const nullBadge = c.nullable
+          ? `<span class="badge badge-warning">NULLABLE</span>`
+          : `<span class="badge badge-success">NOT NULL</span>`;
+        const pgSuggestion = getPostgresTypeSuggestion(c.type, c.maxLength, c.precision, c.scale);
+
+        return `
+          <tr>
+            <td class="font-mono text-muted text-center">${cIdx + 1}</td>
+            <td><strong class="font-mono text-cyan">${escapeHtml(c.name)}</strong></td>
+            <td><span class="badge badge-neutral font-mono">${escapeHtml((c.type || '').toUpperCase())}</span></td>
+            <td class="font-mono">${lenDisplay}</td>
+            <td>${nullBadge}</td>
+            <td><span class="badge badge-primary font-mono">${escapeHtml(pgSuggestion)}</span></td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    // Render Data Profiling
+    renderSourceViewProfiling(data.columns || [], data.rows || []);
+  } catch (err) {
+    thead.innerHTML = `<tr><th class="text-center py-6 text-rose">Gagal memuat data</th></tr>`;
+    tbody.innerHTML = `<tr><td class="text-center py-8 text-rose">${err.message}</td></tr>`;
+    schemaTbody.innerHTML = `<tr><td colspan="6" class="text-center py-8 text-rose">${err.message}</td></tr>`;
+    const profTbody = document.getElementById('si-profiling-tbody');
+    if (profTbody) profTbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-rose">${err.message}</td></tr>`;
+  }
+}
+
+function renderSourceViewProfiling(columns, rows) {
+  const tbody = document.getElementById('si-profiling-tbody');
+  const countEl = document.getElementById('si-profiling-sample-count');
+  if (!tbody) return;
+
+  if (countEl) countEl.textContent = rows.length;
+
+  if (!columns || columns.length === 0 || !rows || rows.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-muted">Data sample tidak tersedia untuk profiling.</td></tr>`;
+    return;
+  }
+
+  const totalRows = rows.length;
+  tbody.innerHTML = columns.map((col, idx) => {
+    let nullCount = 0;
+    let emptyCount = 0;
+    const valueSet = new Set();
+    const valueCounts = {};
+
+    rows.forEach((r) => {
+      const val = r[col.name];
+      if (val === null || val === undefined) {
+        nullCount++;
+      } else {
+        const strVal = String(val).trim();
+        if (strVal === '') emptyCount++;
+        valueSet.add(strVal);
+        valueCounts[strVal] = (valueCounts[strVal] || 0) + 1;
+      }
+    });
+
+    const nonNullCount = totalRows - nullCount;
+    const completenessPct = Math.round((nonNullCount / totalRows) * 100);
+    const nullPct = Math.round((nullCount / totalRows) * 100);
+    const distinctCount = valueSet.size;
+
+    // Top sample values (up to 3)
+    const topValues = Object.keys(valueCounts).slice(0, 3).map((v) => `"${escapeHtml(v)}"`).join(', ');
+
+    // Characteristics / Analysis badge
+    let charBadge = '';
+    if (distinctCount === totalRows && nullCount === 0) {
+      charBadge = `<span class="badge badge-success" title="Semua unik & not null pada sample">🔑 Kandidat PK / Unique</span>`;
+    } else if (nullCount === 0) {
+      charBadge = `<span class="badge badge-primary">✓ 100% Terisi</span>`;
+    } else if (nullCount === totalRows) {
+      charBadge = `<span class="badge badge-danger">⚠️ 100% Null</span>`;
+    } else {
+      charBadge = `<span class="badge badge-neutral">${completenessPct}% Terisi</span>`;
+    }
+
+    return `
       <tr>
-        <th style="width: 45px;">#</th>
-        ${data.columns.map((c) => `<th>${c.name} <span class="text-muted" style="font-size: 0.65rem">(${c.type})</span></th>`).join('')}
+        <td class="font-mono text-muted text-center">${idx + 1}</td>
+        <td><strong class="font-mono text-cyan">${escapeHtml(col.name)}</strong></td>
+        <td>
+          <div class="flex-center gap-1" style="justify-content: flex-start;">
+            <div style="flex: 1; height: 6px; background: #e2e8f0; border-radius: 3px; overflow: hidden; max-width: 60px;">
+              <div style="height: 100%; width: ${completenessPct}%; background: ${completenessPct === 100 ? '#10b981' : '#6366f1'};"></div>
+            </div>
+            <span class="font-mono text-xs">${completenessPct}% (${nonNullCount})</span>
+          </div>
+        </td>
+        <td class="font-mono ${nullCount > 0 ? 'text-amber font-semibold' : 'text-muted'}">${nullCount} (${nullPct}%)</td>
+        <td class="font-mono ${emptyCount > 0 ? 'text-amber' : 'text-muted'}">${emptyCount}</td>
+        <td class="font-mono font-semibold">${distinctCount}</td>
+        <td class="text-xs text-muted" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${topValues}">
+          ${topValues || '<span class="font-italic">Semua NULL</span>'}
+        </td>
+        <td>${charBadge}</td>
       </tr>
     `;
+  }).join('');
+}
 
-    if (data.rows.length === 0) {
-      const msg = data.error
-        ? `View tidak dapat mengembalikan baris data (${escapeHtml(data.error)})`
-        : `View [dbo].[${viewName}] tidak memiliki record data saat ini.`;
-      tbody.innerHTML = `<tr><td colspan="${data.columns.length + 1}" class="text-center py-8 text-muted">${msg}</td></tr>`;
-      return;
+async function loadModalSourceViewDdl() {
+  const viewName = state.source.selectedView;
+  if (!viewName) return;
+
+  const ddlCodeEl = document.getElementById('si-ddl-code');
+  if (!ddlCodeEl) return;
+  ddlCodeEl.textContent = 'Memuat definisi DDL...';
+
+  try {
+    const connParam = state.selectedSourceConnectionId ? `&connection_id=${state.selectedSourceConnectionId}` : '';
+    const res = await fetch(`/api/source/view-definition?view=${encodeURIComponent(viewName)}${connParam}`);
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error);
+    const ddl = json.data?.query_sql || json.data?.definition || `-- Tidak ada query SQL tersimpan untuk view ${viewName}`;
+    state.source.modalDdl = ddl;
+    ddlCodeEl.textContent = ddl;
+  } catch (err) {
+    ddlCodeEl.textContent = `-- Gagal memuat definisi DDL: ${err.message}`;
+  }
+}
+
+function exportSourceViewToCsv() {
+  const viewName = state.source.selectedView || 'source_view';
+  const columns = state.source.modalColumns || [];
+  const rows = state.source.modalRows || [];
+
+  if (columns.length === 0 || rows.length === 0) {
+    alert('Tidak ada baris data untuk diexport.');
+    return;
+  }
+
+  const colNames = columns.map((c) => c.name);
+  const csvRows = [];
+  csvRows.push(colNames.map((name) => `"${String(name).replace(/"/g, '""')}"`).join(','));
+
+  rows.forEach((r) => {
+    const rowValues = colNames.map((col) => {
+      const val = r[col];
+      if (val === null || val === undefined) return '""';
+      return `"${String(val).replace(/"/g, '""')}"`;
+    });
+    csvRows.push(rowValues.join(','));
+  });
+
+  const blob = new Blob([csvRows.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${viewName}_sample_rows.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function exportSourceViewToJson() {
+  const viewName = state.source.selectedView || 'source_view';
+  const rows = state.source.modalRows || [];
+
+  if (rows.length === 0) {
+    alert('Tidak ada baris data untuk diexport.');
+    return;
+  }
+
+  const jsonString = JSON.stringify(rows, null, 2);
+  const blob = new Blob([jsonString], { type: 'application/json;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${viewName}_sample_rows.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+window.quickRegisterViewToConfig = function (viewName) {
+  document.getElementById('modal-source-inspector')?.classList.add('hidden');
+  switchTab('tab-config');
+  openCreateModal('migration_config');
+
+  setTimeout(() => {
+    const srcSchemaInput = document.getElementById('field-src_schema');
+    const srcViewInput = document.getElementById('field-src_view');
+    const stgTableInput = document.getElementById('field-stg_table');
+    const tgtTableInput = document.getElementById('field-tgt_table');
+    const tgtSchemaInput = document.getElementById('field-tgt_schema');
+
+    if (srcSchemaInput) srcSchemaInput.value = 'dbo';
+    if (srcViewInput) srcViewInput.value = viewName;
+
+    const cleanName = viewName.replace(/^v_migration_/, '').replace(/^v_/, '');
+    if (stgTableInput) stgTableInput.value = viewName.replace(/^v_/, '');
+    if (tgtTableInput) tgtTableInput.value = cleanName;
+    if (tgtSchemaInput) tgtSchemaInput.value = 'vendor';
+  }, 100);
+};
+
+// =========================================================================
+function extractSelectQueryFrontend(rawSql) {
+  if (!rawSql || typeof rawSql !== 'string') return '';
+  let sql = rawSql.trim();
+
+  // 1. Bersihkan komentar awalan (-- baris atau /* blok */), opsi SET, dan GO dari skrip SQL Server
+  sql = sql.replace(/^(?:\s*(?:--[^\r\n]*|\/\*[\s\S]*?\*\/|SET\s+[^;\r\n]+;?|GO\b)\s*)+/gi, '').trim();
+
+  // 2. Regex mencocokkan pola CREATE (OR ALTER|REPLACE) VIEW <nama> AS <query> atau ALTER VIEW <nama> AS <query>
+  const match = sql.match(/^(?:CREATE(?:\s+OR\s+(?:ALTER|REPLACE))?|ALTER)\s+VIEW\s+[\s\S]*?\bAS\b\s*([\s\S]*)$/i);
+  if (match && match[1]) {
+    sql = match[1].trim();
+  }
+
+  // 3. Bersihkan titik koma di akhir
+  while (sql.endsWith(';')) {
+    sql = sql.slice(0, -1).trim();
+  }
+  return sql;
+}
+
+/**
+ * Intelligent SQL Formatter untuk merapikan klausa SELECT, indentasi,
+ * kapitalisasi keyword SQL Server / PostgreSQL.
+ */
+function formatSqlQuery(sql) {
+  if (!sql || typeof sql !== 'string') return '';
+
+  let text = extractSelectQueryFrontend(sql).trim();
+  if (!text) return '';
+
+  // 1. Tokenize preserving strings, comments, brackets, identifiers
+  const tokens = [];
+  let i = 0;
+  const len = text.length;
+
+  while (i < len) {
+    const char = text[i];
+    const nextChar = text[i + 1] || '';
+
+    // Whitespace
+    if (/\s/.test(char)) {
+      let ws = '';
+      while (i < len && /\s/.test(text[i])) {
+        ws += text[i];
+        i++;
+      }
+      tokens.push({ type: 'whitespace', value: ws });
+      continue;
     }
 
-    tbody.innerHTML = data.rows.map((r, rIdx) => {
-      const rowNum = (data.page - 1) * data.limit + rIdx + 1;
-      const cells = data.columns.map((c) => {
-        const val = r[c.name];
-        if (val === null || val === undefined) return `<td><span class="text-muted font-italic">NULL</span></td>`;
-        if (typeof val === 'boolean') return `<td><span class="badge ${val ? 'badge-success' : 'badge-danger'}">${val}</span></td>`;
-        return `<td>${escapeHtml(String(val))}</td>`;
-      }).join('');
-      return `<tr><td class="font-mono text-muted">${rowNum}</td>${cells}</tr>`;
-    }).join('');
-  } catch (err) {
-    thead.innerHTML = `<tr><th class="text-center py-8 text-rose">Gagal memuat data</th></tr>`;
-    tbody.innerHTML = `<tr><td class="text-center py-8 text-rose">${err.message}</td></tr>`;
+    // Line comment -- ...
+    if (char === '-' && nextChar === '-') {
+      let comment = '';
+      while (i < len && text[i] !== '\n' && text[i] !== '\r') {
+        comment += text[i];
+        i++;
+      }
+      tokens.push({ type: 'comment', value: comment });
+      continue;
+    }
+
+    // Block comment /* ... */
+    if (char === '/' && nextChar === '*') {
+      let comment = '/*';
+      i += 2;
+      while (i < len && !(text[i] === '*' && text[i + 1] === '/')) {
+        comment += text[i];
+        i++;
+      }
+      if (i < len) {
+        comment += '*/';
+        i += 2;
+      }
+      tokens.push({ type: 'comment', value: comment });
+      continue;
+    }
+
+    // Quoted string '...' (handle escaped '')
+    if (char === "'") {
+      let str = "'";
+      i++;
+      while (i < len) {
+        if (text[i] === "'") {
+          str += "'";
+          i++;
+          if (text[i] === "'") {
+            str += "'";
+            i++;
+          } else {
+            break;
+          }
+        } else {
+          str += text[i];
+          i++;
+        }
+      }
+      tokens.push({ type: 'string', value: str });
+      continue;
+    }
+
+    // Bracketed identifier [col or table]
+    if (char === '[') {
+      let bracket = '[';
+      i++;
+      while (i < len && text[i] !== ']') {
+        bracket += text[i];
+        i++;
+      }
+      if (i < len && text[i] === ']') {
+        bracket += ']';
+        i++;
+      }
+      tokens.push({ type: 'identifier', value: bracket });
+      continue;
+    }
+
+    // Quoted identifier "..."
+    if (char === '"') {
+      let qIdent = '"';
+      i++;
+      while (i < len && text[i] !== '"') {
+        qIdent += text[i];
+        i++;
+      }
+      if (i < len && text[i] === '"') {
+        qIdent += '"';
+        i++;
+      }
+      tokens.push({ type: 'identifier', value: qIdent });
+      continue;
+    }
+
+    // Dot qualifier (e.g. schema.table or alias.column)
+    if (char === '.') {
+      tokens.push({ type: 'dot', value: '.' });
+      i++;
+      continue;
+    }
+
+    // Parentheses & delimiters
+    if (char === '(' || char === ')' || char === ',' || char === ';') {
+      tokens.push({ type: 'symbol', value: char });
+      i++;
+      continue;
+    }
+
+    // Operators: =, <>, !=, <=, >=, <, >, +, -, *, /, %
+    if (/[=<>!+*/%&|^~]/.test(char)) {
+      let op = char;
+      i++;
+      while (i < len && /[=<>!+*/%&|^~]/.test(text[i])) {
+        op += text[i];
+        i++;
+      }
+      tokens.push({ type: 'operator', value: op });
+      continue;
+    }
+
+    // Word / Identifier / Number
+    let word = '';
+    while (i < len && !/[\s(),;=<>!+*/%&|^~'"`\[\.]/.test(text[i])) {
+      word += text[i];
+      i++;
+    }
+    if (word) {
+      tokens.push({ type: 'word', value: word });
+    }
+  }
+
+  // 2. Reserved Keywords
+  const otherKeywords = [
+    'AS', 'DISTINCT', 'ALL', 'IS', 'NULL', 'NOT', 'IN', 'EXISTS', 'BETWEEN', 'LIKE', 'ILIKE',
+    'ASC', 'DESC', 'OVER', 'PARTITION', 'BY', 'ROW_NUMBER', 'COUNT', 'SUM',
+    'AVG', 'MIN', 'MAX', 'COALESCE', 'NULLIF', 'ISNULL', 'CAST', 'CONVERT',
+    'CONCAT', 'SUBSTRING', 'TRIM', 'RTRIM', 'LTRIM', 'UPPER', 'LOWER',
+    'YEAR', 'MONTH', 'DAY', 'DATEADD', 'DATEDIFF', 'GETDATE', 'NOW',
+    'CURRENT_TIMESTAMP', 'COLLATE', 'NOLOCK', 'PERCENT', 'WITH'
+  ];
+
+  const cleanTokens = tokens.filter((t) => t.type !== 'whitespace');
+
+  // Normalize multi-word clauses & keywords
+  const normalized = [];
+  for (let k = 0; k < cleanTokens.length; k++) {
+    const cur = cleanTokens[k];
+    const next1 = cleanTokens[k + 1];
+    const next2 = cleanTokens[k + 2];
+
+    const curUpper = cur.type === 'word' ? cur.value.toUpperCase() : '';
+    const next1Upper = next1 && next1.type === 'word' ? next1.value.toUpperCase() : '';
+    const next2Upper = next2 && next2.type === 'word' ? next2.value.toUpperCase() : '';
+
+    // 3 words: LEFT OUTER JOIN, RIGHT OUTER JOIN, FULL OUTER JOIN
+    if (['LEFT', 'RIGHT', 'FULL'].includes(curUpper) && next1Upper === 'OUTER' && next2Upper === 'JOIN') {
+      normalized.push({ type: 'clause_join', value: `${curUpper} OUTER JOIN` });
+      k += 2;
+      continue;
+    }
+    // 2 words
+    if (curUpper === 'GROUP' && next1Upper === 'BY') {
+      normalized.push({ type: 'clause_major', value: 'GROUP BY' });
+      k += 1;
+      continue;
+    }
+    if (curUpper === 'ORDER' && next1Upper === 'BY') {
+      normalized.push({ type: 'clause_major', value: 'ORDER BY' });
+      k += 1;
+      continue;
+    }
+    if (curUpper === 'UNION' && next1Upper === 'ALL') {
+      normalized.push({ type: 'clause_major', value: 'UNION ALL' });
+      k += 1;
+      continue;
+    }
+    if (['INNER', 'LEFT', 'RIGHT', 'FULL', 'CROSS'].includes(curUpper) && next1Upper === 'JOIN') {
+      normalized.push({ type: 'clause_join', value: `${curUpper} JOIN` });
+      k += 1;
+      continue;
+    }
+    if (['CROSS', 'OUTER'].includes(curUpper) && next1Upper === 'APPLY') {
+      normalized.push({ type: 'clause_join', value: `${curUpper} APPLY` });
+      k += 1;
+      continue;
+    }
+    if (curUpper === 'PARTITION' && next1Upper === 'BY') {
+      normalized.push({ type: 'keyword', value: 'PARTITION BY' });
+      k += 1;
+      continue;
+    }
+    if (curUpper === 'IS' && next1Upper === 'NOT' && next2Upper === 'NULL') {
+      normalized.push({ type: 'keyword', value: 'IS NOT NULL' });
+      k += 2;
+      continue;
+    }
+    if (curUpper === 'IS' && next1Upper === 'NULL') {
+      normalized.push({ type: 'keyword', value: 'IS NULL' });
+      k += 1;
+      continue;
+    }
+    if (curUpper === 'NOT' && next1Upper === 'IN') {
+      normalized.push({ type: 'keyword', value: 'NOT IN' });
+      k += 1;
+      continue;
+    }
+    if (curUpper === 'NOT' && next1Upper === 'LIKE') {
+      normalized.push({ type: 'keyword', value: 'NOT LIKE' });
+      k += 1;
+      continue;
+    }
+
+    // Single words
+    if (cur.type === 'word') {
+      if (['SELECT', 'FROM', 'WHERE', 'HAVING', 'UNION', 'EXCEPT', 'INTERSECT', 'LIMIT', 'OFFSET', 'WITH'].includes(curUpper)) {
+        normalized.push({ type: 'clause_major', value: curUpper });
+      } else if (curUpper === 'JOIN') {
+        normalized.push({ type: 'clause_join', value: 'JOIN' });
+      } else if (['ON', 'AND', 'OR'].includes(curUpper)) {
+        normalized.push({ type: 'clause_sub', value: curUpper });
+      } else if (['CASE', 'WHEN', 'THEN', 'ELSE', 'END'].includes(curUpper)) {
+        normalized.push({ type: 'clause_case', value: curUpper });
+      } else if (curUpper === 'TOP') {
+        normalized.push({ type: 'top', value: 'TOP' });
+      } else if (otherKeywords.includes(curUpper)) {
+        normalized.push({ type: 'keyword', value: curUpper });
+      } else {
+        normalized.push(cur);
+      }
+    } else {
+      normalized.push(cur);
+    }
+  }
+
+  // 3. Format lines and indentation
+  let result = '';
+  let indentLevel = 0;
+  let parenDepth = 0;
+  const parenStack = [];
+  let inSelectList = false;
+
+  const getIndent = (lvl) => '  '.repeat(Math.max(0, lvl));
+
+  for (let idx = 0; idx < normalized.length; idx++) {
+    const token = normalized[idx];
+    const prev = normalized[idx - 1];
+    const next = normalized[idx + 1];
+
+    if (token.type === 'comment') {
+      if (!result.endsWith('\n') && result.length > 0) result += '\n';
+      result += getIndent(indentLevel) + token.value + '\n';
+      continue;
+    }
+
+    if (token.type === 'clause_major') {
+      inSelectList = (token.value === 'SELECT');
+      if (result.length > 0 && !result.endsWith('\n')) {
+        result += '\n';
+      }
+      result += getIndent(indentLevel) + token.value;
+
+      if (token.value === 'SELECT') {
+        if (next && (next.type === 'top' || (next.type === 'keyword' && next.value === 'DISTINCT'))) {
+          result += ' ';
+        } else {
+          result += '\n' + getIndent(indentLevel + 1);
+        }
+      } else {
+        result += ' ';
+      }
+      continue;
+    }
+
+    if (token.type === 'top') {
+      result += 'TOP ';
+      if (next) {
+        result += next.value;
+        idx++;
+        const n2 = normalized[idx + 1];
+        if (n2 && n2.type === 'keyword' && n2.value === 'PERCENT') {
+          result += ' PERCENT';
+          idx++;
+        }
+        if (inSelectList) {
+          result += '\n' + getIndent(indentLevel + 1);
+        } else {
+          result += ' ';
+        }
+      }
+      continue;
+    }
+
+    if (token.type === 'clause_join') {
+      inSelectList = false;
+      if (result.length > 0 && !result.endsWith('\n')) {
+        result += '\n';
+      }
+      result += getIndent(indentLevel) + token.value + ' ';
+      continue;
+    }
+
+    if (token.type === 'clause_sub') {
+      if (token.value === 'ON') {
+        if (!result.endsWith('\n')) result += '\n';
+        result += getIndent(indentLevel + 1) + 'ON ';
+      } else if (token.value === 'AND' || token.value === 'OR') {
+        if (parenDepth === 0 || (parenStack.length > 0 && parenStack[parenStack.length - 1] === 'subquery')) {
+          if (!result.endsWith('\n')) result += '\n';
+          result += getIndent(indentLevel + 1) + token.value + ' ';
+        } else {
+          result += ' ' + token.value + ' ';
+        }
+      }
+      continue;
+    }
+
+    if (token.type === 'clause_case') {
+      if (token.value === 'CASE') {
+        result += 'CASE';
+      } else if (token.value === 'WHEN') {
+        if (!result.endsWith('\n')) result += '\n';
+        result += getIndent(indentLevel + 2) + 'WHEN ';
+      } else if (token.value === 'THEN') {
+        result += ' THEN ';
+      } else if (token.value === 'ELSE') {
+        if (!result.endsWith('\n')) result += '\n';
+        result += getIndent(indentLevel + 2) + 'ELSE ';
+      } else if (token.value === 'END') {
+        if (!result.endsWith('\n')) result += '\n';
+        result += getIndent(indentLevel + 1) + 'END';
+      }
+      continue;
+    }
+
+    if (token.type === 'dot') {
+      result = result.replace(/ +$/, '') + '.';
+      continue;
+    }
+
+    if (token.type === 'symbol') {
+      if (token.value === ',') {
+        result += ',';
+        if (inSelectList && (parenDepth === 0 || (parenStack.length > 0 && parenStack[parenStack.length - 1] === 'subquery'))) {
+          result += '\n' + getIndent(indentLevel + 1);
+        } else {
+          result += ' ';
+        }
+        continue;
+      }
+
+      if (token.value === '(') {
+        parenDepth++;
+        const isSubquery = next && next.type === 'clause_major' && next.value === 'SELECT';
+        parenStack.push(isSubquery ? 'subquery' : 'expr');
+
+        if (isSubquery) {
+          result += ' (\n';
+          indentLevel++;
+        } else {
+          if (prev && prev.type === 'keyword' && prev.value === 'AS') {
+            result += ' (';
+          } else {
+            result += '(';
+          }
+        }
+        continue;
+      }
+
+      if (token.value === ')') {
+        const pType = parenStack.pop() || 'expr';
+        parenDepth = Math.max(0, parenDepth - 1);
+
+        if (pType === 'subquery') {
+          indentLevel = Math.max(0, indentLevel - 1);
+          if (!result.endsWith('\n')) result += '\n';
+          result += getIndent(indentLevel) + ')';
+        } else {
+          result = result.replace(/ +$/, '') + ')';
+        }
+        continue;
+      }
+
+      if (token.value === ';') {
+        result += ';\n';
+        continue;
+      }
+    }
+
+    if (token.type === 'operator') {
+      if (token.value === '*' && prev && prev.type === 'symbol' && prev.value === '(') {
+        result += '*';
+      } else {
+        result += ' ' + token.value + ' ';
+      }
+    } else {
+      if (prev && prev.type === 'dot') {
+        result += token.value;
+      } else if (prev && prev.type === 'symbol' && prev.value === '(') {
+        result += token.value;
+      } else if (result.length > 0 && !result.endsWith(' ') && !result.endsWith('\n') && !result.endsWith('(') && !result.endsWith('.')) {
+        result += ' ' + token.value;
+      } else {
+        result += token.value;
+      }
+    }
+  }
+
+  return result
+    .replace(/[ \t]+$/gm, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function updateVeQueryStats() {
+  const el = document.getElementById('ve-query-sql');
+  const statsEl = document.getElementById('ve-query-stats');
+  if (!el || !statsEl) return;
+  const val = el.value || '';
+  const lines = val ? val.split('\n').length : 0;
+  const chars = val.length;
+  statsEl.textContent = `${lines} baris • ${chars} karakter`;
+}
+
+function formatViewEditorQuery() {
+  const textarea = document.getElementById('ve-query-sql');
+  if (!textarea) return;
+  const raw = textarea.value;
+  if (!raw || !raw.trim()) return;
+
+  const formatted = formatSqlQuery(raw);
+  if (formatted) {
+    textarea.value = formatted;
+    updateVeQueryStats();
+
+    // Visual feedback pada tombol format
+    const btnHeader = document.getElementById('btn-ve-format');
+    const btnFooter = document.getElementById('btn-ve-format-footer');
+    [btnHeader, btnFooter].forEach((b) => {
+      if (b) {
+        const origText = b.innerHTML;
+        b.innerHTML = '✓ Terformat!';
+        b.classList.add('btn-success');
+        setTimeout(() => {
+          b.innerHTML = origText;
+          b.classList.remove('btn-success');
+        }, 1200);
+      }
+    });
+  }
+}
+
+async function copyViewEditorQuery() {
+  const textarea = document.getElementById('ve-query-sql');
+  if (!textarea || !textarea.value) return;
+  try {
+    await navigator.clipboard.writeText(textarea.value);
+    const btnCopy = document.getElementById('btn-ve-copy');
+    if (btnCopy) {
+      const origText = btnCopy.innerHTML;
+      btnCopy.innerHTML = '✓ Tersalin!';
+      setTimeout(() => {
+        btnCopy.innerHTML = origText;
+      }, 1200);
+    }
+  } catch (e) {
+    console.warn('Gagal salin query:', e);
   }
 }
 
@@ -1857,24 +2908,42 @@ async function openViewEditor(existingViewName = null) {
     document.getElementById('view-editor-title').textContent = `Edit Query View: [dbo].[${existingViewName}]`;
     document.getElementById('ve-view-name').value = existingViewName;
     document.getElementById('ve-view-name').readOnly = true;
+    document.getElementById('ve-query-sql').value = '-- Memuat query view dari database...';
+    updateVeQueryStats();
 
     try {
       const connParam = state.selectedSourceConnectionId ? `&connection_id=${state.selectedSourceConnectionId}` : '';
       const res = await fetch(`/api/source/view-definition?view=${encodeURIComponent(existingViewName)}${connParam}`);
       const json = await res.json();
       if (json.success && json.data) {
-        document.getElementById('ve-query-sql').value = json.data.sqlServerDefinition || json.data.savedConfig?.query_sql || '';
-        document.getElementById('ve-description').value = json.data.savedConfig?.description || '';
+        // Ekstrak query SELECT murni (tanpa redundant CREATE VIEW ... AS) lalu rapikan susunan query
+        const cleanQuery = json.data.querySql || extractSelectQueryFrontend(json.data.sqlServerDefinition || json.data.savedConfig?.query_sql || '');
+        const targetSql = cleanQuery || json.data.sqlServerDefinition || '';
+        document.getElementById('ve-query-sql').value = formatSqlQuery(targetSql);
+        updateVeQueryStats();
+
+        const viewObj = (state.source.views || []).find((v) => v.name === existingViewName);
+        document.getElementById('ve-description').value = json.data.savedConfig?.description || json.data.description || viewObj?.description || '';
+
+        if (json.data.schema) {
+          document.getElementById('ve-schema-name').value = json.data.schema;
+        }
+      } else {
+        document.getElementById('ve-query-sql').value = '';
+        updateVeQueryStats();
       }
     } catch (e) {
       console.warn('Gagal load view definition:', e.message);
+      document.getElementById('ve-query-sql').value = '';
+      updateVeQueryStats();
     }
   } else {
     document.getElementById('view-editor-title').textContent = 'Buat Objek View Baru di SQL Server';
     document.getElementById('ve-view-name').value = '';
     document.getElementById('ve-view-name').readOnly = false;
-    document.getElementById('ve-query-sql').value = 'SELECT \n  [vendor_id],\n  [vendor_name],\n  [status]\nFROM [dbo].[tb_vendor]';
+    document.getElementById('ve-query-sql').value = formatSqlQuery('SELECT [vendor_id], [vendor_name], [status] FROM [dbo].[tb_vendor]');
     document.getElementById('ve-description').value = '';
+    updateVeQueryStats();
   }
 }
 
@@ -1883,35 +2952,57 @@ function closeViewEditor() {
 }
 
 async function validateViewQuery() {
-  const querySql = document.getElementById('ve-query-sql').value.trim();
+  const rawQuery = document.getElementById('ve-query-sql').value.trim();
   const box = document.getElementById('ve-validation-box');
   box.classList.remove('hidden');
   box.className = 'p-3 rounded border text-xs mb-2 bg-surface text-muted';
-  box.textContent = 'Memvalidasi query ke SQL Server...';
+  box.innerHTML = '⚡ Memvalidasi query ke database sumber...';
+
+  if (!rawQuery) {
+    box.className = 'p-3 rounded border text-xs mb-2 alert-box-warning';
+    box.innerHTML = '<strong>⚠️ Perhatian:</strong> Query SQL tidak boleh kosong.';
+    return false;
+  }
 
   try {
     const res = await fetch('/api/source/validate-query', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        query_sql: querySql,
+        query_sql: rawQuery,
         connection_id: document.getElementById('ve-connection-id')?.value || state.selectedSourceConnectionId,
       }),
     });
     const json = await res.json();
     if (json.data && json.data.valid) {
       box.className = 'p-3 rounded border text-xs mb-2 alert-box-success';
+      const colBadges = json.data.columns.slice(0, 15).map((c) => `<code>${escapeHtml(c)}</code>`).join(' ');
+      const moreCols = json.data.columns.length > 15 ? ` <span class="text-muted">(+${json.data.columns.length - 15} lainnya)</span>` : '';
       box.innerHTML = `
-        <strong>✓ Query Valid!</strong> (${json.data.durationMs}ms)<br>
-        Kolom terdeteksi (${json.data.columns.length}): <code>${json.data.columns.join(', ')}</code>
+        <div class="flex-between mb-1">
+          <strong class="text-emerald">✓ Query Valid & Terverifikasi!</strong>
+          <span class="text-muted font-mono">${json.data.durationMs}ms</span>
+        </div>
+        <div>Terdeteksi <strong>${json.data.columns.length} kolom</strong>: ${colBadges}${moreCols}</div>
       `;
+      // Jika query otomatis diekstrak dari CREATE VIEW, perbarui textarea dengan query murni yang terformat
+      if (json.data.cleanQuery && json.data.cleanQuery !== rawQuery && rawQuery.toLowerCase().includes('create')) {
+        document.getElementById('ve-query-sql').value = formatSqlQuery(json.data.cleanQuery);
+        updateVeQueryStats();
+      }
+      return true;
     } else {
       box.className = 'p-3 rounded border text-xs mb-2 alert-box-warning';
-      box.innerHTML = `<strong>⚠️ Query Gagal Validasi:</strong><br>${escapeHtml(json.data?.error || json.error)}`;
+      box.innerHTML = `
+        <div style="font-weight: 700; margin-bottom: 0.25rem;">⚠️ Query Gagal Validasi:</div>
+        <div class="font-mono text-xs">${escapeHtml(json.data?.error || json.error || 'Syntax error')}</div>
+      `;
+      return false;
     }
   } catch (err) {
     box.className = 'p-3 rounded border text-xs mb-2 alert-box-warning';
-    box.innerHTML = `<strong>⚠️ Error:</strong> ${err.message}`;
+    box.innerHTML = `<strong>⚠️ Error Jaringan / Server:</strong> ${err.message}`;
+    return false;
   }
 }
 
@@ -1927,9 +3018,20 @@ async function saveOrExecuteView() {
 
   const btn = document.getElementById('btn-ve-save');
   btn.disabled = true;
-  btn.textContent = 'Menyimpan...';
+  btn.textContent = 'Memvalidasi query...';
 
   try {
+    // 1. Pastikan Uji Validitas Query Berhasil Terlebih Dahulu
+    const isValid = await validateViewQuery();
+    if (!isValid) {
+      alert('⚠️ Query SQL tidak valid atau gagal saat diuji.\nSilakan periksa pesan kesalahan pada kotak feedback dan perbaiki query sebelum menyimpan.');
+      return;
+    }
+
+    // Ambil query efektif (mungkin sudah diekstrak dari klausa CREATE VIEW)
+    const effectiveQuery = document.getElementById('ve-query-sql').value.trim();
+
+    btn.textContent = 'Menyimpan & membentuk view di DB...';
     const res = await fetch('/api/source/create-view', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1937,7 +3039,7 @@ async function saveOrExecuteView() {
         connection_id: document.getElementById('ve-connection-id')?.value || state.selectedSourceConnectionId,
         schema_name: document.getElementById('ve-schema-name')?.value.trim() || 'dbo',
         view_name: viewName,
-        query_sql: querySql,
+        query_sql: effectiveQuery,
         description,
       }),
     });
@@ -1960,10 +3062,10 @@ window.quickSyncView = async function (viewName) {
     const connParam = state.selectedSourceConnectionId ? `&connection_id=${state.selectedSourceConnectionId}` : '';
     const defRes = await fetch(`/api/source/view-definition?view=${encodeURIComponent(viewName)}${connParam}`);
     const defJson = await defRes.json();
-    const querySql = defJson.data?.sqlServerDefinition;
+    const querySql = defJson.data?.querySql || extractSelectQueryFrontend(defJson.data?.sqlServerDefinition);
 
     if (!querySql) {
-      alert(`Tidak dapat mengekstrak definisi query untuk [dbo].[${viewName}] dari SQL Server.`);
+      alert(`Tidak dapat mengekstrak definisi query untuk [dbo].[${viewName}] dari database sumber.`);
       return;
     }
 
