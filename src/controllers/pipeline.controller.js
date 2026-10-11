@@ -3,7 +3,8 @@ const pipelineService = require('../services/pipeline.service');
 class PipelineController {
   async getPipelineSummary(req, res) {
     try {
-      const data = await pipelineService.getPipelineSummary();
+      const { clientId, envId } = req.query;
+      const data = await pipelineService.getPipelineSummary({ clientId, envId });
       return res.json({ success: true, data });
     } catch (err) {
       return res.status(500).json({ success: false, error: err.message });

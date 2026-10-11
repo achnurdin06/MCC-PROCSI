@@ -16,11 +16,25 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Sajikan Frontend Dashboard statis dari direktori public
-app.use(express.static(path.join(__dirname, 'public')));
+// Sajikan Frontend Dashboard statis dari direktori public (tanpa cache browser lokal)
+app.use(express.static(path.join(__dirname, 'public'), {
+  etag: false,
+  maxAge: 0,
+  setHeaders: (res) => {
+    res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+  },
+}));
 
-// API Routes
-app.use('/api', apiRoutes);
+// API Routes with strict no-cache headers
+app.use('/api', (req, res, next) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  res.set('Surrogate-Control', 'no-store');
+  next();
+}, apiRoutes);
 
 // Fallback route untuk Single Page Application (kompatibel Express 5)
 app.use((req, res, next) => {
