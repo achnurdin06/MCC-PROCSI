@@ -99,24 +99,12 @@ function createTunnel() {
 
     client.on('error', (err) => {
       console.warn('SSH Connection warning/error:', err.message);
-      isTunnelReady = false;
-      initPromise = null;
-      if (netServer) {
-        try { netServer.close(); } catch (e) {}
-        netServer = null;
-      }
-      sshClient = null;
+      closeTunnel().catch(() => {});
     });
 
     client.on('close', () => {
       console.log('SSH connection closed.');
-      isTunnelReady = false;
-      initPromise = null;
-      if (netServer) {
-        try { netServer.close(); } catch (e) {}
-        netServer = null;
-      }
-      sshClient = null;
+      closeTunnel().catch(() => {});
     });
 
     try {
@@ -125,8 +113,8 @@ function createTunnel() {
         port: tunnelConfig.sshPort,
         username: tunnelConfig.sshUser,
         password: tunnelConfig.sshPassword,
-        readyTimeout: 20000,
-        keepaliveInterval: 5000,
+        readyTimeout: 30000,
+        keepaliveInterval: 10000,
         keepaliveCountMax: 3,
       });
     } catch (err) {
@@ -143,13 +131,15 @@ async function ensureTunnel() {
     return null;
   }
   if (!isTunnelReady || !sshClient) {
-    initPromise = null;
+    await closeTunnel();
     return await createTunnel();
   }
   return tunnelConfig.localPort;
 }
 
 async function closeTunnel() {
+  isTunnelReady = false;
+  initPromise = null;
   if (netServer) {
     try {
       netServer.close();
@@ -159,12 +149,11 @@ async function closeTunnel() {
   if (sshClient) {
     try {
       sshClient.end();
+      sshClient.destroy();
     } catch (e) {}
     sshClient = null;
   }
-  isTunnelReady = false;
-  initPromise = null;
-  console.log('✓ SSH tunnel ditutup.');
+  console.log('✓ SSH tunnel ditutup / di-reset.');
 }
 
 module.exports = {

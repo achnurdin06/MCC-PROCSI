@@ -12,22 +12,65 @@ const pipelineController = require('../controllers/pipeline.controller');
 router.get('/health', (req, res) => migrationController.getHealth(req, res));
 
 // ==========================================
-// 2. Modul 1: Source Data (SQL Server dbo Views)
+// 2. Global Context & Onboarding Wizard
+// ==========================================
+router.get('/context/status', (req, res) => etlController.getStatus(req, res));
+router.post('/context/init-wizard', (req, res) => etlController.initWizard(req, res));
+
+// Master Client CRUD
+router.get('/context/clients', (req, res) => etlController.getClients(req, res));
+router.post('/context/clients', (req, res) => etlController.createClient(req, res));
+router.put('/context/clients/:id', (req, res) => etlController.updateClient(req, res));
+router.delete('/context/clients/:id', (req, res) => etlController.deleteClient(req, res));
+
+// Master Environment CRUD
+router.get('/context/environments', (req, res) => etlController.getEnvironments(req, res));
+router.get('/context/environments/:id/details', (req, res) => etlController.getEnvironmentDetails(req, res));
+router.get('/context/environments/:id/health', (req, res) => etlController.getEnvironmentHealth(req, res));
+router.post('/context/environments/save-with-connections', (req, res) => etlController.saveEnvironmentWithConnections(req, res));
+router.post('/context/environments', (req, res) => etlController.createEnvironment(req, res));
+router.put('/context/environments/:id', (req, res) => etlController.updateEnvironment(req, res));
+router.delete('/context/environments/:id', (req, res) => etlController.deleteEnvironment(req, res));
+router.post('/settings/environments/:id/sync-hop', (req, res) => etlController.syncHopConfig(req, res));
+router.post('/context/environments/:id/sync-hop', (req, res) => etlController.syncHopConfig(req, res));
+
+// Master Connection (Multiple DB) CRUD & Test Ping
+router.get('/context/connections', (req, res) => etlController.getConnections(req, res));
+router.post('/context/connections', (req, res) => etlController.createConnection(req, res));
+router.put('/context/connections/:id', (req, res) => etlController.updateConnection(req, res));
+router.delete('/context/connections/:id', (req, res) => etlController.deleteConnection(req, res));
+router.post('/context/connections/test', (req, res) => etlController.testConnection(req, res));
+
+// ==========================================
+// 3. Modul 1: Source Data (SQL Server dbo Views & View Management)
 // ==========================================
 router.get('/source/views', (req, res) => sourceController.getViewsSummary(req, res));
 router.get('/source/view-data', (req, res) => sourceController.getViewData(req, res));
+router.get('/source/view-definition', (req, res) => sourceController.getViewDefinition(req, res));
+router.post('/source/save-view-definition', (req, res) => sourceController.saveViewDefinition(req, res));
+router.post('/source/create-view', (req, res) => sourceController.createOrAlterView(req, res));
+router.post('/source/validate-query', (req, res) => sourceController.validateQuery(req, res));
+router.delete('/source/drop-view/:viewName', (req, res) => sourceController.dropView(req, res));
+router.post('/source/sync-all-views', (req, res) => sourceController.syncAllViews(req, res));
 
 // ==========================================
-// 3. Modul 2: ETL Config & Execution Monitor (etl_antam)
+// 4. Modul 2: Migration Config (Master Tables & CRUD)
+// ==========================================
+router.get('/etl/configs', (req, res) => etlController.getMasterConfigs(req, res));
+router.post('/etl/configs/:table', (req, res) => etlController.createConfigRecord(req, res));
+router.put('/etl/configs/:table/:id', (req, res) => etlController.updateConfigRecord(req, res));
+router.delete('/etl/configs/:table/:id', (req, res) => etlController.deleteConfigRecord(req, res));
+
+// ==========================================
+// 5. Modul 3: Migration Proses (Execution & Log Monitoring)
 // ==========================================
 router.get('/etl/overview', (req, res) => etlController.getOverview(req, res));
-router.get('/etl/configs', (req, res) => etlController.getMasterConfigs(req, res));
 router.get('/etl/runs', (req, res) => etlController.getRuns(req, res));
 router.get('/etl/step-logs', (req, res) => etlController.getStepLogs(req, res));
 router.get('/etl/error-logs', (req, res) => etlController.getErrorLogs(req, res));
 
 // ==========================================
-// 4. Modul 3: Hasil Migrasi (Pipeline 3-Tier Reconciliation)
+// 6. Modul 4: Hasil Migrasi (Pipeline 3-Tier Reconciliation)
 // ==========================================
 router.get('/reconciliation/pipeline', (req, res) => pipelineController.getPipelineSummary(req, res));
 router.get('/reconciliation/config-details', (req, res) => pipelineController.getConfigDetail(req, res));

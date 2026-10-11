@@ -70,6 +70,14 @@ async function checkSqlServerConnection() {
       version: result.recordset[0]?.version?.split('\n')[0] || 'SQL Server',
     };
   } catch (err) {
+    if (pool) {
+      try { await pool.close(); } catch (e) {}
+      pool = null;
+    }
+    if (process.env.MSSQL_USE_SSH_TUNNEL === 'true') {
+      const { closeTunnel } = require('./tunnel');
+      closeTunnel().catch(() => {});
+    }
     return {
       connected: false,
       database: process.env.MSSQL_DATABASE,

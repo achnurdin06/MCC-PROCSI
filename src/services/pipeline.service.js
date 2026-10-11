@@ -11,7 +11,24 @@ class PipelineService {
   /**
    * Mengambil seluruh list konfigurasi migration_config beserta rekonsiliasi 3-Tahap
    */
-  async getPipelineSummary() {
+  async getPipelineSummary(filters = {}) {
+    const { clientId, envId } = filters;
+    const cid = clientId ? parseInt(clientId, 10) : null;
+    const eid = envId ? parseInt(envId, 10) : null;
+
+    let cfgWhere = '';
+    const cfgParams = [];
+    if (cid && eid) {
+      cfgWhere = 'WHERE client_id = $1 AND env_id = $2';
+      cfgParams.push(cid, eid);
+    } else if (cid) {
+      cfgWhere = 'WHERE client_id = $1';
+      cfgParams.push(cid);
+    } else if (eid) {
+      cfgWhere = 'WHERE env_id = $1';
+      cfgParams.push(eid);
+    }
+
     // 1. Ambil seluruh konfigurasi dari etl_antam.migration_config
     const configsRes = await queryPostgres(`
       SELECT 
@@ -30,8 +47,9 @@ class PipelineService {
         src_precheck_sql,
         is_active
       FROM etl_antam.migration_config
+      ${cfgWhere}
       ORDER BY exec_order, config_id
-    `);
+    `, cfgParams);
 
     const configs = configsRes.rows;
     const pipelineResults = [];
@@ -156,16 +174,17 @@ class PipelineService {
       });
     }
 
-    // Ambil info latest migration_run secara umum dan per config
+    // Ambil info latest migration_run secara umum dan per config (terfilter client & env)
     const latestRunsRes = await queryPostgres(`
       SELECT 
         run_id, run_ts, start_time, end_time, status, hop_host, note, main_workflow, config_id,
         is_posted, posted_at, post_type, is_rolled_back, rolled_back_at,
         ROUND(EXTRACT(EPOCH FROM (end_time - start_time))::numeric, 2) AS duration_seconds
       FROM etl_antam.migration_run
+      ${cfgWhere}
       ORDER BY run_id DESC
       LIMIT 10
-    `);
+    `, cfgParams);
 
     // Tempelkan latestRun yang relevan ke masing-masing pipeline
     for (const p of pipelineResults) {
