@@ -1022,7 +1022,7 @@ class EtlService {
     const keys = Object.keys(data).filter((k) => meta.autoPk ? k !== meta.pk : true);
     if (keys.length === 0) throw new Error('Tidak ada data kolom yang dikirim.');
 
-    const values = keys.map((k) => data[k]);
+    const values = keys.map((k) => (typeof data[k] === "string" && data[k].trim() === "" ? null : data[k]));
     const placeholders = keys.map((_, i) => `$${i + 1}`).join(', ');
     const colNames = keys.map((k) => `"${k}"`).join(', ');
 
@@ -1044,7 +1044,7 @@ class EtlService {
     if (keys.length === 0) throw new Error('Tidak ada kolom yang diubah.');
 
     const setClauses = keys.map((k, i) => `"${k}" = $${i + 1}`).join(', ');
-    const values = keys.map((k) => data[k]);
+    const values = keys.map((k) => (typeof data[k] === "string" && data[k].trim() === "" ? null : data[k]));
     values.push(id);
 
     const query = `
