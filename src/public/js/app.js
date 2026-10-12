@@ -1773,12 +1773,12 @@ window.testPingConnection = async function (connId) {
 async function loadSourceViews() {
   const tbody = document.getElementById('source-views-table-body');
   if (tbody) {
-    tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-muted">Memuat daftar view SQL Server...</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-muted">Memuat daftar view SQL Server...</td></tr>`;
   }
 
   if (!state.selectedSourceConnectionId) {
     if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-amber font-medium">⚠️ Belum ada koneksi SOURCE (SQL Server) yang terdaftar untuk Environment ini.<br><span class="text-xs text-muted">Silakan buka menu <strong>Setting ⚙️ ➔ 3. Master Connection</strong> untuk menambahkan koneksi database sumber.</span></td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-amber font-medium">⚠️ Belum ada koneksi SOURCE (SQL Server) yang terdaftar untuk Environment ini.<br><span class="text-xs text-muted">Silakan buka menu <strong>Setting ⚙️ ➔ 3. Master Connection</strong> untuk menambahkan koneksi database sumber.</span></td></tr>`;
     }
     const resetValues = [
       ['kpi-source-views-count', '0'],
@@ -1797,7 +1797,9 @@ async function loadSourceViews() {
   }
 
   try {
-    const connParam = `?connection_id=${state.selectedSourceConnectionId}`;
+    let connParam = `?connection_id=${state.selectedSourceConnectionId}`;
+    if (state.selectedClientId) connParam += `&client_id=${state.selectedClientId}`;
+    if (state.selectedEnvId) connParam += `&env_id=${state.selectedEnvId}`;
     const res = await fetch(`/api/source/views${connParam}`);
     const json = await res.json();
     if (!json.success) throw new Error(json.error);
@@ -1814,8 +1816,8 @@ async function loadSourceViews() {
     const elTotalRows = document.getElementById('kpi-source-total-rows');
     if (elTotalRows) elTotalRows.textContent = formatNumber(data.totalRowsAllViews || 0);
 
-    // Card 3: Mapping Coverage
-    const configuredCount = views.filter((v) => v.isConfigured).length;
+    // Card 3: Mapping Coverage ke migration_config
+    const configuredCount = views.filter((v) => v.isMigrationConfigured).length;
     const unconfiguredCount = views.length - configuredCount;
     const mappingPct = views.length > 0 ? Math.round((configuredCount / views.length) * 100) : 0;
     const elMappingCount = document.getElementById('kpi-source-mapping-count');
@@ -1829,8 +1831,8 @@ async function loadSourceViews() {
     const elMappingFoot = document.getElementById('kpi-source-mapping-foot');
     if (elMappingFoot) {
       elMappingFoot.textContent = unconfiguredCount === 0 
-        ? '✓ Seluruh view telah tercatat di config' 
-        : `${unconfiguredCount} view belum tercatat di config`;
+        ? '✓ Seluruh view telah terdaftar di migration_config' 
+        : `${unconfiguredCount} view belum ada di migration_config`;
     }
 
     // Card 4: DDL Sync Status
@@ -1842,7 +1844,7 @@ async function loadSourceViews() {
     if (elSyncStatus) {
       if (needSyncCount === 0) {
         elSyncStatus.innerHTML = `<span style="color: var(--accent-emerald);">100% Up to Date</span>`;
-        if (elSyncFoot) elSyncFoot.textContent = `${configuredCount} view tersinkronisasi`;
+        if (elSyncFoot) elSyncFoot.textContent = `${views.filter(v => v.isConfigured).length} view tersinkronisasi`;
         if (elSyncDot) elSyncDot.className = 'status-pulse-dot bg-emerald';
       } else {
         elSyncStatus.innerHTML = `<span style="color: var(--accent-amber);">${needSyncCount} Perlu Sync ⚠️</span>`;
@@ -1872,7 +1874,7 @@ async function loadSourceViews() {
     renderSourceViewsTable();
   } catch (err) {
     if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-rose">${err.message}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-rose">${err.message}</td></tr>`;
     }
   }
 }
@@ -1882,7 +1884,7 @@ function renderSourceViewsTable() {
   if (!tbody) return;
 
   if (!state.source.views || state.source.views.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-muted">Tidak ada VIEW di schema dbo SQL Server.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-muted">Tidak ada VIEW di schema dbo SQL Server.</td></tr>`;
     const pagInfo = document.getElementById('source-views-pagination-info');
     if (pagInfo) pagInfo.textContent = '0 views';
     const pagNumbers = document.getElementById('source-views-page-numbers');
@@ -1905,7 +1907,15 @@ function renderSourceViewsTable() {
     );
   }
 
-  if (state.source.configFilter === 'CONFIGURED') {
+  if (state.source.configFilter === 'MIGRATION_CONFIGURED') {
+    items = items.filter((v) => v.isMigrationConfigured);
+  } else if (state.source.configFilter === 'MIGRATION_UNCONFIGURED') {
+    items = items.filter((v) => !v.isMigrationConfigured);
+  } else if (state.source.configFilter === 'SYNCED') {
+    items = items.filter((v) => v.isConfigured && v.isSynced);
+  } else if (state.source.configFilter === 'UNSYNCED') {
+    items = items.filter((v) => v.isConfigured && !v.isSynced);
+  } else if (state.source.configFilter === 'CONFIGURED') {
     items = items.filter((v) => v.isConfigured);
   } else if (state.source.configFilter === 'UNCONFIGURED') {
     items = items.filter((v) => !v.isConfigured);
@@ -1920,6 +1930,16 @@ function renderSourceViewsTable() {
     if (sortBy === 'count') {
       valA = parseInt(valA, 10) || 0;
       valB = parseInt(valB, 10) || 0;
+      return sortDir === 'ASC' ? valA - valB : valB - valA;
+    }
+    if (sortBy === 'isMigrationConfigured') {
+      valA = a.isMigrationConfigured ? 1 : 0;
+      valB = b.isMigrationConfigured ? 1 : 0;
+      return sortDir === 'ASC' ? valA - valB : valB - valA;
+    }
+    if (sortBy === 'isConfigured') {
+      valA = a.isConfigured ? (a.isSynced ? 2 : 1) : 0;
+      valB = b.isConfigured ? (b.isSynced ? 2 : 1) : 0;
       return sortDir === 'ASC' ? valA - valB : valB - valA;
     }
     valA = (valA || '').toString().toLowerCase();
@@ -1952,12 +1972,37 @@ function renderSourceViewsTable() {
   const pagedItems = items.slice(startIdx, endIdx);
 
   if (pagedItems.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-muted">Tidak ada view yang sesuai dengan filter pencarian.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-muted">Tidak ada view yang sesuai dengan filter pencarian.</td></tr>`;
   } else {
     tbody.innerHTML = pagedItems.map((v, idx) => {
       const globalIndex = startIdx + idx + 1;
-      const configBadge = v.isConfigured
-        ? `<span class="badge badge-success">✓ Tercatat (${v.isSynced ? 'Sinkron' : 'Perlu Sync'})</span>`
+
+      // Relasi Migration Config Badge
+      let migConfigBadge = '';
+      if (v.isMigrationConfigured && v.migrationConfigs && v.migrationConfigs.length > 0) {
+        const badges = v.migrationConfigs.map((mc) => {
+          const activeTag = !mc.isActive ? ' <span class="badge badge-warning" style="font-size: 0.65rem; padding: 1px 4px;">Off</span>' : '';
+          return `
+            <div class="mig-config-pill" title="Target: [${escapeHtml(mc.tgtSchema || 'vendor')}].[${escapeHtml(mc.tgtTable || '-')}], Staging: [${escapeHtml(mc.stgTable || '-')}]">
+              <span class="badge badge-indigo font-mono text-xs font-semibold">✓ Config #${mc.configId}${activeTag}</span>
+              <span class="text-muted text-xs font-mono">➔</span>
+              <span class="font-mono font-semibold text-xs" style="color: var(--accent-primary);">${escapeHtml(mc.tgtSchema || 'vendor')}.${escapeHtml(mc.tgtTable || '-')}</span>
+            </div>
+          `;
+        }).join('');
+        migConfigBadge = `<div class="flex-column gap-1">${badges}</div>`;
+      } else {
+        migConfigBadge = `
+          <div class="flex-center gap-1" style="justify-content: flex-start;">
+            <span class="badge badge-neutral text-xs" style="color: var(--text-muted);">Belum Dikonfigurasi</span>
+            <button class="btn btn-emerald btn-xs" onclick="quickRegisterViewToConfig('${escapeHtml(v.name)}')" title="Daftarkan view ini ke tabel migration_config">+ Map</button>
+          </div>
+        `;
+      }
+
+      // Katalog View Badge (master_source_view)
+      const catalogBadge = v.isConfigured
+        ? `<span class="badge ${v.isSynced ? 'badge-success' : 'badge-warning'}">✓ ${v.isSynced ? 'Sinkron' : 'Perlu Sync'}</span>`
         : `<span class="badge badge-neutral">Belum Dicatat</span>`;
 
       return `
@@ -1976,11 +2021,12 @@ function renderSourceViewsTable() {
           <td class="col-num font-mono ${v.error ? 'text-rose' : ''}" style="text-align: right; font-weight: 600;">
             ${v.error ? `<span title="${escapeHtml(v.error)}">Error</span>` : formatNumber(v.count)}
           </td>
-          <td class="col-status text-center">${configBadge}</td>
+          <td class="col-mig-config">${migConfigBadge}</td>
+          <td class="col-status text-center">${catalogBadge}</td>
           <td class="col-action">
             <div class="flex-gap-2 flex-wrap" style="justify-content: center;">
               <button class="btn btn-primary btn-xs" onclick="openSourceInspectorModal('${v.name}')" title="Buka dialog data inspector, skema kolom, dan DDL">🔍 Detail</button>
-              ${!v.isConfigured ? `<button class="btn btn-emerald btn-xs" onclick="quickRegisterViewToConfig('${v.name}')" title="Daftarkan view ini ke Migration Config">⚡ Daftarkan</button>` : ''}
+              ${!v.isMigrationConfigured ? `<button class="btn btn-emerald btn-xs" onclick="quickRegisterViewToConfig('${v.name}')" title="Daftarkan view ini ke Migration Config">⚡ Daftarkan</button>` : ''}
               <button class="btn btn-secondary btn-xs" onclick="quickSyncView('${v.name}')" title="Simpan query view ke tabel konfigurasi">💾 Sync</button>
               <button class="btn btn-secondary btn-xs" onclick="openViewEditor('${v.name}')" title="Edit query view">✏️ Edit</button>
               <button class="btn btn-danger btn-xs" onclick="openDeleteModal('source_view', '${v.name}', '${v.name}')" title="Hapus view dari DB">🗑️</button>
@@ -3156,7 +3202,7 @@ function renderConfigTable(tableKey) {
   } else if (tableKey === 'rules') {
     rawList = state.config.masters.migration_convert_rule || [];
     tbodyId = 'master-rules-tbody';
-    colspan = 11;
+    colspan = 16;
   } else if (tableKey === 'targets') {
     rawList = state.config.masters.migration_target_config || [];
     tbodyId = 'master-targets-tbody';
@@ -3267,26 +3313,48 @@ function renderConfigTable(tableKey) {
       </tr>
     `).join('');
   } else if (tableKey === 'rules') {
-    tbody.innerHTML = pageItems.map((r) => `
+    tbody.innerHTML = pageItems.map((r) => {
+      const cfg = (state.config.masters?.migration_config || []).find((c) => c.config_id == r.config_id);
+      const cfgLabel = cfg ? `${cfg.src_view || ''} ➔ ${cfg.tgt_schema || 'vendor'}.${cfg.tgt_table || ''}` : '';
+      const clientObj = (state.clients || []).find((c) => c.client_id == r.client_id);
+      const envObj = (state.environments || []).find((e) => e.env_id == r.env_id);
+      const clientCode = clientObj ? clientObj.client_code : (r.client_id ? `#${r.client_id}` : '-');
+      const envCode = envObj ? envObj.env_code : (r.env_id ? `#${r.env_id}` : '-');
+
+      return `
       <tr>
-        <td class="font-mono text-muted text-center">#${r.rule_id}</td>
-        <td class="font-mono font-bold text-center">#${r.config_id}</td>
-        <td><strong class="text-emerald">${escapeHtml(r.column_name)}</strong></td>
+        <td class="font-mono text-muted text-center font-bold">#${r.rule_id}</td>
+        <td class="text-center font-mono">
+          <span class="badge badge-neutral font-bold text-amber" title="${escapeHtml(cfgLabel || `Config #${r.config_id}`)}">#${r.config_id}</span>
+          ${cfg ? `<div class="text-xs text-muted" title="${escapeHtml(cfgLabel)}">${escapeHtml(cfg.tgt_table || '')}</div>` : ''}
+        </td>
+        <td><strong class="text-emerald font-mono">${escapeHtml(r.column_name || '-')}</strong></td>
         <td class="text-muted font-mono">${escapeHtml(r.source_column || '-')}</td>
-        <td class="text-cyan">${escapeHtml(r.lookup_name || '-')}</td>
-        <td class="text-muted">${escapeHtml(r.master_table || '-')}</td>
-        <td>${escapeHtml(r.on_unmapped || '-')}</td>
-        <td class="font-mono">${escapeHtml(r.default_value || '-')}</td>
+        <td><span class="text-cyan font-semibold">${escapeHtml(r.lookup_name || '-')}</span></td>
+        <td class="font-mono text-muted">${escapeHtml(r.master_schema || '-')}</td>
+        <td><strong>${escapeHtml(r.master_table || '-')}</strong></td>
+        <td class="font-mono text-muted">${escapeHtml(r.master_src_col || '-')}</td>
+        <td class="font-mono text-emerald font-semibold">${escapeHtml(r.master_tgt_col || '-')}</td>
+        <td>${formatSqlSnippet(r.master_filter)}</td>
+        <td class="text-center"><span class="badge ${r.on_unmapped === 'REJECT' ? 'badge-danger' : r.on_unmapped === 'DEFAULT' ? 'badge-info' : 'badge-neutral'} font-mono">${escapeHtml(r.on_unmapped || '-')}</span></td>
+        <td class="font-mono text-xs text-center">${escapeHtml(r.default_value !== null && r.default_value !== undefined && r.default_value !== '' ? r.default_value : '-')}</td>
         <td class="text-center"><span class="badge ${r.normalize ? 'badge-success' : 'badge-neutral'}">${r.normalize ? 'Yes' : 'No'}</span></td>
+        <td class="text-center">
+          <div class="flex-gap-1 justify-center text-xs">
+            <span class="badge badge-neutral font-mono" title="Client ID: ${r.client_id || '-'}">${escapeHtml(clientCode)}</span>
+            <span class="badge badge-info font-mono" title="Env ID: ${r.env_id || '-'}">${escapeHtml(envCode)}</span>
+          </div>
+        </td>
         <td class="text-center"><span class="badge ${r.is_active ? 'badge-success' : 'badge-danger'}">${r.is_active ? 'Active' : 'Inactive'}</span></td>
         <td class="sticky-action-col">
           <div class="flex-gap-2 justify-center">
             <button class="btn btn-secondary btn-sm" onclick="openEditConfigModal('migration_convert_rule', ${r.rule_id})">Edit</button>
-            <button class="btn btn-danger btn-sm" onclick="openDeleteModal('migration_convert_rule', ${r.rule_id}, 'Rule #${r.rule_id}')">Hapus</button>
+            <button class="btn btn-danger btn-sm" onclick="openDeleteModal('migration_convert_rule', ${r.rule_id}, 'Rule #${r.rule_id} (${escapeHtml(r.column_name || '')})')">Hapus</button>
           </div>
         </td>
       </tr>
-    `).join('');
+      `;
+    }).join('');
   } else if (tableKey === 'targets') {
     tbody.innerHTML = pageItems.map((t) => `
       <tr>
@@ -3382,17 +3450,23 @@ const FORM_DEFINITIONS = {
     ],
   },
   migration_convert_rule: {
-    title: 'Convert Rule',
+    title: 'Convert Rule (migration_convert_rule)',
     fields: [
-      { name: 'config_id', label: 'Config ID', type: 'number', required: true },
-      { name: 'column_name', label: 'Column Name (Staging/Target)', type: 'text', required: true },
-      { name: 'source_column', label: 'Source Column', type: 'text' },
-      { name: 'lookup_name', label: 'Lookup Name', type: 'text' },
-      { name: 'master_table', label: 'Master Table', type: 'text' },
-      { name: 'on_unmapped', label: 'On Unmapped', type: 'select', options: ['REJECT', 'NULL', 'DEFAULT'], default: 'REJECT' },
-      { name: 'default_value', label: 'Default Value', type: 'text' },
-      { name: 'normalize', label: 'Normalize', type: 'boolean', default: false },
-      { name: 'is_active', label: 'Status Aktif', type: 'boolean', default: true },
+      { name: 'client_id', label: '1. Client', type: 'select_client_cascade', required: false },
+      { name: 'env_id', label: '2. Environment', type: 'select_env_cascade', required: false },
+      { name: 'config_id', label: '3. Migration Config (Target Pipeline)', type: 'select_config', required: true },
+      { name: 'column_name', label: '4. Column Name (Target / Staging Column)', type: 'text', placeholder: 'e.g. company_type_id atau vendor_id', required: true },
+      { name: 'source_column', label: '5. Source Column (Di Source View)', type: 'text', placeholder: 'e.g. tipe_perusahaan (kosongkan jika sama)' },
+      { name: 'lookup_name', label: '6. Lookup Name / Identifier', type: 'text', placeholder: 'e.g. company_type atau akta_perusahaan' },
+      { name: 'master_schema', label: '7. Master Schema (PostgreSQL)', type: 'text', default: 'vendor', placeholder: 'vendor' },
+      { name: 'master_table', label: '8. Master Table (PostgreSQL)', type: 'text', placeholder: 'e.g. company_types atau vendors' },
+      { name: 'master_src_col', label: '9. Master Source Match Col', type: 'text', placeholder: 'e.g. name atau vendor_reference_id' },
+      { name: 'master_tgt_col', label: '10. Master Target Return Col', type: 'text', placeholder: 'e.g. id atau code' },
+      { name: 'master_filter', label: '11. Master Filter Condition (SQL WHERE)', type: 'textarea', placeholder: 'e.g. is_active = true AND deleted_at IS NULL' },
+      { name: 'on_unmapped', label: '12. On Unmapped Action', type: 'select', options: ['DEFAULT', 'NULL', 'REJECT', 'KEEP_ORIGINAL'], default: 'DEFAULT' },
+      { name: 'default_value', label: '13. Default Value (Jika Unmapped)', type: 'text', placeholder: 'e.g. 0 atau UNKNOWN' },
+      { name: 'normalize', label: '14. Normalize (Trim & Case Insensitive)', type: 'boolean', default: true },
+      { name: 'is_active', label: '15. Status Aturan Aktif', type: 'boolean', default: true },
     ],
   },
   migration_target_config: {
@@ -3467,17 +3541,23 @@ const FORM_DEFINITIONS = {
   },
 };
 
-window.openCreateConfigModal = function (tableName) {
+window.openCreateConfigModal = async function (tableName) {
+  if ((!state.clients || state.clients.length === 0 || !state.environments || state.environments.length === 0) && typeof loadSettingsClientsAndEnvironments === 'function') {
+    await loadSettingsClientsAndEnvironments();
+  }
   openUniversalForm(tableName, null);
 };
 
-window.openEditConfigModal = function (tableName, id) {
-  const meta = state.config.masters[tableName];
+window.openEditConfigModal = async function (tableName, id) {
+  if ((!state.clients || state.clients.length === 0 || !state.environments || state.environments.length === 0) && typeof loadSettingsClientsAndEnvironments === 'function') {
+    await loadSettingsClientsAndEnvironments();
+  }
+  const meta = state.config.masters ? state.config.masters[tableName] : [];
   let record = null;
-  if (tableName === 'migration_config') record = meta.find((r) => r.config_id == id);
-  else if (tableName === 'migration_convert_rule') record = meta.find((r) => r.rule_id == id);
-  else if (tableName === 'migration_target_config') record = meta.find((r) => r.target_config_id == id);
-  else if (tableName === 'migration_lookup') record = meta.find((r) => r.lookup_name == id);
+  if (tableName === 'migration_config') record = meta?.find((r) => r.config_id == id);
+  else if (tableName === 'migration_convert_rule') record = meta?.find((r) => r.rule_id == id);
+  else if (tableName === 'migration_target_config') record = meta?.find((r) => r.target_config_id == id);
+  else if (tableName === 'migration_lookup') record = meta?.find((r) => r.lookup_name == id);
 
   openUniversalForm(tableName, id, record);
 };
@@ -3517,20 +3597,20 @@ function openUniversalForm(entityType, id = null, existingData = null) {
     ? `Memperbarui record ID: #${id}`
     : `Membuat data baru pada ${def.title}`;
 
-  // Normalisasi existingData untuk Connection
+  // Normalisasi existingData untuk Connection & Convert Rule
   let effectiveData = existingData ? { ...existingData } : {};
-  if (entityType === 'connection') {
+  if (entityType === 'connection' || entityType === 'migration_convert_rule') {
     if (isEdit && effectiveData.env_id) {
-      const parentEnv = state.environments.find((e) => e.env_id == effectiveData.env_id);
+      const parentEnv = state.environments?.find((e) => e.env_id == effectiveData.env_id);
       if (parentEnv && !effectiveData.client_id) {
         effectiveData.client_id = parentEnv.client_id;
       }
     } else if (!isEdit) {
       if (!effectiveData.client_id) {
-        effectiveData.client_id = state.selectedClientId || (state.clients[0]?.client_id) || '';
+        effectiveData.client_id = state.selectedClientId || (state.clients && state.clients[0]?.client_id) || '';
       }
       if (!effectiveData.env_id && effectiveData.client_id) {
-        const clientEnvs = state.environments.filter((e) => e.client_id == effectiveData.client_id);
+        const clientEnvs = state.environments ? state.environments.filter((e) => e.client_id == effectiveData.client_id) : [];
         if (clientEnvs.length > 0) effectiveData.env_id = clientEnvs[0].env_id;
       }
     }
@@ -3539,7 +3619,7 @@ function openUniversalForm(entityType, id = null, existingData = null) {
   const container = document.getElementById('crud-modal-fields-container');
   const wideFields = [
     'compare_columns', 'src_precheck_sql', 'mapping_sql', 'precheck_sql',
-    'postcheck_sql', 'rollback_sql', 'master_filter', 'description', 'note', 'sql_query'
+    'postcheck_sql', 'rollback_sql', 'master_filter', 'description', 'note', 'sql_query', 'config_id'
   ];
 
   const fieldItems = def.fields.map((f) => {
@@ -3563,34 +3643,61 @@ function openUniversalForm(entityType, id = null, existingData = null) {
           ${f.options.map((opt) => `<option value="${opt}" ${val === opt ? 'selected' : ''}>${opt}</option>`).join('')}
         </select>
       `;
+    } else if (f.type === 'select_config') {
+      const configs = state.config.masters?.migration_config || [];
+      let selectedVal = val;
+      if (!selectedVal && configs.length > 0) {
+        selectedVal = configs[0].config_id;
+      }
+      let configOptions = '';
+      if (selectedVal && !configs.some((c) => String(c.config_id) === String(selectedVal))) {
+        configOptions += `<option value="${selectedVal}" selected>[Config #${selectedVal}]</option>`;
+      }
+      if (configs.length > 0) {
+        configOptions += configs.map((c) => `
+          <option value="${c.config_id}" ${String(selectedVal) === String(c.config_id) ? 'selected' : ''}>
+            [Config #${c.config_id}] ${escapeHtml(c.src_view)} ➔ ${escapeHtml(c.tgt_schema || 'vendor')}.${escapeHtml(c.tgt_table)}
+          </option>
+        `).join('');
+      } else {
+        configOptions = `<option value="${selectedVal || ''}">-- Belum ada Migration Config (Isi manual ID: ${selectedVal || 1}) --</option>`;
+      }
+      inputHtml = `
+        <select name="${f.name}" class="form-input font-mono" required>
+          ${configOptions}
+        </select>
+      `;
     } else if (f.type === 'select_client' || f.type === 'select_client_cascade') {
       const clientOptions = state.clients && state.clients.length > 0
         ? state.clients.map((c) => `<option value="${c.client_id}" ${val == c.client_id ? 'selected' : ''}>[${escapeHtml(c.client_code)}] ${escapeHtml(c.client_name)}</option>`).join('')
         : '<option value="">-- Belum ada Client (Buat Master Client terlebih dahulu) --</option>';
+      const noneOption = f.required ? '' : '<option value="">-- Tanpa Client Khusus (Global) --</option>';
       inputHtml = `
-        <select name="${f.name}" class="form-input" required>
-          ${clientOptions}
+        <select name="${f.name}" class="form-input" ${f.required ? 'required' : ''}>
+          ${noneOption}${clientOptions}
         </select>
       `;
     } else if (f.type === 'select_env') {
       const envOptions = state.environments && state.environments.length > 0
         ? state.environments.map((e) => `<option value="${e.env_id}" ${val == e.env_id ? 'selected' : ''}>[${escapeHtml(e.env_code)}] ${escapeHtml(e.env_name)}</option>`).join('')
         : '<option value="">-- Belum ada Environment (Buat Master Environment terlebih dahulu) --</option>';
+      const noneOption = f.required ? '' : '<option value="">-- Tanpa Environment Khusus (Global) --</option>';
       inputHtml = `
-        <select name="${f.name}" class="form-input" required>
-          ${envOptions}
+        <select name="${f.name}" class="form-input" ${f.required ? 'required' : ''}>
+          ${noneOption}${envOptions}
         </select>
       `;
     } else if (f.type === 'select_env_cascade') {
-      const targetClientId = effectiveData.client_id ? parseInt(effectiveData.client_id, 10) : (state.clients[0]?.client_id || null);
-      const filteredEnvs = targetClientId ? state.environments.filter((e) => e.client_id === targetClientId) : state.environments;
+      const targetClientId = effectiveData.client_id ? parseInt(effectiveData.client_id, 10) : (state.clients && state.clients[0]?.client_id || null);
+      const filteredEnvs = targetClientId && state.environments ? state.environments.filter((e) => e.client_id === targetClientId) : (state.environments || []);
 
       const envOptions = filteredEnvs && filteredEnvs.length > 0
         ? filteredEnvs.map((e) => `<option value="${e.env_id}" ${val == e.env_id ? 'selected' : ''}>[${escapeHtml(e.env_code)}] ${escapeHtml(e.env_name)}</option>`).join('')
         : '<option value="">-- Belum ada Environment untuk Client ini (Tambahkan di Tab Environment) --</option>';
+      const noneOption = f.required ? '' : '<option value="">-- Tanpa Environment Khusus (Global) --</option>';
       inputHtml = `
-        <select name="${f.name}" class="form-input" required>
-          ${envOptions}
+        <select name="${f.name}" class="form-input" ${f.required ? 'required' : ''}>
+          ${noneOption}${envOptions}
         </select>
       `;
     } else {
@@ -3615,22 +3722,29 @@ function openUniversalForm(entityType, id = null, existingData = null) {
 
   container.innerHTML = `<div class="modal-form-grid">${fieldItems}</div>`;
 
-  // Interactive enhancements untuk connection form
-  if (entityType === 'connection') {
-    const selClient = container.querySelector('select[name="client_id"]');
-    const selEnv = container.querySelector('select[name="env_id"]');
-    if (selClient && selEnv) {
-      selClient.addEventListener('change', () => {
-        const cId = parseInt(selClient.value, 10);
-        const envs = state.environments.filter((e) => e.client_id === cId);
-        if (envs.length === 0) {
-          selEnv.innerHTML = '<option value="">-- Belum ada Environment untuk Client ini (Tambahkan di Tab Environment) --</option>';
-        } else {
-          selEnv.innerHTML = envs.map((e) => `<option value="${e.env_id}">[${escapeHtml(e.env_code)}] ${escapeHtml(e.env_name)}</option>`).join('');
-        }
-      });
-    }
+  // Interactive cascading enhancements untuk Client -> Environment
+  const selClient = container.querySelector('select[name="client_id"]');
+  const selEnv = container.querySelector('select[name="env_id"]');
+  if (selClient && selEnv) {
+    selClient.addEventListener('change', () => {
+      const cId = parseInt(selClient.value, 10);
+      const isReq = selEnv.hasAttribute('required');
+      const noneOpt = isReq ? '' : '<option value="">-- Tanpa Environment Khusus (Global) --</option>';
+      if (isNaN(cId)) {
+        selEnv.innerHTML = noneOpt + '<option value="">-- Pilih Client terlebih dahulu --</option>';
+        return;
+      }
+      const envs = state.environments ? state.environments.filter((e) => e.client_id === cId) : [];
+      if (envs.length === 0) {
+        selEnv.innerHTML = noneOpt + '<option value="">-- Belum ada Environment untuk Client ini (Tambahkan di Tab Environment) --</option>';
+      } else {
+        selEnv.innerHTML = noneOpt + envs.map((e) => `<option value="${e.env_id}">[${escapeHtml(e.env_code)}] ${escapeHtml(e.env_name)}</option>`).join('');
+      }
+    });
+  }
 
+  // Interactive enhancements khusus connection form
+  if (entityType === 'connection') {
     const selDbType = container.querySelector('select[name="db_type"]');
     const portInput = container.querySelector('input[name="port"]');
     const schemaInput = container.querySelector('input[name="db_schema"]');

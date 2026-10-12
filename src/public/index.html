@@ -518,9 +518,11 @@
             <div class="panel-actions flex-wrap gap-2">
               <input type="text" id="search-source-views" class="search-input" placeholder="🔍 Cari nama view...">
               <select id="filter-source-config-status" class="select-input select-sm">
-                <option value="ALL">Semua Status Config</option>
-                <option value="CONFIGURED">✓ Sudah Dicatat</option>
-                <option value="UNCONFIGURED">Belum Dicatat</option>
+                <option value="ALL">Semua Relasi & Status</option>
+                <option value="MIGRATION_CONFIGURED">✓ Terdaftar di Migration Config</option>
+                <option value="MIGRATION_UNCONFIGURED">❌ Belum di Migration Config</option>
+                <option value="SYNCED">✓ Sinkron di Katalog View</option>
+                <option value="UNSYNCED">Perlu Sync di Katalog View</option>
               </select>
               <div class="flex-center gap-1">
                 <span class="text-xs text-muted">Limit:</span>
@@ -543,12 +545,13 @@
                   <th class="sortable col-desc" data-sort="description">Deskripsi <span class="sort-icon">↕</span></th>
                   <th class="col-schema">Schema</th>
                   <th class="sortable col-num" data-sort="count" style="text-align: right;">Total Baris <span class="sort-icon">↕</span></th>
-                  <th class="col-status">Status Config</th>
+                  <th class="sortable col-mig-config" data-sort="isMigrationConfigured">Relasi Migration Config <span class="sort-icon">↕</span></th>
+                  <th class="sortable col-status" data-sort="isConfigured">Katalog View <span class="sort-icon">↕</span></th>
                   <th class="col-action" style="text-align: center;">Aksi</th>
                 </tr>
               </thead>
               <tbody id="source-views-table-body">
-                <tr><td colspan="7" class="text-center py-8 text-muted">Memuat daftar view SQL Server...</td></tr>
+                <tr><td colspan="8" class="text-center py-8 text-muted">Memuat daftar view SQL Server...</td></tr>
               </tbody>
             </table>
           </div>
@@ -712,18 +715,23 @@
                     <th class="sortable col-id" data-cfg-table="rules" data-col="rule_id">Rule ID <span class="sort-icon">↕</span></th>
                     <th class="sortable col-id" data-cfg-table="rules" data-col="config_id">Config ID <span class="sort-icon">↕</span></th>
                     <th class="sortable col-name" data-cfg-table="rules" data-col="column_name">Column Name <span class="sort-icon">↕</span></th>
-                    <th class="col-name">Source Column</th>
+                    <th class="sortable col-name" data-cfg-table="rules" data-col="source_column">Source Column <span class="sort-icon">↕</span></th>
                     <th class="sortable col-name" data-cfg-table="rules" data-col="lookup_name">Lookup Name <span class="sort-icon">↕</span></th>
-                    <th class="col-name">Master Table</th>
-                    <th class="col-schema">On Unmapped</th>
+                    <th class="sortable col-schema" data-cfg-table="rules" data-col="master_schema">Master Schema <span class="sort-icon">↕</span></th>
+                    <th class="sortable col-name" data-cfg-table="rules" data-col="master_table">Master Table <span class="sort-icon">↕</span></th>
+                    <th class="sortable col-name" data-cfg-table="rules" data-col="master_src_col">Master Src Col <span class="sort-icon">↕</span></th>
+                    <th class="sortable col-name" data-cfg-table="rules" data-col="master_tgt_col">Master Tgt Col <span class="sort-icon">↕</span></th>
+                    <th class="col-precheck">Master Filter</th>
+                    <th class="sortable col-schema" data-cfg-table="rules" data-col="on_unmapped">On Unmapped <span class="sort-icon">↕</span></th>
                     <th class="col-id">Default Value</th>
-                    <th class="col-num">Normalize</th>
+                    <th class="sortable col-num" data-cfg-table="rules" data-col="normalize">Normalize <span class="sort-icon">↕</span></th>
+                    <th class="col-id">Client / Env</th>
                     <th class="sortable col-status" data-cfg-table="rules" data-col="is_active">Status <span class="sort-icon">↕</span></th>
                     <th class="sticky-action-col col-action">Aksi</th>
                   </tr>
                 </thead>
                 <tbody id="master-rules-tbody">
-                  <tr><td colspan="11" class="text-center py-8 text-muted">Memuat data migration_convert_rule...</td></tr>
+                  <tr><td colspan="16" class="text-center py-8 text-muted">Memuat data migration_convert_rule...</td></tr>
                 </tbody>
               </table>
             </div>
