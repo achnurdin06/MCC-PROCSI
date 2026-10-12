@@ -1995,7 +1995,6 @@ function renderSourceViewsTable() {
         migConfigBadge = `
           <div class="flex-center gap-1" style="justify-content: flex-start;">
             <span class="badge badge-neutral text-xs" style="color: var(--text-muted);">Belum Dikonfigurasi</span>
-            <button class="btn btn-emerald btn-xs" onclick="quickRegisterViewToConfig('${escapeHtml(v.name)}')" title="Daftarkan view ini ke tabel migration_config">+ Map</button>
           </div>
         `;
       }
