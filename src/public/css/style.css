@@ -1627,6 +1627,10 @@ tr.view-row-clickable:hover {
   table-layout: auto;
 }
 
+#table-cfg-rules {
+  min-width: 1780px;
+}
+
 /* AutoFit Table Container & Layout */
 .autofit-table-container {
   overflow-x: auto;
@@ -1696,6 +1700,23 @@ tr.view-row-clickable:hover {
   width: 1%;
   white-space: nowrap;
   text-align: right;
+}
+
+.data-table-autofit th.col-mig-config,
+.data-table-autofit td.col-mig-config {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.mig-config-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: #f8fafc;
+  border: 1px solid var(--border-subtle);
+  padding: 0.2rem 0.5rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
 }
 
 .data-table-autofit th.col-status,

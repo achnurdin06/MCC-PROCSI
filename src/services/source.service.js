@@ -29,7 +29,7 @@ class SourceService {
   /**
    * Mengambil seluruh View di schema dbo pada SQL Server / Target DB beserta total baris & status config
    */
-  async getDboViewsSummary(connectionId = null) {
+  async getDboViewsSummary(connectionId = null, context = {}) {
     if (!connectionId) {
       return { totalViews: 0, totalRowsAllViews: 0, views: [] };
     }
@@ -129,6 +129,49 @@ class SourceService {
       }
     }
 
+    // Ambil metadata relasi dari etl_antam.migration_config
+    const migrationConfigMap = {};
+    try {
+      let mcQuery = `
+        SELECT config_id, exec_order, src_schema, src_view, tgt_schema, tgt_table, stg_table, is_active, client_id, env_id
+        FROM etl_antam.migration_config
+      `;
+      const mcParams = [];
+      const mcConds = [];
+      if (context?.clientId) {
+        mcConds.push(`(client_id = $${mcParams.length + 1} OR client_id IS NULL)`);
+        mcParams.push(context.clientId);
+      }
+      if (context?.envId) {
+        mcConds.push(`(env_id = $${mcParams.length + 1} OR env_id IS NULL)`);
+        mcParams.push(context.envId);
+      }
+      if (mcConds.length > 0) {
+        mcQuery += ` WHERE ${mcConds.join(' AND ')}`;
+      }
+      mcQuery += ' ORDER BY exec_order, config_id';
+      const mcRes = await queryPostgres(mcQuery, mcParams);
+      for (const row of mcRes.rows) {
+        if (!row.src_view) continue;
+        const viewKey = row.src_view.trim().toLowerCase();
+        if (!migrationConfigMap[viewKey]) {
+          migrationConfigMap[viewKey] = [];
+        }
+        migrationConfigMap[viewKey].push({
+          configId: row.config_id,
+          execOrder: row.exec_order,
+          srcSchema: row.src_schema,
+          srcView: row.src_view,
+          tgtSchema: row.tgt_schema,
+          tgtTable: row.tgt_table,
+          stgTable: row.stg_table,
+          isActive: row.is_active,
+        });
+      }
+    } catch (err) {
+      console.warn('Gagal memuat relasi migration_config:', err.message);
+    }
+
     const viewList = [];
     for (const v of views) {
       const cleanName = sanitizeIdentifier(v.name);
@@ -152,6 +195,10 @@ class SourceService {
 
       const cfg = configuredMap[v.name];
       const viewDesc = (cfg && cfg.description) ? cfg.description : (v.description || '');
+      const viewKey = v.name ? v.name.trim().toLowerCase() : '';
+      const migConfigs = migrationConfigMap[viewKey] || [];
+      const isMigrationConfigured = migConfigs.length > 0;
+
       viewList.push({
         schema: schemaName,
         name: v.name,
@@ -163,6 +210,8 @@ class SourceService {
         isConfigured: Boolean(cfg),
         isSynced: cfg ? cfg.is_synced : false,
         isActive: cfg ? cfg.is_active : true,
+        isMigrationConfigured,
+        migrationConfigs: migConfigs,
       });
     }
 
@@ -174,6 +223,7 @@ class SourceService {
       database: databaseName,
       totalViews: viewList.length,
       totalRowsAllViews,
+      totalMigrationConfigured: viewList.filter((v) => v.isMigrationConfigured).length,
       views: viewList,
     };
   }
