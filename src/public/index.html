@@ -2652,18 +2652,18 @@
     <!-- ============================================================== -->
     <div id="modal-pipeline-inspector" class="modal-overlay hidden">
       <div class="modal-box modal-wide modal-inspector-wide" style="max-width: 1400px; width: 96%;">
-        <div class="modal-header">
+        <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center;">
           <div>
-            <div class="flex-center gap-2 mb-1" id="pipeline-modal-tags">
+            <div style="display: inline-flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;" id="pipeline-modal-tags">
               <span class="badge badge-primary text-xs" id="pipeline-modal-cfg-badge">Config #1</span>
               <span class="badge badge-info text-xs">Pipeline 3-Tier Reconciliation</span>
             </div>
             <h3 class="modal-title" id="pipeline-detail-title">Detail Pipeline: Config #1</h3>
             <p class="modal-subtitle" id="pipeline-detail-desc">Alur rekonsiliasi Source View ➔ Staging ➔ Target</p>
           </div>
-          <div class="flex-center gap-3">
-            <div class="pipeline-header-badges" id="pipeline-detail-badges"></div>
-            <button id="btn-close-pipeline-inspector" class="modal-close">&times;</button>
+          <div class="modal-header-actions" style="display: flex; align-items: center; gap: 0.75rem;">
+            <div class="pipeline-header-badges" id="pipeline-detail-badges" style="display: inline-flex; align-items: center; gap: 0.5rem; flex-wrap: nowrap;"></div>
+            <button id="btn-close-pipeline-inspector" class="modal-close" title="Tutup Dialog" style="font-size: 1.5rem; line-height: 1; padding: 0.25rem 0.5rem; margin-left: 0.25rem;">&times;</button>
           </div>
         </div>
 

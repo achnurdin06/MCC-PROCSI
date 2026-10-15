@@ -2400,6 +2400,26 @@ tr.view-row-clickable:hover {
   align-items: center;
 }
 
+.flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+
+.pipeline-header-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+}
+
 .flex-gap-2 {
   display: flex;
   gap: 0.5rem;

@@ -357,7 +357,7 @@ class PipelineService {
    * Mengambil isi data record di salah satu tahap (source, staging, target) untuk config tertentu
    */
   async getPipelineStageData(options) {
-    const { configId, stage = 'staging', page = 1, limit = 25 } = options;
+    const { configId, stage = 'staging', page = 1, limit = 25, sortBy, sortDir } = options;
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 25));
     const offset = (pageNum - 1) * limitNum;
@@ -392,10 +392,18 @@ class PipelineService {
         const countRes = await querySqlServer(`SELECT COUNT_BIG(1) AS total FROM [${cleanSchema}].[${cleanView}]`);
         total = parseInt(countRes.recordset[0]?.total, 10) || 0;
 
-        const firstCol = columns[0] ? `[${columns[0].name}]` : '(SELECT NULL)';
+        let orderClause = columns[0] ? `[${columns[0].name}]` : '(SELECT NULL)';
+        if (sortBy) {
+          const matched = columns.find((c) => c.name.toLowerCase() === sortBy.toLowerCase());
+          if (matched) {
+            const dir = (sortDir && sortDir.toUpperCase() === 'DESC') ? 'DESC' : 'ASC';
+            orderClause = `[${matched.name}] ${dir}`;
+          }
+        }
+
         const dataRes = await querySqlServer(`
           SELECT * FROM [${cleanSchema}].[${cleanView}]
-          ORDER BY ${firstCol}
+          ORDER BY ${orderClause}
           OFFSET ${offset} ROWS FETCH NEXT ${limitNum} ROWS ONLY
         `);
         rows = dataRes.recordset;
@@ -450,10 +458,18 @@ class PipelineService {
       const countRes = await queryPostgres(`SELECT COUNT(*) AS total FROM "${cleanSchema}"."${cleanTable}"`);
       const total = parseInt(countRes.rows[0]?.total, 10) || 0;
 
-      const firstCol = columns[0] ? `"${columns[0].name}"` : '1';
+      let orderClause = columns[0] ? `"${columns[0].name}"` : '1';
+      if (sortBy) {
+        const matched = columns.find((c) => c.name.toLowerCase() === sortBy.toLowerCase());
+        if (matched) {
+          const dir = (sortDir && sortDir.toUpperCase() === 'DESC') ? 'DESC' : 'ASC';
+          orderClause = `"${matched.name}" ${dir}`;
+        }
+      }
+
       const dataRes = await queryPostgres(`
         SELECT * FROM "${cleanSchema}"."${cleanTable}"
-        ORDER BY ${firstCol}
+        ORDER BY ${orderClause}
         LIMIT $1 OFFSET $2
       `, [limitNum, offset]);
 
@@ -503,10 +519,18 @@ class PipelineService {
       const countRes = await queryPostgres(`SELECT COUNT(*) AS total FROM "${cleanSchema}"."${cleanTable}"`);
       const total = parseInt(countRes.rows[0]?.total, 10) || 0;
 
-      const firstCol = columns[0] ? `"${columns[0].name}"` : '1';
+      let orderClause = columns[0] ? `"${columns[0].name}"` : '1';
+      if (sortBy) {
+        const matched = columns.find((c) => c.name.toLowerCase() === sortBy.toLowerCase());
+        if (matched) {
+          const dir = (sortDir && sortDir.toUpperCase() === 'DESC') ? 'DESC' : 'ASC';
+          orderClause = `"${matched.name}" ${dir}`;
+        }
+      }
+
       const dataRes = await queryPostgres(`
         SELECT * FROM "${cleanSchema}"."${cleanTable}"
-        ORDER BY ${firstCol}
+        ORDER BY ${orderClause}
         LIMIT $1 OFFSET $2
       `, [limitNum, offset]);
 
