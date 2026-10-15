@@ -11,7 +11,84 @@
   <link rel="stylesheet" href="css/style.css?v=2.5">
 </head>
 <body>
-  <div class="app-layout">
+  <!-- ============================================================== -->
+  <!-- FULL-PAGE LOGIN SCREEN                                         -->
+  <!-- ============================================================== -->
+  <div id="screen-login" class="login-screen-overlay">
+    <div class="login-backdrop-glow"></div>
+    <div class="login-box-wrapper">
+      <div class="login-brand-header">
+        <div class="login-logos">
+          <span class="login-logo-antam">ANTAM</span>
+          <span class="login-logo-divider">•</span>
+          <span class="login-logo-sisi">SISI</span>
+        </div>
+        <h1 class="login-main-title">Migration Command Center</h1>
+        <p class="login-main-subtitle">Sistem Rekonsiliasi, Validasi &amp; Eksekusi Migrasi Data Multi-Tenant</p>
+      </div>
+
+      <div class="login-card">
+        <div class="login-card-header">
+          <h2 class="text-lg font-bold text-slate-800">Masuk ke Sistem</h2>
+          <p class="text-xs text-muted">Masukkan kredensial akun Anda untuk mengakses sistem</p>
+        </div>
+
+        <div id="login-alert-box" class="alert-box alert-danger hidden mb-4">
+          <span id="login-alert-text">Username atau kata sandi tidak sesuai.</span>
+        </div>
+
+        <form id="form-login" onsubmit="handleLoginSubmit(event)">
+          <div class="form-group mb-3">
+            <label class="form-label text-xs font-semibold text-slate-700">Username</label>
+            <div class="input-with-icon">
+              <span class="input-icon">👤</span>
+              <input type="text" id="login-username" class="form-input" placeholder="Masukkan username..." required autocomplete="username">
+            </div>
+          </div>
+
+          <div class="form-group mb-4">
+            <div class="flex-between align-center mb-1">
+              <label class="form-label text-xs font-semibold text-slate-700" style="margin-bottom:0;">Kata Sandi</label>
+              <button type="button" class="btn-text text-2xs text-cyan" onclick="togglePasswordVisibility('login-password')">Lihat</button>
+            </div>
+            <div class="input-with-icon">
+              <span class="input-icon">🔒</span>
+              <input type="password" id="login-password" class="form-input" placeholder="Masukkan kata sandi..." required autocomplete="current-password">
+            </div>
+          </div>
+
+          <button type="submit" id="btn-submit-login" class="btn btn-primary w-full py-2-5 font-bold shadow-md">
+            <span id="btn-submit-login-text">Masuk Sekarang ➔</span>
+          </button>
+        </form>
+
+        <!-- Quick Demo Accounts -->
+        <div class="login-demo-accounts mt-4 pt-4 border-t border-slate-100">
+          <div class="text-2xs text-muted mb-2 font-semibold text-center">PILIHAN AKUN DEMO (KLIK UNTUK AUTO-FILL):</div>
+          <div class="demo-chips-grid">
+            <button type="button" class="demo-chip chip-superadmin" onclick="autofillLogin('admin', 'admin123')">
+              <span class="chip-role">👑 Superadmin</span>
+              <span class="chip-user">admin / admin123</span>
+            </button>
+            <button type="button" class="demo-chip chip-operator" onclick="autofillLogin('operator', 'operator123')">
+              <span class="chip-role">🚀 Operator</span>
+              <span class="chip-user">operator / operator123</span>
+            </button>
+            <button type="button" class="demo-chip chip-viewer" onclick="autofillLogin('auditor', 'auditor123')">
+              <span class="chip-role">👁️ Auditor</span>
+              <span class="chip-user">auditor / auditor123</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="login-footer-text">
+        <span>&copy; 2025 PT Aneka Tambang Tbk &amp; PT Sinergi Informatika Semen Indonesia</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="app-layout" id="app-layout-root">
     <!-- Header / Navbar -->
     <header class="top-nav">
       <div class="nav-brand">
@@ -70,16 +147,30 @@
           </svg>
         </button>
 
-        <!-- Tombol Selamat Datang Header dihapus sesuai requirement #3 -->
-
-        <!-- Tombol Setting Header -->
-        <button id="btn-open-settings" class="btn btn-primary btn-icon-text" title="System Settings (Client, Env, & Multi-Connection)">
+        <!-- Tombol Setting Header (Hanya untuk User Admin) -->
+        <button id="btn-open-settings" class="btn btn-primary btn-icon-text hidden" style="display: none;" title="System Settings (Client, Env, & Multi-Connection)">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="3"></circle>
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
           </svg>
           <span>Setting</span>
         </button>
+        <!-- User Auth Profile & Logout -->
+        <div id="user-auth-badge" class="user-auth-badge">
+          <div class="user-avatar" id="hdr-user-avatar">AD</div>
+          <div class="user-details">
+            <span class="user-name" id="hdr-user-name">Administrator</span>
+            <span class="user-role-badge" id="hdr-user-role">SUPERADMIN</span>
+          </div>
+          <button id="btn-logout" class="btn btn-secondary btn-icon-text btn-logout" title="Keluar / Logout">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+              <polyline points="16 17 21 12 16 7"></polyline>
+              <line x1="21" y1="12" x2="9" y2="12"></line>
+            </svg>
+            <span>Logout</span>
+          </button>
+        </div>
       </div>
     </header>
 
@@ -124,6 +215,14 @@
           <span class="tab-sub">Source ➔ Staging ➔ Target</span>
         </div>
       </button>
+
+      <button class="nav-tab-btn" data-tab="tab-system" id="nav-btn-system">
+        <span class="tab-icon">🛡️</span>
+        <div class="tab-label-group">
+          <span class="tab-title">5. System Administration</span>
+          <span class="tab-sub">User, Role &amp; Permission Matrix</span>
+        </div>
+      </button>
     </nav>
 
     <!-- Main Content Area -->
@@ -145,7 +244,7 @@
             <button class="btn btn-primary btn-lg" onclick="openCreateSettingModal('client')">
               🏢 Mulai Daftarkan Client Pertama
             </button>
-            <button class="btn btn-secondary btn-lg" onclick="openSettingsModal()">
+            <button class="btn btn-secondary btn-lg hidden" id="btn-gate-open-settings" style="display: none;" onclick="openSettingsModal()">
               ⚙️ Buka System Settings
             </button>
           </div>
@@ -173,7 +272,7 @@
               <button id="btn-goto-home" class="btn btn-primary btn-sm">
                 <span>➔ Masuk ke Halaman Awal (Dashboard)</span>
               </button>
-              <button id="btn-welcome-open-settings" class="btn btn-secondary btn-sm">
+              <button id="btn-welcome-open-settings" class="btn btn-secondary btn-sm hidden" style="display: none;">
                 <span>⚙️ Kelola Master Settings</span>
               </button>
               <span class="text-xs text-muted ml-auto">Setelah konfigurasi di bawah disimpan, sistem akan otomatis membuka Halaman Awal.</span>
@@ -654,6 +753,7 @@
                 <thead>
                   <tr>
                     <th class="sortable col-id" data-cfg-table="main" data-col="config_id">Config ID <span class="sort-icon">↕</span></th>
+                    <th class="sortable col-name" data-cfg-table="main" data-col="name_config">Nama Config <span class="sort-icon">↕</span></th>
                     <th class="sortable col-order" data-cfg-table="main" data-col="exec_order">Order <span class="sort-icon">↕</span></th>
                     <th class="sortable col-schema" data-cfg-table="main" data-col="src_schema">Src Schema <span class="sort-icon">↕</span></th>
                     <th class="sortable col-name" data-cfg-table="main" data-col="src_view">Source View <span class="sort-icon">↕</span></th>
@@ -671,7 +771,7 @@
                   </tr>
                 </thead>
                 <tbody id="master-config-tbody">
-                  <tr><td colspan="15" class="text-center py-8 text-muted">Memuat data migration_config...</td></tr>
+                  <tr><td colspan="16" class="text-center py-8 text-muted">Memuat data migration_config...</td></tr>
                 </tbody>
               </table>
             </div>
@@ -1105,117 +1205,233 @@
               <h2 class="panel-title">Daftar Konfigurasi Migrasi (etl_antam.migration_config)</h2>
               <p class="panel-desc">Pilih salah satu konfigurasi di bawah untuk meninjau rekonsiliasi dan isi datanya secara mendalam</p>
             </div>
-            <button id="btn-refresh-pipeline" class="btn btn-primary btn-sm">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
-              Refresh Configs
-            </button>
+            <div class="flex-center gap-2">
+              <button id="btn-tab-open-ba" class="btn btn-primary btn-sm" title="Buka dialog Cetak Berita Acara Validasi">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                Cetak Berita Acara
+              </button>
+              <button id="btn-refresh-pipeline" class="btn btn-secondary btn-sm">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+                Refresh Configs
+              </button>
+            </div>
           </div>
           <div class="table-container">
             <table class="data-table" id="pipeline-master-table">
               <thead>
                 <tr>
-                  <th>Config ID</th>
-                  <th>Order</th>
+                  <th style="width: 75px;">Config ID</th>
+                  <th style="width: 55px;">Order</th>
                   <th>Source View (SQL Server)</th>
                   <th>Staging Table (PG stg_antam)</th>
                   <th>Final Target (PG vendor)</th>
-                  <th>Perbandingan Baris (Src ➔ Stg ➔ Tgt)</th>
-                  <th>Status Alur</th>
-                  <th>Errors Logged</th>
-                  <th>Aksi</th>
+                  <th class="text-center">sum source</th>
+                  <th class="text-center">sum staging</th>
+                  <th class="text-center">sum before target</th>
+                  <th class="text-center">sum after target</th>
+                  <th class="text-center">last_run_id</th>
+                  <th class="text-center">Status Action</th>
+                  <th class="text-center">Status Alur</th>
+                  <th class="text-center">Errors Logged</th>
+                  <th class="text-center" style="width: 90px;">Aksi</th>
                 </tr>
               </thead>
               <tbody id="pipeline-master-tbody">
-                <tr><td colspan="9" class="text-center py-8 text-muted">Memuat daftar konfigurasi migration_config...</td></tr>
+                <tr><td colspan="14" class="text-center py-8 text-muted">Memuat daftar konfigurasi migration_config...</td></tr>
               </tbody>
             </table>
           </div>
         </div>
 
-        <!-- Section B: Detail Hasil Migrasi Terpilih -->
-        <div id="pipeline-detail-section" class="pipeline-detail-section">
-          
-          <!-- Stepper & Parameter Header -->
-          <div class="pipeline-hero-card">
-            <div class="pipeline-hero-header">
-              <div>
-                <h3 class="hero-title" id="pipeline-detail-title">Detail Pipeline: Config #1</h3>
-                <p class="hero-desc" id="pipeline-detail-desc">Alur rekonsiliasi Source View ➔ Staging ➔ Target</p>
-              </div>
-              <div class="pipeline-header-badges" id="pipeline-detail-badges">
-                <!-- Status Badges will be rendered here -->
-              </div>
-              <div>
-                <button id="btn-open-ba" class="btn btn-primary btn-sm">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
-                  Cetak Berita Acara Validasi
-                </button>
-              </div>
+        <!-- Section B: Petunjuk Aksi -->
+        <div class="panel-card mt-4" style="background: rgba(15, 23, 42, 0.4); border: 1px dashed var(--border-subtle); padding: 0.85rem 1.25rem;">
+          <div class="flex-between flex-wrap gap-3">
+            <div class="flex-center gap-2">
+              <span class="badge badge-info">💡 Info</span>
+              <span class="text-sm text-muted">Klik tombol <strong class="text-cyan">Tinjau</strong> pada salah satu baris konfigurasi di atas untuk membuka <strong>Dialog Peninjauan Rekonsiliasi Alur &amp; Data 3-Tier</strong>.</span>
             </div>
+            <div>
+              <span class="text-xs text-muted">Gunakan tombol <strong class="text-amber">🖨️ BA</strong> untuk mencetak Berita Acara Validasi Hasil Migrasi.</span>
+            </div>
+          </div>
+        </div>
+      </section>
 
-            <!-- 3-Tier Visual Flow Diagram -->
-            <div id="pipeline-flow-diagram" class="pipeline-flow">
-              <!-- Rendered via JS -->
+      <!-- ============================================================== -->
+      <!-- TAB 5: SYSTEM ADMINISTRATION (USER, ROLE & MENU MANAGEMENT)     -->
+      <!-- ============================================================== -->
+      <section id="tab-system" class="tab-pane">
+        <!-- Main Administration Panel -->
+        <div class="panel-card mb-6">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title flex-center gap-2">
+                <span>🛡️</span> System Administration & Access Control
+              </h2>
+              <p class="panel-subtitle">Manajemen Autentikasi Pengguna, Master Role, dan Matriks Hak Akses Menu Sistem (RBAC)</p>
             </div>
           </div>
 
-          <!-- Section C: Interactive Stage Data Inspector -->
-          <div class="panel-card mt-6">
-            <div class="panel-header flex-wrap">
-              <div>
-                <h3 class="panel-title">Peninjau Data Antar Tahapan (Stage Data Viewer)</h3>
-                <p class="panel-desc">Beralih antara Source View, Staging Table, dan Final Target Table untuk melihat isi record data aktual</p>
+          <!-- Sub-navigation Tabs -->
+          <div class="sub-tabs-header px-6 pt-3" style="border-bottom: 1px solid var(--border-subtle); display: flex; gap: 0.5rem;">
+            <button class="sub-tab-btn active" data-sys-tab="sys-tab-users" id="btn-subtab-users">
+              <span>👥 1. User Management</span>
+            </button>
+            <button class="sub-tab-btn" data-sys-tab="sys-tab-roles" id="btn-subtab-roles">
+              <span>🎭 2. Role Management</span>
+            </button>
+            <button class="sub-tab-btn" data-sys-tab="sys-tab-matrix" id="btn-subtab-matrix">
+              <span>📋 3. Menu &amp; Permission Matrix</span>
+            </button>
+          </div>
+
+          <div class="panel-body p-6">
+            <!-- PANE 1: USER MANAGEMENT -->
+            <div id="pane-sys-users" class="sys-tab-content">
+              <div class="flex-between flex-wrap gap-4 mb-4">
+                <div class="flex-center gap-3">
+                  <button id="btn-add-user" class="btn btn-primary btn-sm btn-icon-text">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <line x1="12" y1="5" x2="12" y2="19"></line>
+                      <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                    <span>+ Tambah Pengguna</span>
+                  </button>
+                  <button id="btn-refresh-users" class="btn btn-secondary btn-sm" title="Refresh Daftar Pengguna">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                    </svg>
+                    <span>Refresh</span>
+                  </button>
+                </div>
+                <div class="search-box">
+                  <input type="text" id="filter-sys-users" class="input-search" placeholder="Cari nama, username, email..." style="min-width: 260px;">
+                </div>
               </div>
-              
-              <!-- Stage Tabs Switcher -->
-              <div class="stage-nav-group">
-                <button class="stage-btn" data-stage="source">
-                  <span class="stage-dot dot-cyan"></span>
-                  <span>1. Source View</span>
-                </button>
-                <button class="stage-btn active" data-stage="staging">
-                  <span class="stage-dot dot-amber"></span>
-                  <span>2. Staging Table</span>
-                </button>
-                <button class="stage-btn" data-stage="target">
-                  <span class="stage-dot dot-emerald"></span>
-                  <span>3. Final Target</span>
-                </button>
+
+              <div class="table-container">
+                <table class="data-table" id="table-sys-users">
+                  <thead>
+                    <tr>
+                      <th style="width: 50px;">ID</th>
+                      <th>Username</th>
+                      <th>Nama Lengkap</th>
+                      <th>Email</th>
+                      <th>Role</th>
+                      <th>Penugasan (Client &amp; Env)</th>
+                      <th class="text-center" style="width: 90px;">Status</th>
+                      <th>Terakhir Login</th>
+                      <th>Dibuat</th>
+                      <th class="text-center" style="width: 140px;">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody id="sys-users-tbody">
+                    <tr><td colspan="10" class="text-center py-8 text-muted">Memuat daftar pengguna...</td></tr>
+                  </tbody>
+                </table>
               </div>
             </div>
 
-            <div class="stage-meta-bar" id="stage-meta-bar">
-              <div class="stage-meta-left">
-                <span id="stage-location-badge" class="badge badge-neutral">Tabel: stg_antam.stg_vendors_src</span>
-                <span class="text-muted">Total: <strong class="font-mono text-cyan" id="stage-total-records">0</strong></span>
+            <!-- PANE 2: ROLE MANAGEMENT -->
+            <div id="pane-sys-roles" class="sys-tab-content hidden">
+              <div class="flex-between flex-wrap gap-4 mb-4">
+                <div class="flex-center gap-3">
+                  <button id="btn-add-role" class="btn btn-primary btn-sm btn-icon-text">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <line x1="12" y1="5" x2="12" y2="19"></line>
+                      <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                    <span>+ Tambah Role</span>
+                  </button>
+                  <button id="btn-refresh-roles" class="btn btn-secondary btn-sm" title="Refresh Daftar Role">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                    </svg>
+                    <span>Refresh</span>
+                  </button>
+                </div>
               </div>
-              <div class="inspector-controls">
-                <select id="select-stage-limit" class="select-input select-sm">
-                  <option value="10">10 Baris</option>
-                  <option value="25" selected>25 Baris</option>
-                  <option value="50">50 Baris</option>
-                </select>
+
+              <div class="table-container">
+                <table class="data-table" id="table-sys-roles">
+                  <thead>
+                    <tr>
+                      <th style="width: 50px;">ID</th>
+                      <th>Kode Role</th>
+                      <th>Nama Role</th>
+                      <th>Deskripsi</th>
+                      <th class="text-center">Jumlah User</th>
+                      <th class="text-center" style="width: 90px;">Status</th>
+                      <th>Dibuat</th>
+                      <th class="text-center" style="width: 110px;">Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody id="sys-roles-tbody">
+                    <tr><td colspan="8" class="text-center py-8 text-muted">Memuat daftar role...</td></tr>
+                  </tbody>
+                </table>
               </div>
             </div>
 
-            <div class="table-container inspector-grid">
-              <table class="data-table" id="stage-data-table">
-                <thead id="stage-data-thead">
-                  <tr><th>Memuat kolom tahapan...</th></tr>
-                </thead>
-                <tbody id="stage-data-tbody">
-                  <tr><td class="text-center py-8 text-muted">Memuat data record...</td></tr>
-                </tbody>
-              </table>
-            </div>
+            <!-- PANE 3: MENU & PERMISSION MATRIX -->
+            <div id="pane-sys-matrix" class="sys-tab-content hidden">
+              <div class="matrix-toolbar flex-between flex-wrap gap-4 mb-4 p-4 rounded-lg" style="background: rgba(15, 23, 42, 0.4); border: 1px solid var(--border-subtle);">
+                <div class="flex-center gap-3">
+                  <label for="select-matrix-role" class="text-sm font-semibold" style="color: var(--text-primary);">Pilih Role Target:</label>
+                  <select id="select-matrix-role" class="form-control" style="width: 220px; font-weight: 600;">
+                    <option value="">-- Pilih Role --</option>
+                  </select>
+                  <span id="matrix-role-desc" class="text-xs text-muted"></span>
+                </div>
+                <div class="flex-center gap-3">
+                  <button id="btn-save-matrix" class="btn btn-primary btn-sm btn-icon-text">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                      <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                      <polyline points="7 3 7 8 15 8"></polyline>
+                    </svg>
+                    <span>Simpan Perubahan Matriks</span>
+                  </button>
+                </div>
+              </div>
 
-            <!-- Stage Paginasi -->
-            <div class="pagination-footer">
-              <span id="stage-pagination-info">Menampilkan 0 baris</span>
-              <div class="pagination-buttons">
-                <button id="btn-stage-prev" class="btn btn-secondary btn-sm" disabled>❮ Prev</button>
-                <div id="stage-page-numbers" class="page-numbers-container"></div>
-                <button id="btn-stage-next" class="btn btn-secondary btn-sm" disabled>Next ❯</button>
+              <div class="table-container">
+                <table class="data-table" id="table-sys-matrix">
+                  <thead>
+                    <tr>
+                      <th style="width: 50px;">No</th>
+                      <th>Menu Sistem</th>
+                      <th>Target Tab / Route</th>
+                      <th class="text-center" style="width: 120px;">
+                        <label class="cursor-pointer flex-center gap-1">
+                          <input type="checkbox" id="check-all-view" title="Pilih Semua View">
+                          <span>View (Lihat)</span>
+                        </label>
+                      </th>
+                      <th class="text-center" style="width: 120px;">
+                        <label class="cursor-pointer flex-center gap-1">
+                          <input type="checkbox" id="check-all-create" title="Pilih Semua Create">
+                          <span>Create (Tambah)</span>
+                        </label>
+                      </th>
+                      <th class="text-center" style="width: 120px;">
+                        <label class="cursor-pointer flex-center gap-1">
+                          <input type="checkbox" id="check-all-update" title="Pilih Semua Update">
+                          <span>Update (Ubah)</span>
+                        </label>
+                      </th>
+                      <th class="text-center" style="width: 120px;">
+                        <label class="cursor-pointer flex-center gap-1">
+                          <input type="checkbox" id="check-all-delete" title="Pilih Semua Delete">
+                          <span>Delete (Hapus)</span>
+                        </label>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody id="sys-matrix-tbody">
+                    <tr><td colspan="7" class="text-center py-8 text-muted">Silakan pilih role untuk menampilkan matriks perizinan.</td></tr>
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
@@ -1737,124 +1953,547 @@
     </div>
 
     <!-- ============================================================== -->
-    <!-- MODAL 7: BERITA ACARA VALIDASI                                 -->
+    <!-- MODAL 7: BERITA ACARA VALIDASI & MIGRASI DATA (OFFICIAL SISI)    -->
     <!-- ============================================================== -->
     <div id="modal-berita-acara" class="modal-overlay hidden">
-      <div class="modal-box modal-ba">
+      <div class="modal-box modal-ba-official">
+        <!-- Top Action Bar (No Print) -->
         <div class="modal-header ba-modal-header no-print">
           <div>
-            <h3 class="modal-title">Berita Acara Validasi Data Migrasi</h3>
-            <p class="modal-subtitle">Format cetak resmi serah terima dan rekonsiliasi data hasil migrasi</p>
+            <h3 class="modal-title flex-center gap-2" style="justify-content: flex-start;">
+              <span>📜</span>
+              <span>Berita Acara Migrasi Data Resmi</span>
+              <span class="badge badge-emerald" style="font-size: 0.7rem; font-weight: 600;">Format SISI</span>
+            </h3>
+            <p class="modal-subtitle">Berita Acara serah terima &amp; validasi hasil migrasi data. Dilengkapi form editor sebelum cetak.</p>
           </div>
           <div class="ba-header-actions">
-            <button id="btn-export-stg-csv" class="btn btn-secondary btn-sm">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              Ekspor CSV Staging
+            <button id="btn-toggle-ba-form" class="btn btn-secondary btn-sm" title="Buka / tutup form isian berita acara">
+              <span id="btn-toggle-ba-form-icon">✏️</span>
+              <span id="btn-toggle-ba-form-text">Edit Form Isian</span>
             </button>
-            <button id="btn-print-ba" class="btn btn-primary btn-sm">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+            <button id="btn-reset-ba-form" class="btn btn-secondary btn-sm" title="Kembalikan semua nilai ke versi standar">
+              🔄 Reset Standar
+            </button>
+            <button id="btn-export-stg-csv" class="btn btn-secondary btn-sm" title="Unduh lampiran data dalam format CSV">
+              📥 Ekspor CSV
+            </button>
+            <button id="btn-print-ba" class="btn btn-primary btn-sm btn-print-primary" title="Cetak atau Simpan sebagai PDF">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
               Cetak / Simpan PDF
             </button>
-            <button id="btn-close-ba" class="modal-close">&times;</button>
+            <button id="btn-close-ba" class="modal-close" title="Tutup dialog">&times;</button>
           </div>
         </div>
 
-        <div class="modal-body ba-document" id="ba-printable-area">
-          <div class="ba-kop">
-            <div class="ba-kop-logo">
-              <div class="ba-logo-placeholder">ANTAM</div>
-            </div>
-            <div class="ba-kop-text">
-              <h1 class="ba-corp-name">PT ANEKA TAMBANG Tbk</h1>
-              <p class="ba-corp-sub">DIVISI SUPPLY CHAIN MANAGEMENT & TEKNOLOGI INFORMASI</p>
-              <p class="ba-corp-address">Gedung Aneka Tambang, Jl. Letjen T.B. Simatupang No. 1, Jakarta 12530</p>
-            </div>
-          </div>
-          <div class="ba-divider-line"></div>
-
-          <div class="ba-doc-title-section">
-            <h2 class="ba-doc-title">BERITA ACARA REKONSILIASI & VALIDASI DATA MIGRASI</h2>
-            <div class="ba-doc-no" id="ba-doc-no">Nomor: BA-MIG/ANTAM-SCM/2026/001</div>
-          </div>
-
-          <div class="ba-intro-text">
-            Pada hari ini, <strong id="ba-doc-day-date">-</strong>, telah dilaksanakan verifikasi, rekonsiliasi data, dan audit hasil migrasi data dari sistem sumber <strong>SQL Server (antam_scm)</strong> ke sistem target <strong>PostgreSQL (db_procsi)</strong> dengan hasil dan rincian sebagai berikut:
-          </div>
-
-          <div class="ba-param-grid" id="ba-param-grid"></div>
-
-          <div class="ba-table-container">
-            <table class="ba-table" id="ba-reconciliation-table">
-              <thead>
-                <tr>
-                  <th rowspan="2">Tahapan Migrasi</th>
-                  <th rowspan="2">Objek Database</th>
-                  <th rowspan="2">Kunci Verifikasi (PK)</th>
-                  <th colspan="2">Hasil Ekstraksi & Rekonsiliasi</th>
-                  <th rowspan="2">Status Uji</th>
-                </tr>
-                <tr>
-                  <th>Jumlah Baris</th>
-                  <th>Selisih (Delta)</th>
-                </tr>
-              </thead>
-              <tbody id="ba-reconciliation-tbody"></tbody>
-            </table>
-          </div>
-
-          <div class="ba-notes-section">
-            <h3 class="ba-section-heading">Catatan & Analisis Hasil Migrasi:</h3>
-            <ul class="ba-notes-list" id="ba-notes-list"></ul>
-          </div>
-
-          <div class="ba-closing-text">
-            Demikian Berita Acara ini dibuat dengan sebenarnya dalam rangkap secukupnya untuk dapat dipergunakan sebagaimana mestinya sebagai bukti sah selesainya tahapan migrasi data.
-          </div>
-
-          <div class="ba-signatures">
-            <div class="ba-sign-box">
-              <div class="ba-sign-role">Pihak I (Pelaksana Migrasi)</div>
-              <div class="ba-sign-space"></div>
-              <div class="ba-sign-name">_________________________</div>
-              <div class="ba-sign-title">ETL Developer / Data Engineer</div>
+        <!-- SPLIT CONTAINER: SIDEBAR FORM (KIRI) & LIVE PREVIEW (KANAN) -->
+        <div class="ba-split-wrapper">
+          <!-- FORM EDITOR PANEL (KIRI - SCROLLABLE) -->
+          <div id="ba-form-editor-panel" class="ba-split-sidebar no-print">
+            <div class="ba-editor-header">
+              <div class="flex-center gap-2" style="justify-content: flex-start;">
+                <span class="text-sm font-semibold text-slate-800">⚙️ FORMULIR PENYESUAIAN BERITA ACARA</span>
+              </div>
+              <div class="text-xs text-muted">Perubahan langsung ter-update di pratinjau lembar cetak sebelah kanan.</div>
             </div>
 
-            <div class="ba-sign-box">
-              <div class="ba-sign-role">Pihak II (Verifikator / QA)</div>
-              <div class="ba-sign-space"></div>
-              <div class="ba-sign-name">_________________________</div>
-              <div class="ba-sign-title">Database Administrator / QA</div>
+          <div class="ba-editor-grid">
+            <!-- Kolom 1: Nomor Surat & Waktu -->
+            <div class="ba-editor-card">
+              <div class="ba-card-title">1. Nomor Surat &amp; Waktu Terbit</div>
+              <div class="form-group mb-2">
+                <label class="form-label text-xs">Nomor Dokumen Berita Acara:</label>
+                <input type="text" id="ba_input_doc_no" class="form-input form-input-sm font-mono" placeholder="033/BA/251253/G300/10.2025" value="033/BA/251253/G300/10.2025">
+              </div>
+              <div class="grid-2col gap-2 mb-2">
+                <div class="form-group">
+                  <label class="form-label text-xs">Pilih Tanggal Dokumen:</label>
+                  <input type="date" id="ba_input_date_picker" class="form-input form-input-sm" value="2025-10-14">
+                </div>
+                <div class="form-group">
+                  <label class="form-label text-xs">Hari Terbilang:</label>
+                  <input type="text" id="ba_input_day_name" class="form-input form-input-sm" placeholder="Selasa" value="Selasa">
+                </div>
+              </div>
+              <div class="grid-2col gap-2 mb-2">
+                <div class="form-group">
+                  <label class="form-label text-xs">Tanggal Terbilang:</label>
+                  <input type="text" id="ba_input_date_words" class="form-input form-input-sm" placeholder="Empat Belas" value="Empat Belas">
+                </div>
+                <div class="form-group">
+                  <label class="form-label text-xs">Bulan Terbilang:</label>
+                  <input type="text" id="ba_input_month_words" class="form-input form-input-sm" placeholder="Oktober" value="Oktober">
+                </div>
+              </div>
+              <div class="grid-2col gap-2 mb-2">
+                <div class="form-group">
+                  <label class="form-label text-xs">Tahun Terbilang:</label>
+                  <input type="text" id="ba_input_year_words" class="form-input form-input-sm" placeholder="Dua Ribu Dua Puluh Lima" value="Dua Ribu Dua Puluh Lima">
+                </div>
+                <div class="form-group">
+                  <label class="form-label text-xs">Tanggal Format (DD-MM-YYYY):</label>
+                  <input type="text" id="ba_input_date_formatted" class="form-input form-input-sm font-mono" placeholder="14-10-2025" value="14-10-2025">
+                </div>
+              </div>
+              <div class="form-group">
+                <label class="form-label text-xs">Jadwal Pelaksanaan Migrasi:</label>
+                <input type="text" id="ba_input_mig_schedule" class="form-input form-input-sm" placeholder="Selasa, 07 Oktober 2025" value="Selasa, 07 Oktober 2025">
+              </div>
             </div>
 
-            <div class="ba-sign-box">
-              <div class="ba-sign-role">Pihak III (Menyetujui / Lead)</div>
-              <div class="ba-sign-space"></div>
-              <div class="ba-sign-name">_________________________</div>
-              <div class="ba-sign-title">Project Manager / IT Lead</div>
+            <!-- Kolom 2: Para Pihak & Dasar Perjanjian -->
+            <div class="ba-editor-card">
+              <div class="ba-card-title">2. Para Pihak &amp; Dasar Pekerjaan</div>
+              <div class="form-group mb-2">
+                <label class="form-label text-xs">PIHAK PERTAMA (Klien) - Nama:</label>
+                <input type="text" id="ba_input_p1_name" class="form-input form-input-sm font-semibold" placeholder="RM Hendra Hadiwijaya" value="RM Hendra Hadiwijaya">
+              </div>
+              <div class="grid-2col gap-2 mb-2">
+                <div class="form-group">
+                  <label class="form-label text-xs">Jabatan Pihak I:</label>
+                  <input type="text" id="ba_input_p1_title" class="form-input form-input-sm" placeholder="Kadiv Kebijakan Keuangan" value="Kadiv Kebijakan Keuangan">
+                </div>
+                <div class="form-group">
+                  <label class="form-label text-xs">Perusahaan Pihak I:</label>
+                  <input type="text" id="ba_input_p1_comp" class="form-input form-input-sm" placeholder="PT Sinergi Mitra Investama Tbk" value="PT Sinergi Mitra Investama Tbk">
+                </div>
+              </div>
+              <div class="form-group mb-2">
+                <label class="form-label text-xs">PIHAK KEDUA (Pelaksana) - Nama:</label>
+                <input type="text" id="ba_input_p2_name" class="form-input form-input-sm font-semibold" placeholder="Arief Wicaksono" value="Arief Wicaksono">
+              </div>
+              <div class="grid-2col gap-2 mb-2">
+                <div class="form-group">
+                  <label class="form-label text-xs">Jabatan Pihak II:</label>
+                  <input type="text" id="ba_input_p2_title" class="form-input form-input-sm" placeholder="Project Manager" value="Project Manager">
+                </div>
+                <div class="form-group">
+                  <label class="form-label text-xs">Perusahaan Pihak II:</label>
+                  <input type="text" id="ba_input_p2_comp" class="form-input form-input-sm" placeholder="PT Sinergi Informatika Semen Indonesia" value="PT Sinergi Informatika Semen Indonesia">
+                </div>
+              </div>
+              <div class="form-group mb-2">
+                <label class="form-label text-xs">Work Order Nomor:</label>
+                <input type="text" id="ba_input_wo_no" class="form-input form-input-sm font-mono" placeholder="WO/HO-HEAD-25-08-000007" value="WO/HO-HEAD-25-08-000007">
+              </div>
+              <div class="form-group">
+                <label class="form-label text-xs">Nama / Deskripsi Pekerjaan:</label>
+                <input type="text" id="ba_input_wo_desc" class="form-input form-input-sm" placeholder="Jasa Implementasi dan Subcription Aplikasi ERP dan HRIS FORCA" value="Jasa Implementasi dan Subcription Aplikasi ERP dan HRIS FORCA">
+              </div>
+            </div>
+
+            <!-- Kolom 3: Rincian Kegiatan Migrasi -->
+            <div class="ba-editor-card">
+              <div class="ba-card-title">3. Rincian Kegiatan &amp; Ringkasan Migrasi</div>
+              <div class="form-group mb-2">
+                <label class="form-label text-xs">Keterangan Kolom Ringkasan:</label>
+                <input type="text" id="ba_input_rows_note" class="form-input form-input-sm" placeholder="Terlampir" value="Terlampir">
+              </div>
+              <!-- Pilihan Config Hasil Migrasi yang Dicetak (Menggantikan Batas Baris Cetak Lampiran) -->
+              <div class="form-group mb-2">
+                <div class="flex-between align-center mb-1">
+                  <label class="form-label text-xs font-bold text-cyan" style="margin-bottom:0;">Pilihan Config Hasil Migrasi Dicetak:</label>
+                  <div class="flex-center gap-1">
+                    <button type="button" class="btn btn-secondary btn-xs py-0 px-1 text-2xs" id="btn-ba-select-all-cfg" title="Centang seluruh config">Pilih Semua</button>
+                    <button type="button" class="btn btn-secondary btn-xs py-0 px-1 text-2xs" id="btn-ba-reset-cfg" title="Hanya pilih config utama">Reset</button>
+                  </div>
+                </div>
+                <div id="ba_config_selector_list" class="ba-config-checklist-box">
+                  <div class="text-2xs text-muted py-2 text-center">Memuat daftar config...</div>
+                </div>
+                <div class="text-2xs text-muted mt-1">Centang konfigurasi yang akan dicetak pada tabel ringkasan dan lampiran.</div>
+              </div>
+              <div class="form-group mb-2">
+                <label class="checkbox-label text-xs" style="padding-top: 4px;">
+                  <input type="checkbox" id="ba_input_show_sigs" checked>
+                  <span>Tampilkan Tanda Tangan Digital</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- Kolom 4: Penandatangan Dokumen -->
+            <div class="ba-editor-card">
+              <div class="ba-card-title">4. Pejabat Penandatangan (4 Pihak)</div>
+              
+              <!-- Dibuat Oleh -->
+              <div class="ba-sign-field-box mb-2">
+                <div class="text-xs font-bold text-cyan mb-1">Dibuat Oleh (Pelaksana):</div>
+                <div class="grid-2col gap-2">
+                  <input type="text" id="ba_input_s1_name" class="form-input form-input-sm" placeholder="Tsalitsa Maulida Zahro" value="Tsalitsa Maulida Zahro">
+                  <input type="text" id="ba_input_s1_title" class="form-input form-input-sm" placeholder="Funct. Forca ERP" value="Funct. Forca ERP">
+                </div>
+                <input type="text" id="ba_input_s1_comp" class="form-input form-input-sm mt-1" placeholder="PT Sinergi Informatika Semen Indonesia" value="PT Sinergi Informatika Semen Indonesia">
+              </div>
+
+              <!-- Disetujui Oleh -->
+              <div class="ba-sign-field-box mb-2">
+                <div class="text-xs font-bold text-emerald mb-1">Disetujui Oleh (Klien):</div>
+                <div class="grid-2col gap-2">
+                  <input type="text" id="ba_input_s2_name" class="form-input form-input-sm" placeholder="Tytys Dwi Saputri" value="Tytys Dwi Saputri">
+                  <input type="text" id="ba_input_s2_title" class="form-input form-input-sm" placeholder="Kadep Akuntansi" value="Kadep Akuntansi">
+                </div>
+                <input type="text" id="ba_input_s2_comp" class="form-input form-input-sm mt-1" placeholder="PT Sinergi Mitra Investama" value="PT Sinergi Mitra Investama">
+              </div>
+
+              <!-- Mengetahui Pelaksana -->
+              <div class="ba-sign-field-box mb-2">
+                <div class="text-xs font-bold text-indigo mb-1">Mengetahui - Pelaksana:</div>
+                <div class="grid-2col gap-2">
+                  <input type="text" id="ba_input_s3_name" class="form-input form-input-sm" placeholder="Arief Wicaksono" value="Arief Wicaksono">
+                  <input type="text" id="ba_input_s3_title" class="form-input form-input-sm" placeholder="Project Manager" value="Project Manager">
+                </div>
+                <input type="text" id="ba_input_s3_comp" class="form-input form-input-sm mt-1" placeholder="PT Sinergi Informatika Semen Indonesia" value="PT Sinergi Informatika Semen Indonesia">
+              </div>
+
+              <!-- Mengetahui Klien -->
+              <div class="ba-sign-field-box">
+                <div class="text-xs font-bold text-amber mb-1">Mengetahui - Klien:</div>
+                <div class="grid-2col gap-2">
+                  <input type="text" id="ba_input_s4_name" class="form-input form-input-sm" placeholder="RM Hendra Hadiwijaya" value="RM Hendra Hadiwijaya">
+                  <input type="text" id="ba_input_s4_title" class="form-input form-input-sm" placeholder="Kadiv Kebijakan Keuangan" value="Kadiv Kebijakan Keuangan">
+                </div>
+                <input type="text" id="ba_input_s4_comp" class="form-input form-input-sm mt-1" placeholder="PT Sinergi Mitra Investama" value="PT Sinergi Mitra Investama">
+              </div>
+            </div>
+
+            <!-- Kolom 5: Logo Header Dokumen (Kiri & Kanan) -->
+            <div class="ba-editor-card">
+              <div class="ba-card-title">5. Logo Header Dokumen (Kiri &amp; Kanan)</div>
+              
+              <!-- Logo Kiri -->
+              <div class="ba-logo-config-section mb-3">
+                <div class="flex-between align-center mb-1">
+                  <label class="form-label text-xs font-bold text-cyan" style="margin-bottom:0;">Logo Header Kiri (Klien):</label>
+                  <span class="badge badge-neutral text-xs" id="ba_logo_left_badge">Preset: ANTAM</span>
+                </div>
+                <div class="grid-2col gap-2 mb-2">
+                  <select id="ba_input_logo_left_mode" class="form-input form-input-sm">
+                    <option value="antam" selected>Logo ANTAM (Default)</option>
+                    <option value="sisi">Logo SISI</option>
+                    <option value="custom">Kustom (Upload / URL)</option>
+                    <option value="none">Sembunyikan</option>
+                  </select>
+                  <div class="flex-center gap-1">
+                    <label class="text-xs text-muted" style="white-space:nowrap;">Tinggi:</label>
+                    <input type="number" id="ba_input_logo_left_height" class="form-input form-input-sm text-center" value="40" min="20" max="80" style="width: 58px;">
+                    <span class="text-xs text-muted">px</span>
+                  </div>
+                </div>
+                <div id="ba_logo_left_custom_wrap" class="hidden mb-2">
+                  <div class="mb-1">
+                    <label class="form-label text-xs">Upload File (PNG/SVG/JPG):</label>
+                    <input type="file" id="ba_input_logo_left_file" class="form-input form-input-sm" accept="image/*">
+                  </div>
+                  <div>
+                    <label class="form-label text-xs">Atau Input Image URL:</label>
+                    <input type="text" id="ba_input_logo_left_url" class="form-input form-input-sm" placeholder="https://... atau data:image/...">
+                  </div>
+                </div>
+                <div class="flex-between align-center">
+                  <span class="text-2xs text-muted">Pratinjau Kiri:</span>
+                  <div id="ba_logo_left_preview" class="ba-logo-preview-box"></div>
+                </div>
+              </div>
+
+              <!-- Logo Kanan -->
+              <div class="ba-logo-config-section">
+                <div class="flex-between align-center mb-1">
+                  <label class="form-label text-xs font-bold text-amber" style="margin-bottom:0;">Logo Header Kanan (Pelaksana):</label>
+                  <span class="badge badge-neutral text-xs" id="ba_logo_right_badge">Preset: SISI</span>
+                </div>
+                <div class="grid-2col gap-2 mb-2">
+                  <select id="ba_input_logo_right_mode" class="form-input form-input-sm">
+                    <option value="sisi" selected>Logo SISI (Default)</option>
+                    <option value="antam">Logo ANTAM</option>
+                    <option value="custom">Kustom (Upload / URL)</option>
+                    <option value="none">Sembunyikan</option>
+                  </select>
+                  <div class="flex-center gap-1">
+                    <label class="text-xs text-muted" style="white-space:nowrap;">Tinggi:</label>
+                    <input type="number" id="ba_input_logo_right_height" class="form-input form-input-sm text-center" value="42" min="20" max="80" style="width: 58px;">
+                    <span class="text-xs text-muted">px</span>
+                  </div>
+                </div>
+                <div id="ba_logo_right_custom_wrap" class="hidden mb-2">
+                  <div class="mb-1">
+                    <label class="form-label text-xs">Upload File (PNG/SVG/JPG):</label>
+                    <input type="file" id="ba_input_logo_right_file" class="form-input form-input-sm" accept="image/*">
+                  </div>
+                  <div>
+                    <label class="form-label text-xs">Atau Input Image URL:</label>
+                    <input type="text" id="ba_input_logo_right_url" class="form-input form-input-sm" placeholder="https://... atau data:image/...">
+                  </div>
+                </div>
+                <div class="flex-between align-center">
+                  <span class="text-2xs text-muted">Pratinjau Kanan:</span>
+                  <div id="ba_logo_right_preview" class="ba-logo-preview-box"></div>
+                </div>
+              </div>
             </div>
           </div>
 
-          <div class="page-break"></div>
-
-          <div class="ba-attachment-header">
-            <div class="ba-attachment-tag">LAMPIRAN BERITA ACARA</div>
-            <h2 class="ba-attachment-title" id="ba-attachment-heading">REKAPITULASI DATA STAGING</h2>
-            <p class="ba-attachment-sub" id="ba-attachment-meta">Menampilkan seluruh baris data aktual yang berhasil di-ekstrak ke lingkungan staging</p>
-          </div>
-
-          <div class="ba-table-container">
-            <table class="ba-table ba-attachment-table" id="ba-attachment-table">
-              <thead id="ba-attachment-thead"></thead>
-              <tbody id="ba-attachment-tbody"></tbody>
-            </table>
-          </div>
-
-          <div class="ba-footer-note">
-            <span>Dokumen ini dihasilkan secara otomatis oleh Migration Command Center ANTAM. Dokumen sah untuk keperluan audit dan serah terima data migrasi.</span>
+          <div class="ba-editor-actions mt-3 flex-between flex-wrap gap-2">
+            <div class="text-xs text-muted flex-center gap-2">
+              <span>💡 Tips: Kolom yang dikosongkan akan otomatis memakai nilai standar pada saat dicetak.</span>
+            </div>
+            <div class="flex-center gap-2">
+              <button id="btn-ba-reset-defaults" class="btn btn-secondary btn-sm">🔄 Standar Default</button>
+              <button id="btn-ba-apply-changes" class="btn btn-emerald btn-sm">👁️ Terapkan ke Dokumen</button>
+              <button id="btn-ba-print-now" class="btn btn-primary btn-sm">🖨️ Cetak / Simpan PDF</button>
+            </div>
           </div>
         </div>
-      </div>
-    </div>
+
+        <!-- PRINTABLE AREA (OFFICIAL DOCUMENT PAGES) -->
+        <div class="modal-body ba-document-body" id="ba-printable-area">
+          
+          <!-- ========================================== -->
+          <!-- HALAMAN 1: BERITA ACARA UTAMA              -->
+          <!-- ========================================== -->
+          <div class="ba-page-sheet ba-page-1">
+            <!-- Header Logo Kiri & Kanan (Halaman 1) -->
+            <div class="ba-sisi-header">
+              <div class="ba-sisi-header-left" id="ba-view-logo-left-p1"></div>
+              <div class="ba-sisi-header-right" id="ba-view-logo-right-p1"></div>
+            </div>
+
+            <!-- Judul Dokumen & Badge Nomor Surat -->
+            <div class="ba-title-block">
+              <h2 class="ba-doc-heading">BERITA ACARA MIGRASI</h2>
+              <div class="ba-doc-no-badge" id="ba-view-doc-no">033/BA/251253/G300/10.2025</div>
+            </div>
+
+            <!-- Kalimat Pembuka -->
+            <p class="ba-paragraph">
+              Pada hari ini <span id="ba-view-day-name">Selasa</span> tanggal <span id="ba-view-date-words">Empat Belas</span> bulan <span id="ba-view-month-words">Oktober</span> tahun <span id="ba-view-year-words">Dua Ribu Dua Puluh Lima</span> (<span id="ba-view-date-formatted">14-10-2025</span>) yang bertanda tangan dibawah ini:
+            </p>
+
+            <!-- Para Pihak (1 & 2) -->
+            <ol class="ba-parties-list">
+              <li>
+                <div class="ba-party-row">
+                  <div class="ba-party-col-name" id="ba-view-p1-name">RM Hendra Hadiwijaya</div>
+                  <div class="ba-party-col-sep">:</div>
+                  <div class="ba-party-col-desc">
+                    Jabatan <span id="ba-view-p1-title">Kadiv Kebijakan Keuangan</span> <span id="ba-view-p1-comp">PT Sinergi Mitra Investama Tbk</span> untuk selanjutnya disebut <strong>PIHAK PERTAMA</strong>.
+                  </div>
+                </div>
+              </li>
+              <li>
+                <div class="ba-party-row">
+                  <div class="ba-party-col-name" id="ba-view-p2-name">Arief Wicaksono</div>
+                  <div class="ba-party-col-sep">:</div>
+                  <div class="ba-party-col-desc">
+                    Jabatan <span id="ba-view-p2-title">Project Manager</span> <span id="ba-view-p2-comp">PT Sinergi Informatika Semen Indonesia</span> untuk selanjutnya disebut <strong>PIHAK KEDUA</strong>.
+                  </div>
+                </div>
+              </li>
+            </ol>
+
+            <!-- Dasar Pelaksanaan -->
+            <div class="ba-based-block">
+              <p class="ba-paragraph mb-1">Dengan berdasarkan:</p>
+              <ul class="ba-bullet-list">
+                <li>
+                  Work Order Nomor: <strong id="ba-view-wo-no">WO/HO-HEAD-25-08-000007</strong> atas pekerjaan “<strong id="ba-view-wo-desc">Jasa Implementasi dan Subcription Aplikasi ERP dan HRIS FORCA</strong>”
+                </li>
+              </ul>
+            </div>
+
+            <!-- Kesepakatan -->
+            <div class="ba-agreement-block">
+              <p class="ba-paragraph mb-1">Kedua belah Pihak secara bersama-sama sepakat bahwa:</p>
+              <ol class="ba-agreements-list">
+                <li>
+                  PIHAK KEDUA akan melakukan migrasi data <span id="ba-view-mod-target">Business Partner</span> pada hari <span id="ba-view-mig-date">Selasa, 07 Oktober 2025</span>
+                </li>
+                <li>
+                  PIHAK PERTAMA bersama PIHAK KEDUA telah melakukan validasi data dan dinyatakan sesuai dengan sumber data.
+                </li>
+                <li>
+                  Hasil kegiatan migrasi data sebagai berikut:
+                  <div class="ba-summary-table-wrap">
+                    <table class="ba-official-table ba-summary-full-table">
+                      <thead>
+                        <tr>
+                          <th style="width: 36px; text-align: center;">No</th>
+                          <th style="width: 130px;">Name</th>
+                          <th>Final Target (PG vendor)</th>
+                          <th style="width: 85px; text-align: center;">sum source</th>
+                          <th style="width: 85px; text-align: center;">sum staging</th>
+                          <th style="width: 105px; text-align: center;">sum before target</th>
+                          <th style="width: 105px; text-align: center;">sum after target</th>
+                          <th style="width: 90px; text-align: center;">Keterangan</th>
+                        </tr>
+                      </thead>
+                      <tbody id="ba-view-summary-tbody">
+                        <tr>
+                          <td colspan="8" class="text-center py-4 text-muted">Memuat ringkasan migrasi data...</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </li>
+              </ol>
+            </div>
+
+            <!-- Footer Resmi SISI Halaman 1 -->
+            <div class="ba-sisi-footer">
+              <div class="ba-sisi-slogan">Simplify Business &amp; Life</div>
+              <div class="ba-sisi-comp-name">PT SINERGI INFORMATIKA SEMEN INDONESIA</div>
+              <div class="ba-sisi-address">Graha Aktiva, 11th Floor, Jl. H. R. Rasuna Said Kav 3, South Jakarta 12950 - Indonesia. 📞 +62 21 2941 0371</div>
+              <div class="ba-sisi-web">www.sisi.id</div>
+              <div class="ba-sisi-color-bar">
+                <div class="sisi-bar-cyan"></div>
+                <div class="sisi-bar-red"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="ba-page-break"></div>
+
+          <!-- ========================================== -->
+          <!-- HALAMAN 2: PENUTUP & TANDA TANGAN 4 PIHAK  -->
+          <!-- ========================================== -->
+          <div class="ba-page-sheet ba-page-2">
+            <!-- Header Logo Kiri & Kanan (Halaman 2) -->
+            <div class="ba-sisi-header">
+              <div class="ba-sisi-header-left" id="ba-view-logo-left-p2"></div>
+              <div class="ba-sisi-header-right" id="ba-view-logo-right-p2"></div>
+            </div>
+
+            <!-- Kalimat Penutup -->
+            <p class="ba-paragraph ba-closing-sentence">
+              Demikian Berita Acara Migrasi ini dibuat dengan keadaan yang sebenarnya untuk dapat dipergunakan sebagaimana mestinya.
+            </p>
+
+            <!-- Blok Tanda Tangan Resmi (Sesuai Halaman 2 PDF) -->
+            <div class="ba-signatures-container">
+              <!-- Baris 1: Dibuat Oleh (Kiri) & Disetujui Oleh (Kanan) -->
+              <div class="ba-sig-grid-row">
+                <div class="ba-sig-cell">
+                  <div class="ba-sig-heading">Dibuat Oleh</div>
+                  <div class="ba-sig-sub-corp" id="ba-view-s1-comp">PT Sinergi Informatika Semen Indonesia</div>
+                  <div class="ba-sig-box" id="ba-view-s1-box">
+                    <svg class="ba-sig-svg" viewBox="0 0 160 65" width="130" height="55">
+                      <path d="M 28 38 Q 38 12 48 45 Q 58 6 68 40 Q 78 22 88 42 Q 98 14 112 34 T 146 30" fill="none" stroke="#1e293b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+                      <path d="M 40 20 Q 68 18 98 20" fill="none" stroke="#1e293b" stroke-width="1.8" stroke-linecap="round"/>
+                    </svg>
+                  </div>
+                  <div class="ba-sig-person-info">
+                    <u><strong id="ba-view-s1-name">Tsalitsa Maulida Zahro</strong></u>
+                    <div class="ba-sig-role-text" id="ba-view-s1-title">Funct. Forca ERP</div>
+                  </div>
+                </div>
+
+                <div class="ba-sig-cell">
+                  <div class="ba-sig-heading">Disetujui Oleh</div>
+                  <div class="ba-sig-sub-corp" id="ba-view-s2-comp">PT Sinergi Mitra Investama</div>
+                  <div class="ba-sig-box" id="ba-view-s2-box">
+                    <!-- Space untuk tanda tangan basah -->
+                  </div>
+                  <div class="ba-sig-person-info">
+                    <u><strong id="ba-view-s2-name">Tytys Dwi Saputri</strong></u>
+                    <div class="ba-sig-role-text" id="ba-view-s2-title">Kadep Akuntansi</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Baris 2: Mengetahui (Tengah) -->
+              <div class="ba-sig-mengetahui-wrapper">
+                <div class="ba-sig-mengetahui-label">Mengetahui</div>
+                <div class="ba-sig-grid-row">
+                  <div class="ba-sig-cell">
+                    <div class="ba-sig-sub-corp" id="ba-view-s3-comp">PT Sinergi Informatika Semen Indonesia</div>
+                    <div class="ba-sig-box" id="ba-view-s3-box">
+                      <svg class="ba-sig-svg" viewBox="0 0 160 65" width="130" height="55">
+                        <path d="M 22 35 L 62 32 Q 78 12 92 42 L 112 27 Q 128 37 148 32" fill="none" stroke="#1e293b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M 42 20 L 42 48" fill="none" stroke="#1e293b" stroke-width="1.8" stroke-linecap="round"/>
+                        <path d="M 32 26 L 52 38" fill="none" stroke="#1e293b" stroke-width="1.8" stroke-linecap="round"/>
+                      </svg>
+                    </div>
+                    <div class="ba-sig-person-info">
+                      <u><strong id="ba-view-s3-name">Arief Wicaksono</strong></u>
+                      <div class="ba-sig-role-text" id="ba-view-s3-title">Project Manager</div>
+                    </div>
+                  </div>
+
+                  <div class="ba-sig-cell">
+                    <div class="ba-sig-sub-corp" id="ba-view-s4-comp">PT Sinergi Mitra Investama</div>
+                    <div class="ba-sig-box" id="ba-view-s4-box">
+                      <!-- Space untuk tanda tangan basah -->
+                    </div>
+                    <div class="ba-sig-person-info">
+                      <u><strong id="ba-view-s4-name">RM Hendra Hadiwijaya</strong></u>
+                      <div class="ba-sig-role-text" id="ba-view-s4-title">Kadiv Kebijakan Keuangan</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Footer Resmi SISI Halaman 2 -->
+            <div class="ba-sisi-footer">
+              <div class="ba-sisi-slogan">Simplify Business &amp; Life</div>
+              <div class="ba-sisi-comp-name">PT SINERGI INFORMATIKA SEMEN INDONESIA</div>
+              <div class="ba-sisi-address">Graha Aktiva, 11th Floor, Jl. H. R. Rasuna Said Kav 3, South Jakarta 12950 - Indonesia. 📞 +62 21 2941 0371</div>
+              <div class="ba-sisi-web">www.sisi.id</div>
+              <div class="ba-sisi-color-bar">
+                <div class="sisi-bar-cyan"></div>
+                <div class="sisi-bar-red"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="ba-page-break" id="ba-att-page-break"></div>
+
+          <!-- ========================================== -->
+          <!-- HALAMAN 3+: LAMPIRAN DATA HASIL MIGRASI    -->
+          <!-- ========================================== -->
+          <div id="ba-lampiran-wrapper">
+            <div class="ba-page-break" id="ba-att-page-break"></div>
+            <div class="ba-page-sheet ba-page-attachment ba-page-landscape" id="ba-attachment-page-container">
+              <!-- Header Logo Kiri & Kanan (Lampiran) -->
+              <div class="ba-sisi-header">
+                <div class="ba-sisi-header-left" id="ba-view-logo-left-att"></div>
+                <div class="ba-sisi-header-right" id="ba-view-logo-right-att"></div>
+              </div>
+
+              <!-- Judul Lampiran -->
+              <div class="ba-attachment-head-block">
+                <h2 class="ba-lampiran-main-title">LAMPIRAN HASIL MIGRASI DATA</h2>
+              </div>
+
+              <!-- Tabel Lampiran Data Aktual -->
+              <div class="ba-official-att-wrapper" id="ba-attachment-tables-host">
+                <table class="ba-official-att-table" id="ba-official-att-table">
+                  <thead id="ba-official-att-thead">
+                    <!-- Header kolom dinamis dari data migrasi -->
+                  </thead>
+                  <tbody id="ba-official-att-tbody">
+                    <tr><td colspan="10" class="text-center py-6 text-muted">Memuat data lampiran migrasi...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <!-- Footer Resmi SISI Halaman Lampiran -->
+              <div class="ba-sisi-footer mt-4">
+                <div class="ba-sisi-slogan">Simplify Business &amp; Life</div>
+                <div class="ba-sisi-comp-name">PT SINERGI INFORMATIKA SEMEN INDONESIA</div>
+                <div class="ba-sisi-address">Graha Aktiva, 11th Floor, Jl. H. R. Rasuna Said Kav 3, South Jakarta 12950 - Indonesia. 📞 +62 21 2941 0371</div>
+                <div class="ba-sisi-web">www.sisi.id</div>
+                <div class="ba-sisi-color-bar">
+                  <div class="sisi-bar-cyan"></div>
+                  <div class="sisi-bar-red"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div> <!-- close #ba-printable-area -->
+        </div> <!-- close .ba-split-wrapper -->
+      </div> <!-- close .modal-ba-official -->
+    </div> <!-- close #modal-berita-acara -->
 
     <!-- ============================================================== -->
     <!-- MODAL: DATA INSPECTOR & SOURCE METADATA DETAIL DIALOG          -->
@@ -2005,6 +2644,279 @@
           </div>
           <button id="btn-close-source-inspector-footer" class="btn btn-secondary btn-sm">Tutup</button>
         </div>
+      </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- MODAL: PIPELINE INSPECTOR & 3-TIER RECONCILIATION DIALOG       -->
+    <!-- ============================================================== -->
+    <div id="modal-pipeline-inspector" class="modal-overlay hidden">
+      <div class="modal-box modal-wide modal-inspector-wide" style="max-width: 1400px; width: 96%;">
+        <div class="modal-header">
+          <div>
+            <div class="flex-center gap-2 mb-1" id="pipeline-modal-tags">
+              <span class="badge badge-primary text-xs" id="pipeline-modal-cfg-badge">Config #1</span>
+              <span class="badge badge-info text-xs">Pipeline 3-Tier Reconciliation</span>
+            </div>
+            <h3 class="modal-title" id="pipeline-detail-title">Detail Pipeline: Config #1</h3>
+            <p class="modal-subtitle" id="pipeline-detail-desc">Alur rekonsiliasi Source View ➔ Staging ➔ Target</p>
+          </div>
+          <div class="flex-center gap-3">
+            <div class="pipeline-header-badges" id="pipeline-detail-badges"></div>
+            <button id="btn-close-pipeline-inspector" class="modal-close">&times;</button>
+          </div>
+        </div>
+
+        <div class="modal-body p-4" style="max-height: calc(88vh - 140px); overflow-y: auto;">
+          <!-- 3-Tier Visual Flow Diagram -->
+          <div class="pipeline-hero-card mb-4" style="margin-bottom: 1.25rem;">
+            <div id="pipeline-flow-diagram" class="pipeline-flow">
+              <!-- Rendered via JS -->
+            </div>
+          </div>
+
+          <!-- Interactive Stage Data Inspector -->
+          <div class="panel-card mt-2">
+            <div class="panel-header flex-wrap">
+              <div>
+                <h3 class="panel-title">Peninjau Data Antar Tahapan (Stage Data Viewer)</h3>
+                <p class="panel-desc">Beralih antara Source View, Staging Table, dan Final Target Table untuk melihat isi record data aktual</p>
+              </div>
+              
+              <!-- Stage Tabs Switcher -->
+              <div class="stage-nav-group">
+                <button class="stage-btn" data-stage="source">
+                  <span class="stage-dot dot-cyan"></span>
+                  <span>1. Source View</span>
+                </button>
+                <button class="stage-btn active" data-stage="staging">
+                  <span class="stage-dot dot-amber"></span>
+                  <span>2. Staging Table</span>
+                </button>
+                <button class="stage-btn" data-stage="target">
+                  <span class="stage-dot dot-emerald"></span>
+                  <span>3. Final Target</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="stage-meta-bar" id="stage-meta-bar">
+              <div class="stage-meta-left">
+                <span id="stage-location-badge" class="badge badge-neutral">Tabel: stg_antam.stg_vendors_src</span>
+                <span class="text-muted">Total: <strong class="font-mono text-cyan" id="stage-total-records">0</strong></span>
+              </div>
+              <div class="inspector-controls">
+                <select id="select-stage-limit" class="select-input select-sm">
+                  <option value="10">10 Baris</option>
+                  <option value="25" selected>25 Baris</option>
+                  <option value="50">50 Baris</option>
+                  <option value="100">100 Baris</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="table-container inspector-grid">
+              <table class="data-table" id="stage-data-table">
+                <thead id="stage-data-thead">
+                  <tr><th>Memuat kolom tahapan...</th></tr>
+                </thead>
+                <tbody id="stage-data-tbody">
+                  <tr><td class="text-center py-8 text-muted">Memuat data record...</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Stage Paginasi -->
+            <div class="pagination-footer">
+              <span id="stage-pagination-info">Menampilkan 0 baris</span>
+              <div class="pagination-buttons">
+                <button id="btn-stage-prev" class="btn btn-secondary btn-sm" disabled>❮ Prev</button>
+                <div id="stage-page-numbers" class="page-numbers-container"></div>
+                <button id="btn-stage-next" class="btn btn-secondary btn-sm" disabled>Next ❯</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer flex-between">
+          <div>
+            <button id="btn-open-ba" class="btn btn-primary btn-sm">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+              Cetak Berita Acara Validasi
+            </button>
+          </div>
+          <button id="btn-close-pipeline-inspector-footer" class="btn btn-secondary btn-sm">Tutup</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- MODAL: USER FORM (TAMBAH / EDIT PENGGUNA)                       -->
+    <!-- ============================================================== -->
+    <div id="modal-user-form" class="modal-overlay hidden">
+      <div class="modal-box modal-lg">
+        <div class="modal-header">
+          <div>
+            <h3 class="modal-title" id="modal-user-title">👤 Tambah Pengguna Baru</h3>
+            <p class="modal-subtitle">Kelola akun dan role otorisasi akses sistem</p>
+          </div>
+          <button id="btn-close-user-form" class="modal-close">&times;</button>
+        </div>
+
+        <form id="form-sys-user">
+          <input type="hidden" id="input-user-id" value="">
+          <div class="modal-body p-6 space-y-4">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+              <div class="form-group">
+                <label for="input-user-username" class="form-label">Username <span class="text-danger">*</span></label>
+                <input type="text" id="input-user-username" class="form-control" placeholder="Contoh: ahmad.nurdin" required autocomplete="off">
+              </div>
+
+              <div class="form-group" id="group-user-password">
+                <label for="input-user-password" class="form-label">Password <span class="text-danger">*</span></label>
+                <input type="password" id="input-user-password" class="form-control" placeholder="Minimal 6 karakter" autocomplete="new-password">
+                <small class="text-xs text-muted" id="user-password-hint">Wajib diisi untuk pengguna baru.</small>
+              </div>
+
+              <div class="form-group">
+                <label for="input-user-fullname" class="form-label">Nama Lengkap <span class="text-danger">*</span></label>
+                <input type="text" id="input-user-fullname" class="form-control" placeholder="Contoh: Ahmad Nurdin" required>
+              </div>
+
+              <div class="form-group">
+                <label for="input-user-email" class="form-label">Email</label>
+                <input type="email" id="input-user-email" class="form-control" placeholder="user@antam.com">
+              </div>
+
+              <div class="form-group" style="grid-column: span 2;">
+                <label for="select-user-role" class="form-label">Role Akses <span class="text-danger">*</span></label>
+                <select id="select-user-role" class="form-control" required>
+                  <option value="">-- Pilih Role --</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Penugasan Multi-Client & Multi-Environment -->
+            <div class="form-group pt-2">
+              <div class="flex-between mb-2">
+                <div>
+                  <label class="form-label mb-0" style="font-weight: 600; font-size: 0.9rem;">🏢 Penugasan Multi-Client &amp; Multi-Environment</label>
+                  <div class="text-xs text-muted">Pengguna hanya dapat mengakses Client &amp; Environment yang dicentang</div>
+                </div>
+                <div class="flex gap-2">
+                  <button type="button" class="btn btn-secondary btn-xs" id="btn-select-all-tenants">Pilih Semua</button>
+                  <button type="button" class="btn btn-secondary btn-xs" id="btn-deselect-all-tenants">Hapus Semua</button>
+                </div>
+              </div>
+
+              <div id="user-tenants-checklist-container" class="tenant-assignment-box">
+                <div class="p-4 text-center text-xs text-muted">Memuat daftar Client &amp; Environment...</div>
+              </div>
+              <small class="text-xs text-muted block mt-1">💡 Catatan: Role SUPERADMIN secara otomatis memiliki akses ke semua Client &amp; Environment tanpa dibatasi.</small>
+            </div>
+
+            <div class="form-group pt-1">
+              <label class="flex-center gap-2 cursor-pointer" style="justify-content: flex-start;">
+                <input type="checkbox" id="check-user-active" checked>
+                <span class="text-sm font-semibold">Pengguna Aktif</span>
+              </label>
+              <small class="text-xs text-muted block ml-5">Pengguna nonaktif tidak akan dapat login ke dalam sistem.</small>
+            </div>
+          </div>
+
+          <div class="modal-footer flex-end gap-3">
+            <button type="button" id="btn-cancel-user-form" class="btn btn-secondary btn-sm">Batal</button>
+            <button type="submit" id="btn-submit-user-form" class="btn btn-primary btn-sm">Simpan Pengguna</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- MODAL: RESET PASSWORD PENGGUNA                                   -->
+    <!-- ============================================================== -->
+    <div id="modal-user-reset-pwd" class="modal-overlay hidden">
+      <div class="modal-box modal-sm">
+        <div class="modal-header">
+          <div>
+            <h3 class="modal-title">🔑 Reset Password</h3>
+            <p class="modal-subtitle">Ganti password akun pengguna</p>
+          </div>
+          <button id="btn-close-reset-pwd" class="modal-close">&times;</button>
+        </div>
+
+        <form id="form-reset-pwd">
+          <input type="hidden" id="reset-user-id" value="">
+          <div class="modal-body p-6 space-y-4">
+            <div class="p-3 rounded-lg" style="background: rgba(15, 23, 42, 0.4); border: 1px solid var(--border-subtle);">
+              <span class="text-xs text-muted block">Akun Pengguna:</span>
+              <strong id="reset-user-display" class="text-sm text-cyan">-</strong>
+            </div>
+
+            <div class="form-group">
+              <label for="input-reset-password" class="form-label">Password Baru <span class="text-danger">*</span></label>
+              <input type="password" id="input-reset-password" class="form-control" placeholder="Minimal 6 karakter" required minlength="6">
+            </div>
+
+            <div class="form-group">
+              <label for="input-reset-password-confirm" class="form-label">Konfirmasi Password Baru <span class="text-danger">*</span></label>
+              <input type="password" id="input-reset-password-confirm" class="form-control" placeholder="Ulangi password baru" required minlength="6">
+            </div>
+          </div>
+
+          <div class="modal-footer flex-end gap-3">
+            <button type="button" id="btn-cancel-reset-pwd" class="btn btn-secondary btn-sm">Batal</button>
+            <button type="submit" id="btn-submit-reset-pwd" class="btn btn-primary btn-sm">Update Password</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- MODAL: ROLE FORM (TAMBAH / EDIT ROLE)                           -->
+    <!-- ============================================================== -->
+    <div id="modal-role-form" class="modal-overlay hidden">
+      <div class="modal-box modal-md">
+        <div class="modal-header">
+          <div>
+            <h3 class="modal-title" id="modal-role-title">🎭 Tambah Role Baru</h3>
+            <p class="modal-subtitle">Definisikan peran dan otoritas pengguna sistem</p>
+          </div>
+          <button id="btn-close-role-form" class="modal-close">&times;</button>
+        </div>
+
+        <form id="form-sys-role">
+          <input type="hidden" id="input-role-id" value="">
+          <div class="modal-body p-6 space-y-4">
+            <div class="form-group">
+              <label for="input-role-code" class="form-label">Kode Role <span class="text-danger">*</span></label>
+              <input type="text" id="input-role-code" class="form-control font-mono" placeholder="Contoh: OPERATOR_DATA" required style="text-transform: uppercase;">
+              <small class="text-xs text-muted">Gunakan huruf kapital tanpa spasi (alfanumerik &amp; underscore).</small>
+            </div>
+
+            <div class="form-group">
+              <label for="input-role-name" class="form-label">Nama Role <span class="text-danger">*</span></label>
+              <input type="text" id="input-role-name" class="form-control" placeholder="Contoh: Operator Data &amp; ETL" required>
+            </div>
+
+            <div class="form-group">
+              <label for="input-role-desc" class="form-label">Deskripsi</label>
+              <textarea id="input-role-desc" class="form-control" rows="3" placeholder="Penjelasan tugas dan wewenang role ini..."></textarea>
+            </div>
+
+            <div class="form-group pt-2">
+              <label class="flex-center gap-2 cursor-pointer">
+                <input type="checkbox" id="check-role-active" checked>
+                <span class="text-sm font-semibold">Role Aktif</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="modal-footer flex-end gap-3">
+            <button type="button" id="btn-cancel-role-form" class="btn btn-secondary btn-sm">Batal</button>
+            <button type="submit" id="btn-submit-role-form" class="btn btn-primary btn-sm">Simpan Role</button>
+          </div>
+        </form>
       </div>
     </div>
 

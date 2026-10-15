@@ -33,6 +33,7 @@ class PipelineService {
     const configsRes = await queryPostgres(`
       SELECT 
         config_id,
+        name_config,
         exec_order,
         src_schema,
         src_view,
@@ -53,6 +54,43 @@ class PipelineService {
 
     const configs = configsRes.rows;
     const pipelineResults = [];
+
+    // Ambil seluruh target config untuk pemetaan multi-target
+    const targetConfigsRes = await queryPostgres(`
+      SELECT 
+        target_config_id,
+        config_id,
+        exec_order,
+        tgt_schema,
+        tgt_table,
+        pk_columns,
+        is_active
+      FROM etl_antam.migration_target_config
+      WHERE is_active = true
+      ORDER BY config_id, exec_order, target_config_id
+    `);
+    const allTargetConfigs = targetConfigsRes.rows;
+
+    // Ambil log POST_TARGET terbaru untuk detail rows_before dan rows_after
+    const postStepLogsRes = await queryPostgres(`
+      SELECT log_id, run_id, config_id, step_name, rows_before, rows_after, message, start_time
+      FROM etl_antam.migration_step_log
+      WHERE step_name = 'POST_TARGET'
+      ORDER BY log_id DESC
+    `);
+    const allPostStepLogs = postStepLogsRes.rows;
+
+    // Ambil info migration_run secara umum dan per config (terfilter client & env)
+    const latestRunsRes = await queryPostgres(`
+      SELECT 
+        run_id, run_ts, start_time, end_time, status, hop_host, note, main_workflow, config_id,
+        is_posted, posted_at, post_type, is_rolled_back, rolled_back_at,
+        ROUND(EXTRACT(EPOCH FROM (end_time - start_time))::numeric, 2) AS duration_seconds
+      FROM etl_antam.migration_run
+      ${cfgWhere}
+      ORDER BY run_id DESC
+    `, cfgParams);
+    const allRuns = latestRunsRes.rows;
 
     for (const cfg of configs) {
       let srcRows = null;
@@ -93,18 +131,6 @@ class PipelineService {
         }
       }
 
-      // 3. Hitung Baris Target (PostgreSQL - tgt_schema / vendor)
-      if (cleanTgtTable) {
-        try {
-          const res = await queryPostgres(
-            `SELECT COUNT(*) AS total FROM "${cleanTgtSchema}"."${cleanTgtTable}"`
-          );
-          tgtRows = parseInt(res.rows[0]?.total, 10) || 0;
-        } catch (e) {
-          tgtError = e.message;
-        }
-      }
-
       // Ambil jumlah error terkait config_id ini
       const errorCountRes = await queryPostgres(
         `SELECT COUNT(*) AS total FROM etl_antam.migration_error_log WHERE config_id = $1`,
@@ -119,6 +145,10 @@ class PipelineService {
       );
       const lastStep = lastStepRes.rows[0] || null;
 
+      // Cari run yang relevan dengan config ini
+      const idStr = String(cfg.config_id);
+      const matchedRun = allRuns.find((r) => r.config_id === idStr || (r.config_id && r.config_id.includes(idStr))) || null;
+
       // Evaluasi status alur Source ➔ Staging
       let stage1Status = 'UNKNOWN';
       if (srcRows !== null && stgRows !== null) {
@@ -131,8 +161,111 @@ class PipelineService {
         }
       }
 
+      // 3. Evaluasi Multi-Target dari migration_target_config
+      let cfgTargets = allTargetConfigs.filter((t) => t.config_id === cfg.config_id);
+      if (cfgTargets.length === 0) {
+        cfgTargets = [{
+          target_config_id: null,
+          config_id: cfg.config_id,
+          exec_order: 1,
+          tgt_schema: cleanTgtSchema,
+          tgt_table: cleanTgtTable,
+          pk_columns: cfg.pk_columns,
+          is_active: true,
+        }];
+      }
+
+      const resolvedTargets = [];
+      for (const t of cfgTargets) {
+        const tSchema = sanitizeIdentifier(t.tgt_schema) || 'vendor';
+        const tTable = sanitizeIdentifier(t.tgt_table);
+
+        // Cari step log yang cocok dengan tabel target ini
+        const matchedLog = allPostStepLogs.find((sl) =>
+          sl.config_id === cfg.config_id &&
+          sl.message && tTable &&
+          sl.message.toLowerCase().includes(tTable.toLowerCase())
+        );
+
+        // Tentukan Status Action: POSTED, STAGING_ONLY, ROLLED_BACK, atau NONE
+        let actionStatus = 'NONE';
+        let postedAt = null;
+        let rolledBackAt = null;
+
+        if (matchedRun) {
+          postedAt = matchedRun.posted_at;
+          rolledBackAt = matchedRun.rolled_back_at;
+          if (matchedRun.is_rolled_back) {
+            actionStatus = 'ROLLED_BACK';
+          } else if (matchedRun.is_posted) {
+            actionStatus = 'POSTED';
+          } else {
+            actionStatus = 'STAGING_ONLY';
+          }
+        } else if (matchedLog) {
+          actionStatus = 'POSTED';
+        } else if (stgRows !== null && stgRows > 0) {
+          actionStatus = 'STAGING_ONLY';
+        }
+
+        let sumAfter = null;
+        let sumBefore = null;
+
+        // Hanya isi sumBefore dan sumAfter jika data SUDAH pernah diposting ke target (POSTED)
+        // Jika masih STAGING_ONLY, biarkan null (akan tampil '-' di UI)
+        if (actionStatus === 'POSTED') {
+          sumAfter = (matchedLog && matchedLog.rows_after !== null && matchedLog.rows_after !== undefined)
+            ? parseInt(matchedLog.rows_after, 10)
+            : null;
+          sumBefore = (matchedLog && matchedLog.rows_before !== null && matchedLog.rows_before !== undefined)
+            ? parseInt(matchedLog.rows_before, 10)
+            : null;
+
+          // Fallback hitung jumlah baris aktual target di DB jika belum tercatat di log
+          if (sumAfter === null && tTable) {
+            try {
+              const countRes = await queryPostgres(`SELECT COUNT(*) AS total FROM "${tSchema}"."${tTable}"`);
+              sumAfter = parseInt(countRes.rows[0]?.total, 10) || 0;
+            } catch (e) {
+              sumAfter = null;
+            }
+          }
+
+          // Estimasi sumBefore jika null tapi sumAfter dan stgRows diketahui
+          if (sumBefore === null && sumAfter !== null && stgRows !== null) {
+            sumBefore = Math.max(0, sumAfter - stgRows);
+          }
+        }
+
+        const lastRunId = matchedLog?.run_id || matchedRun?.run_id || null;
+
+        resolvedTargets.push({
+          targetConfigId: t.target_config_id,
+          execOrder: t.exec_order || 1,
+          schema: tSchema,
+          table: tTable,
+          sumSource: srcRows,
+          sumStaging: stgRows,
+          sumBefore,
+          sumAfter,
+          lastRunId,
+          actionStatus,
+          postedAt,
+          rolledBackAt,
+        });
+      }
+
+      // Target utama untuk kompatibilitas visual flow diagram
+      const primaryTarget = resolvedTargets[0] || {
+        schema: cleanTgtSchema,
+        table: cleanTgtTable,
+        sumAfter: null,
+      };
+      tgtRows = primaryTarget.sumAfter;
+
       pipelineResults.push({
         configId: cfg.config_id,
+        nameConfig: cfg.name_config || null,
         execOrder: cfg.exec_order,
         isActive: cfg.is_active,
         source: {
@@ -151,11 +284,12 @@ class PipelineService {
         },
         target: {
           database: 'db_procsi (PostgreSQL)',
-          schema: cleanTgtSchema,
-          table: cleanTgtTable,
+          schema: primaryTarget.schema,
+          table: primaryTarget.table,
           rows: tgtRows,
           error: tgtError,
         },
+        targets: resolvedTargets,
         reconciliation: {
           deltaSourceToStaging: (srcRows !== null && stgRows !== null) ? stgRows - srcRows : null,
           deltaStagingToTarget: (stgRows !== null && tgtRows !== null) ? tgtRows - stgRows : null,
@@ -163,6 +297,7 @@ class PipelineService {
           errorsLogged: errorsCount,
           lastStep,
         },
+        latestRun: matchedRun || allRuns[0] || null,
         metadata: {
           pkColumns: cfg.pk_columns,
           compareColumns: cfg.compare_columns,
@@ -174,29 +309,10 @@ class PipelineService {
       });
     }
 
-    // Ambil info latest migration_run secara umum dan per config (terfilter client & env)
-    const latestRunsRes = await queryPostgres(`
-      SELECT 
-        run_id, run_ts, start_time, end_time, status, hop_host, note, main_workflow, config_id,
-        is_posted, posted_at, post_type, is_rolled_back, rolled_back_at,
-        ROUND(EXTRACT(EPOCH FROM (end_time - start_time))::numeric, 2) AS duration_seconds
-      FROM etl_antam.migration_run
-      ${cfgWhere}
-      ORDER BY run_id DESC
-      LIMIT 10
-    `, cfgParams);
-
-    // Tempelkan latestRun yang relevan ke masing-masing pipeline
-    for (const p of pipelineResults) {
-      const idStr = String(p.configId);
-      const matchedRun = latestRunsRes.rows.find((r) => r.config_id === idStr || (r.config_id && r.config_id.includes(idStr)));
-      p.latestRun = matchedRun || latestRunsRes.rows[0] || null;
-    }
-
     return {
       totalConfigs: pipelineResults.length,
       pipelines: pipelineResults,
-      recentRuns: latestRunsRes.rows,
+      recentRuns: allRuns.slice(0, 10),
     };
   }
 
@@ -354,8 +470,8 @@ class PipelineService {
       };
     } else {
       // Final Target PostgreSQL (tgt_schema / vendor)
-      const cleanSchema = sanitizeIdentifier(cfg.tgt_schema) || 'vendor';
-      const cleanTable = sanitizeIdentifier(cfg.tgt_table);
+      const cleanSchema = sanitizeIdentifier(options.targetSchema) || sanitizeIdentifier(cfg.tgt_schema) || 'vendor';
+      const cleanTable = sanitizeIdentifier(options.targetTable) || sanitizeIdentifier(cfg.tgt_table);
 
       // Cek apakah tabel ada
       const tableCheck = await queryPostgres(`
@@ -409,19 +525,10 @@ class PipelineService {
   }
 
   /**
-   * Mengambil data lengkap untuk Berita Acara Validasi & Rekonsiliasi Data
+  /**
+   * Helper untuk mengambil data satu config untuk Berita Acara
    */
-  async getBeritaAcaraData(configId) {
-    const id = parseInt(configId, 10);
-    if (!id) throw new Error('configId tidak valid.');
-
-    const cfgRes = await queryPostgres(
-      'SELECT * FROM etl_antam.migration_config WHERE config_id = $1',
-      [id]
-    );
-    const cfg = cfgRes.rows[0];
-    if (!cfg) throw new Error(`Konfigurasi config_id ${configId} tidak ditemukan.`);
-
+  async _getSingleConfigBeritaAcara(cfg) {
     const cleanSrcSchema = sanitizeIdentifier(cfg.src_schema) || 'dbo';
     const cleanSrcView = sanitizeIdentifier(cfg.src_view);
     const cleanStgSchema = 'stg_antam';
@@ -456,25 +563,141 @@ class PipelineService {
     }
 
     // 2. Fetch Staging Data Attachment (Lampiran Data Staging)
-    const stgColsQuery = await queryPostgres(`
-      SELECT column_name, data_type 
-      FROM information_schema.columns
-      WHERE table_schema = $1 AND table_name = $2
-      ORDER BY ordinal_position
-    `, [cleanStgSchema, cleanStgTable]);
-    const stgColumns = stgColsQuery.rows.map((c) => ({ name: c.column_name, type: c.data_type }));
+    let stgColumns = [];
+    let stgRowsData = [];
+    if (cleanStgTable) {
+      try {
+        const stgColsQuery = await queryPostgres(`
+          SELECT column_name, data_type 
+          FROM information_schema.columns
+          WHERE table_schema = $1 AND table_name = $2
+          ORDER BY ordinal_position
+        `, [cleanStgSchema, cleanStgTable]);
+        stgColumns = (stgColsQuery.rows || []).map((c) => ({ name: c.column_name, type: c.data_type }));
 
-    // Ambil data staging untuk lampiran
-    const stgDataQuery = await queryPostgres(
-      `SELECT * FROM "${cleanStgSchema}"."${cleanStgTable}" ORDER BY 1 LIMIT 500`
-    );
-    const stgRowsData = stgDataQuery.rows;
+        const stgDataQuery = await queryPostgres(
+          `SELECT * FROM "${cleanStgSchema}"."${cleanStgTable}" ORDER BY 1 LIMIT 500`
+        );
+        stgRowsData = stgDataQuery.rows || [];
+      } catch (e) {}
+    }
+
+    // Fallback ke target table jika staging kosong namun target ada
+    if (stgRowsData.length === 0 && cleanTgtTable) {
+      try {
+        const tgtColsQuery = await queryPostgres(`
+          SELECT column_name, data_type 
+          FROM information_schema.columns
+          WHERE table_schema = $1 AND table_name = $2
+          ORDER BY ordinal_position
+        `, [cleanTgtSchema, cleanTgtTable]);
+        if (tgtColsQuery.rows && tgtColsQuery.rows.length > 0) {
+          stgColumns = tgtColsQuery.rows.map((c) => ({ name: c.column_name, type: c.data_type }));
+          const tgtDataQuery = await queryPostgres(
+            `SELECT * FROM "${cleanTgtSchema}"."${cleanTgtTable}" ORDER BY 1 LIMIT 500`
+          );
+          stgRowsData = tgtDataQuery.rows || [];
+        }
+      } catch (e) {}
+    }
 
     // 3. Fetch conversion rules
-    const rulesRes = await queryPostgres(
-      `SELECT * FROM etl_antam.migration_convert_rule WHERE config_id = $1 ORDER BY rule_id`,
-      [id]
+    let rules = [];
+    try {
+      const rulesRes = await queryPostgres(
+        `SELECT * FROM etl_antam.migration_convert_rule WHERE config_id = $1 ORDER BY rule_id`,
+        [cfg.config_id]
+      );
+      rules = rulesRes.rows || [];
+    } catch (e) {}
+
+    let modName = cfg.name_config || (cfg.tgt_table || '').replace(/_/g, ' ').toUpperCase();
+    if (!cfg.name_config) {
+      const lowerTgt = (cfg.tgt_table || '').toLowerCase();
+      if (lowerTgt.includes('vendor') || lowerTgt.includes('partner')) {
+        modName = 'Business Partner';
+      } else if (lowerTgt.includes('akta')) {
+        modName = 'Akta Perusahaan';
+      } else if (lowerTgt.includes('address')) {
+        modName = 'Alamat Vendor';
+      }
+    }
+
+    const deltaSrcStg = stgRows - srcRows;
+
+    return {
+      configId: cfg.config_id,
+      nameConfig: cfg.name_config || null,
+      execOrder: cfg.exec_order,
+      modName,
+      source: {
+        database: 'antam_scm',
+        schema: cleanSrcSchema,
+        view: cleanSrcView,
+        rows: srcRows,
+      },
+      staging: {
+        database: 'db_procsi',
+        schema: cleanStgSchema,
+        table: cleanStgTable,
+        rows: stgRows,
+      },
+      target: {
+        database: 'db_procsi',
+        schema: cleanTgtSchema,
+        table: cleanTgtTable,
+        rows: tgtRows,
+      },
+      deltaSourceToStaging: deltaSrcStg,
+      deltaStagingToTarget: tgtRows - stgRows,
+      pkColumns: cfg.pk_columns,
+      compareColumns: cfg.compare_columns,
+      idColumn: cfg.id_column,
+      idWidth: cfg.id_width,
+      idSeed: cfg.id_seed,
+      rules,
+      stagingAttachment: {
+        schema: cleanStgSchema,
+        table: cleanStgTable,
+        totalRecords: stgRows,
+        displayedRecords: stgRowsData.length,
+        columns: stgColumns,
+        rows: stgRowsData,
+      },
+    };
+  }
+
+  /**
+   * Mengambil data lengkap untuk Berita Acara Validasi & Rekonsiliasi Data
+   * Mendukung single configId atau multiple configIds (array / comma-separated)
+   */
+  async getBeritaAcaraData(configIdOrIds) {
+    let ids = [];
+    if (Array.isArray(configIdOrIds)) {
+      ids = configIdOrIds.map((x) => parseInt(x, 10)).filter(Boolean);
+    } else if (typeof configIdOrIds === 'string' && configIdOrIds.includes(',')) {
+      ids = configIdOrIds.split(',').map((x) => parseInt(x.trim(), 10)).filter(Boolean);
+    } else {
+      const id = parseInt(configIdOrIds, 10);
+      if (id) ids = [id];
+    }
+
+    if (ids.length === 0) throw new Error('configId tidak valid.');
+
+    const cfgRes = await queryPostgres(
+      'SELECT * FROM etl_antam.migration_config WHERE config_id = ANY($1::int[]) ORDER BY exec_order, config_id',
+      [ids]
     );
+    const configs = cfgRes.rows;
+    if (!configs || configs.length === 0) {
+      throw new Error(`Konfigurasi config_id (${ids.join(', ')}) tidak ditemukan.`);
+    }
+
+    const items = [];
+    for (const cfg of configs) {
+      const item = await this._getSingleConfigBeritaAcara(cfg);
+      items.push(item);
+    }
 
     // 4. Generate Document No & Date
     const now = new Date();
@@ -489,12 +712,11 @@ class PipelineService {
       minute: '2-digit',
     });
     const docDateCode = now.toISOString().slice(0, 10).replace(/-/g, '');
-    const docNumber = `BA-VAL/ANTAM/${docDateCode}/CFG-${String(id).padStart(3, '0')}`;
+    const docNumber = `BA-VAL/ANTAM/${docDateCode}/CFG-${ids.map((i) => String(i).padStart(3, '0')).join('-')}`;
 
-    // Verdict
-    const deltaSrcStg = stgRows - srcRows;
-    const isSynced = srcRows === stgRows && srcRows > 0;
-    const verdict = isSynced ? 'LULUS VALIDASI (100% SINKRON)' : (stgRows < srcRows ? 'BELUM LENGKAP (PARSIAL)' : 'PERLU PENINJAUAN ULANG');
+    const firstItem = items[0];
+    const isSynced = firstItem.source.rows === firstItem.staging.rows && firstItem.source.rows > 0;
+    const verdict = isSynced ? 'LULUS VALIDASI (100% SINKRON)' : (firstItem.staging.rows < firstItem.source.rows ? 'BELUM LENGKAP (PARSIAL)' : 'PERLU PENINJAUAN ULANG');
 
     return {
       document: {
@@ -506,44 +728,10 @@ class PipelineService {
         verdict,
         isSynced,
       },
-      config: {
-        configId: cfg.config_id,
-        execOrder: cfg.exec_order,
-        source: {
-          database: 'antam_scm',
-          schema: cleanSrcSchema,
-          view: cleanSrcView,
-          rows: srcRows,
-        },
-        staging: {
-          database: 'db_procsi',
-          schema: cleanStgSchema,
-          table: cleanStgTable,
-          rows: stgRows,
-        },
-        target: {
-          database: 'db_procsi',
-          schema: cleanTgtSchema,
-          table: cleanTgtTable,
-          rows: tgtRows,
-        },
-        deltaSourceToStaging: deltaSrcStg,
-        deltaStagingToTarget: tgtRows - stgRows,
-        pkColumns: cfg.pk_columns,
-        compareColumns: cfg.compare_columns,
-        idColumn: cfg.id_column,
-        idWidth: cfg.id_width,
-        idSeed: cfg.id_seed,
-      },
-      rules: rulesRes.rows,
-      stagingAttachment: {
-        schema: cleanStgSchema,
-        table: cleanStgTable,
-        totalRecords: stgRows,
-        displayedRecords: stgRowsData.length,
-        columns: stgColumns,
-        rows: stgRowsData,
-      },
+      configs: items,
+      config: firstItem,
+      rules: firstItem.rules,
+      stagingAttachment: firstItem.stagingAttachment,
     };
   }
 }

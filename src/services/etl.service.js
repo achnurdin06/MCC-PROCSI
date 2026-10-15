@@ -97,6 +97,7 @@ class EtlService {
         ALTER TABLE IF EXISTS etl_antam.master_connection ADD COLUMN IF NOT EXISTS ssh_password VARCHAR(255);
 
         -- Multi-Tenant columns on Config & Run tables
+        ALTER TABLE IF EXISTS etl_antam.migration_config ADD COLUMN IF NOT EXISTS name_config VARCHAR(255);
         ALTER TABLE IF EXISTS etl_antam.migration_config ADD COLUMN IF NOT EXISTS client_id INTEGER;
         ALTER TABLE IF EXISTS etl_antam.migration_config ADD COLUMN IF NOT EXISTS env_id INTEGER;
         ALTER TABLE IF EXISTS etl_antam.migration_convert_rule ADD COLUMN IF NOT EXISTS client_id INTEGER;
@@ -107,6 +108,22 @@ class EtlService {
         ALTER TABLE IF EXISTS etl_antam.migration_lookup ADD COLUMN IF NOT EXISTS env_id INTEGER;
         ALTER TABLE IF EXISTS etl_antam.migration_run ADD COLUMN IF NOT EXISTS client_id INTEGER;
         ALTER TABLE IF EXISTS etl_antam.migration_run ADD COLUMN IF NOT EXISTS env_id INTEGER;
+
+        -- User Multi-Tenancy columns & tables
+        ALTER TABLE IF EXISTS etl_antam.sys_users ADD COLUMN IF NOT EXISTS client_id INTEGER REFERENCES etl_antam.master_client(client_id) ON DELETE SET NULL;
+        ALTER TABLE IF EXISTS etl_antam.sys_users ADD COLUMN IF NOT EXISTS env_id INTEGER REFERENCES etl_antam.master_environment(env_id) ON DELETE SET NULL;
+
+        CREATE TABLE IF NOT EXISTS etl_antam.sys_user_clients (
+          user_id INTEGER REFERENCES etl_antam.sys_users(user_id) ON DELETE CASCADE,
+          client_id INTEGER REFERENCES etl_antam.master_client(client_id) ON DELETE CASCADE,
+          PRIMARY KEY (user_id, client_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS etl_antam.sys_user_environments (
+          user_id INTEGER REFERENCES etl_antam.sys_users(user_id) ON DELETE CASCADE,
+          env_id INTEGER REFERENCES etl_antam.master_environment(env_id) ON DELETE CASCADE,
+          PRIMARY KEY (user_id, env_id)
+        );
       `);
     } catch (err) {
       console.warn('Postgres master tables init warning (using resilient storage):', err.message);
@@ -250,9 +267,23 @@ class EtlService {
   // ==========================================
   // CLIENT CRUD
   // ==========================================
-    async getClients() {
+  async getClients(user = null) {
     await this.ensureMasterTablesExist();
     try {
+      const isSuperadmin = user && user.roleCode === 'SUPERADMIN';
+      let whereClause = '';
+      const params = [];
+
+      if (user && !isSuperadmin) {
+        if (Array.isArray(user.clientIds) && user.clientIds.length > 0) {
+          params.push(user.clientIds.map(id => parseInt(id, 10)));
+          whereClause = `WHERE c.client_id = ANY($1::int[])`;
+        } else if (user.clientId) {
+          params.push(parseInt(user.clientId, 10));
+          whereClause = `WHERE c.client_id = $1`;
+        }
+      }
+
       const res = await queryPostgres(`
         SELECT 
           c.*,
@@ -271,12 +302,21 @@ class EtlService {
           ) AS environments
         FROM etl_antam.master_client c
         LEFT JOIN etl_antam.master_environment e ON c.client_id = e.client_id
+        ${whereClause}
         GROUP BY c.client_id
         ORDER BY c.client_id
-      `);
+      `, params);
       return res.rows;
     } catch (err) {
-      return inMemoryClients.map(c => {
+      let filtered = inMemoryClients;
+      if (user && user.roleCode !== 'SUPERADMIN') {
+        if (Array.isArray(user.clientIds) && user.clientIds.length > 0) {
+          filtered = filtered.filter(c => user.clientIds.map(String).includes(String(c.client_id)));
+        } else if (user.clientId) {
+          filtered = filtered.filter(c => c.client_id == user.clientId);
+        }
+      }
+      return filtered.map(c => {
         const envs = inMemoryEnvironments.filter(e => e.client_id == c.client_id);
         return {
           ...c,
@@ -599,9 +639,12 @@ class EtlService {
   // ==========================================
   // ENVIRONMENT CRUD
   // ==========================================
-  async getEnvironments(clientId = null) {
+  async getEnvironments(clientId = null, user = null) {
     await this.ensureMasterTablesExist();
     try {
+      const isSuperadmin = user && user.roleCode === 'SUPERADMIN';
+      let targetClientId = clientId ? parseInt(clientId, 10) : null;
+
       let query = `
         SELECT e.*, c.client_name, c.client_code,
                COUNT(conn.connection_id)::int AS total_connections
@@ -610,18 +653,70 @@ class EtlService {
         LEFT JOIN etl_antam.master_connection conn ON e.env_id = conn.env_id
       `;
       const params = [];
-      if (clientId) {
-        params.push(parseInt(clientId, 10));
-        query += ` WHERE e.client_id = $1`;
+      const conditions = [];
+
+      if (user && !isSuperadmin) {
+        // Client filtering
+        if (targetClientId) {
+          if (Array.isArray(user.clientIds) && user.clientIds.length > 0) {
+            if (!user.clientIds.map(Number).includes(targetClientId)) {
+              return []; // Client requested is outside assigned clients
+            }
+          } else if (user.clientId && user.clientId != targetClientId) {
+            return [];
+          }
+          params.push(targetClientId);
+          conditions.push(`e.client_id = $${params.length}`);
+        } else if (Array.isArray(user.clientIds) && user.clientIds.length > 0) {
+          params.push(user.clientIds.map(id => parseInt(id, 10)));
+          conditions.push(`e.client_id = ANY($${params.length}::int[])`);
+        } else if (user.clientId) {
+          params.push(parseInt(user.clientId, 10));
+          conditions.push(`e.client_id = $${params.length}`);
+        }
+
+        // Environment filtering
+        if (Array.isArray(user.envIds) && user.envIds.length > 0) {
+          params.push(user.envIds.map(id => parseInt(id, 10)));
+          conditions.push(`e.env_id = ANY($${params.length}::int[])`);
+        } else if (user.envId) {
+          params.push(parseInt(user.envId, 10));
+          conditions.push(`e.env_id = $${params.length}`);
+        }
+      } else {
+        if (targetClientId) {
+          params.push(targetClientId);
+          conditions.push(`e.client_id = $${params.length}`);
+        }
       }
+
+      if (conditions.length > 0) {
+        query += ` WHERE ` + conditions.join(' AND ');
+      }
+
       query += ` GROUP BY e.env_id, c.client_name, c.client_code ORDER BY e.client_id, e.env_id`;
       const res = await queryPostgres(query, params);
       return res.rows;
     } catch (err) {
-      if (clientId) {
-        return inMemoryEnvironments.filter((e) => e.client_id == clientId);
+      let filtered = inMemoryEnvironments;
+      if (user && user.roleCode !== 'SUPERADMIN') {
+        if (clientId) {
+          filtered = filtered.filter(e => e.client_id == clientId);
+        } else if (Array.isArray(user.clientIds) && user.clientIds.length > 0) {
+          filtered = filtered.filter(e => user.clientIds.map(String).includes(String(e.client_id)));
+        } else if (user.clientId) {
+          filtered = filtered.filter(e => e.client_id == user.clientId);
+        }
+
+        if (Array.isArray(user.envIds) && user.envIds.length > 0) {
+          filtered = filtered.filter(e => user.envIds.map(String).includes(String(e.env_id)));
+        } else if (user.envId) {
+          filtered = filtered.filter(e => e.env_id == user.envId);
+        }
+      } else if (clientId) {
+        filtered = filtered.filter(e => e.client_id == clientId);
       }
-      return inMemoryEnvironments;
+      return filtered;
     }
   }
 

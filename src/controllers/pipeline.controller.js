@@ -27,12 +27,12 @@ class PipelineController {
 
   async getPipelineStageData(req, res) {
     try {
-      const { configId, stage, page, limit } = req.query;
+      const { configId, stage, page, limit, targetTable, targetSchema } = req.query;
       if (!configId) {
         return res.status(400).json({ success: false, error: 'Parameter "configId" wajib diisi.' });
       }
 
-      const data = await pipelineService.getPipelineStageData({ configId, stage, page, limit });
+      const data = await pipelineService.getPipelineStageData({ configId, stage, page, limit, targetTable, targetSchema });
       return res.json({ success: true, data });
     } catch (err) {
       return res.status(500).json({ success: false, error: err.message });
@@ -41,12 +41,13 @@ class PipelineController {
 
   async getBeritaAcara(req, res) {
     try {
-      const { configId } = req.query;
-      if (!configId) {
-        return res.status(400).json({ success: false, error: 'Parameter "configId" wajib diisi.' });
+      const { configId, configIds } = req.query;
+      const targetParam = configIds || configId;
+      if (!targetParam) {
+        return res.status(400).json({ success: false, error: 'Parameter "configId" atau "configIds" wajib diisi.' });
       }
 
-      const data = await pipelineService.getBeritaAcaraData(configId);
+      const data = await pipelineService.getBeritaAcaraData(targetParam);
       return res.json({ success: true, data });
     } catch (err) {
       return res.status(500).json({ success: false, error: err.message });

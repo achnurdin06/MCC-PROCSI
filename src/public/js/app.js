@@ -107,17 +107,35 @@ const state = {
 
   // Berita Acara
   beritaAcaraData: null,
+  beritaAcaraSelectedConfigs: [1],
+  beritaAcaraConfigsCache: {},
+  beritaAcaraLogoLeft: { mode: 'antam', url: '', height: 40 },
+  beritaAcaraLogoRight: { mode: 'sisi', url: '', height: 42 },
 
   // Universal Delete Target
   deleteTarget: null,
+
+  // Authentication & RBAC
+  currentUser: null,
+  userToken: localStorage.getItem('antam_token') || null,
+  userMenus: [],
+  activeSysSubtab: 'sys-tab-users',
+  system: {
+    users: [],
+    roles: [],
+    selectedMatrixRoleId: null,
+    menuMatrix: [],
+  },
 };
 
 // =========================================================================
 // INISIALISASI
 // =========================================================================
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   setupEventListeners();
-  initApplication();
+  setupAuthEventListeners();
+  setupSystemAdminEventListeners();
+  await initAuth();
 });
 
 async function initApplication() {
@@ -658,6 +676,16 @@ function setupEventListeners() {
     }
   });
 
+  // Modal Pipeline Inspector (Tinjauan Hasil Migrasi)
+  const btnClosePipelineInspector = document.getElementById('btn-close-pipeline-inspector');
+  if (btnClosePipelineInspector) {
+    btnClosePipelineInspector.addEventListener('click', () => closePipelineInspectorModal());
+  }
+  const btnClosePipelineInspectorFooter = document.getElementById('btn-close-pipeline-inspector-footer');
+  if (btnClosePipelineInspectorFooter) {
+    btnClosePipelineInspectorFooter.addEventListener('click', () => closePipelineInspectorModal());
+  }
+
   // Modal CRUD Universal
   document.getElementById('btn-close-crud-modal').addEventListener('click', () => {
     document.getElementById('modal-config-form').classList.add('hidden');
@@ -816,6 +844,8 @@ function setupEventListeners() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       const modalIds = [
+        'modal-pipeline-inspector',
+        'modal-source-inspector',
         'modal-delete-confirm',
         'modal-json',
         'modal-config-form',
@@ -834,22 +864,7 @@ function setupEventListeners() {
   });
 
   // Modal Berita Acara Events
-  const btnOpenBa = document.getElementById('btn-open-ba');
-  if (btnOpenBa) {
-    btnOpenBa.addEventListener('click', () => openBeritaAcara(state.pipeline.selectedConfigId));
-  }
-  const btnCloseBa = document.getElementById('btn-close-ba');
-  if (btnCloseBa) {
-    btnCloseBa.addEventListener('click', () => document.getElementById('modal-berita-acara').classList.add('hidden'));
-  }
-  const btnPrintBa = document.getElementById('btn-print-ba');
-  if (btnPrintBa) {
-    btnPrintBa.addEventListener('click', () => window.print());
-  }
-  const btnExportCsv = document.getElementById('btn-export-stg-csv');
-  if (btnExportCsv) {
-    btnExportCsv.addEventListener('click', () => exportStagingCsv());
-  }
+  initBeritaAcaraEvents();
 }
 
 function setupSearchFilter(inputId, tbodyId) {
@@ -901,6 +916,8 @@ function loadCurrentTab() {
     }
   } else if (tabId === 'tab-pipeline') {
     loadPipelineReconciliation();
+  } else if (tabId === 'tab-system') {
+    loadSystemAdministration();
   }
 }
 
@@ -1115,16 +1132,35 @@ async function checkHealth() {
 // =========================================================================
 async function loadContextClientsAndEnvironments() {
   try {
-    const clientRes = await fetch('/api/context/clients');
+    const clientRes = await authFetch('/api/context/clients');
     const clientJson = await clientRes.json();
     if (clientJson.success) {
       state.clients = clientJson.data;
       renderHeaderClientOptions();
     }
 
+    const isSuperadmin = state.currentUser && state.currentUser.role_code === 'SUPERADMIN';
+    const selClient = document.getElementById('header-select-client');
+    const selEnv = document.getElementById('header-select-env');
+
+    // Multi-tenant resolution berdasarkan akun pengguna
+    if (state.currentUser && !isSuperadmin) {
+      const allowedClientCount = state.clients.length;
+      if (selClient) {
+        selClient.disabled = (allowedClientCount <= 1);
+        selClient.title = allowedClientCount <= 1
+          ? 'Tenant Anda ditetapkan sebagai ' + (state.currentUser.client_name || state.currentUser.client_code || 'Client')
+          : 'Pilih Client yang ditugaskan kepada Anda';
+      }
+    } else {
+      if (selClient) selClient.disabled = false;
+      if (selEnv) selEnv.disabled = false;
+    }
+
     if (state.clients.length > 0) {
-      if (!state.selectedClientId) state.selectedClientId = state.clients[0].client_id;
-      const selClient = document.getElementById('header-select-client');
+      if (!state.selectedClientId || !state.clients.some(c => c.client_id == state.selectedClientId)) {
+        state.selectedClientId = state.clients[0].client_id;
+      }
       if (selClient) selClient.value = state.selectedClientId;
       await loadContextEnvironments(state.selectedClientId);
       await resolveEnvironmentConnections(state.selectedEnvId);
@@ -1153,7 +1189,7 @@ async function loadContextEnvironments(clientId) {
 
   try {
     const url = clientId ? `/api/context/environments?clientId=${clientId}` : `/api/context/environments`;
-    const res = await fetch(url);
+    const res = await authFetch(url);
     const json = await res.json();
     if (!json.success) return;
 
@@ -1168,6 +1204,17 @@ async function loadContextEnvironments(clientId) {
     sel.innerHTML = state.environments.map((e) => `
       <option value="${e.env_id}">[${escapeHtml(e.env_code)}] ${escapeHtml(e.env_name)}</option>
     `).join('');
+
+    const isSuperadmin = state.currentUser && state.currentUser.role_code === 'SUPERADMIN';
+    if (state.currentUser && !isSuperadmin) {
+      const allowedEnvCount = state.environments.length;
+      sel.disabled = (allowedEnvCount <= 1);
+      sel.title = allowedEnvCount <= 1
+        ? 'Environment Anda ditetapkan sebagai ' + (state.environments[0]?.env_name || state.environments[0]?.env_code || 'Env')
+        : 'Pilih Environment kerja Anda';
+    } else {
+      if (sel) sel.disabled = false;
+    }
 
     if (!state.selectedEnvId || !state.environments.some((e) => e.env_id === state.selectedEnvId)) {
       state.selectedEnvId = state.environments[0].env_id;
@@ -1460,6 +1507,10 @@ async function finishWizard() {
 // SYSTEM SETTING MODAL LOGIC (CLIENT, ENV, MULTIPLE CONNECTIONS)
 // =========================================================================
 function openSettingsModal() {
+  if (typeof isCurrentUserAdmin === 'function' && !isCurrentUserAdmin()) {
+    alert('Akses Ditolak: Fitur Pengaturan Sistem hanya dapat diakses oleh user Administrator.');
+    return;
+  }
   document.getElementById('modal-settings').classList.remove('hidden');
   switchSettingTab(state.activeSettingTab);
 }
@@ -2025,7 +2076,6 @@ function renderSourceViewsTable() {
           <td class="col-action">
             <div class="flex-gap-2 flex-wrap" style="justify-content: center;">
               <button class="btn btn-primary btn-xs" onclick="openSourceInspectorModal('${v.name}')" title="Buka dialog data inspector, skema kolom, dan DDL">🔍 Detail</button>
-              ${!v.isMigrationConfigured ? `<button class="btn btn-emerald btn-xs" onclick="quickRegisterViewToConfig('${v.name}')" title="Daftarkan view ini ke Migration Config">⚡ Daftarkan</button>` : ''}
               <button class="btn btn-secondary btn-xs" onclick="quickSyncView('${v.name}')" title="Simpan query view ke tabel konfigurasi">💾 Sync</button>
               <button class="btn btn-secondary btn-xs" onclick="openViewEditor('${v.name}')" title="Edit query view">✏️ Edit</button>
               <button class="btn btn-danger btn-xs" onclick="openDeleteModal('source_view', '${v.name}', '${v.name}')" title="Hapus view dari DB">🗑️</button>
@@ -3290,6 +3340,7 @@ function renderConfigTable(tableKey) {
     tbody.innerHTML = pageItems.map((c) => `
       <tr>
         <td class="font-mono font-bold text-center">#${c.config_id}</td>
+        <td><strong class="text-white">${escapeHtml(c.name_config || '-')}</strong></td>
         <td class="font-mono text-center">${c.exec_order}</td>
         <td class="font-mono text-muted">${escapeHtml(c.src_schema || 'dbo')}</td>
         <td><strong class="text-cyan">${escapeHtml(c.src_view)}</strong></td>
@@ -3433,6 +3484,7 @@ const FORM_DEFINITIONS = {
   migration_config: {
     title: 'Migration Config',
     fields: [
+      { name: 'name_config', label: 'Nama Konfigurasi / Objek', type: 'text', placeholder: 'e.g. Vendor, Akta Perusahaan, Vendor Address' },
       { name: 'exec_order', label: 'Exec Order', type: 'number', default: 1, required: true },
       { name: 'src_schema', label: 'Source Schema', type: 'text', default: 'dbo', required: true },
       { name: 'src_view', label: 'Source View (SQL Server)', type: 'text', placeholder: 'v_migration_vendor', required: true },
@@ -4292,7 +4344,7 @@ async function loadPipelineReconciliation() {
     state.pipeline.pipelines = data.pipelines;
 
     if (data.pipelines.length === 0) {
-      masterTbody.innerHTML = `<tr><td colspan="9" class="text-center py-8 text-muted">Belum ada data konfigurasi di migration_config untuk environment ini.</td></tr>`;
+      masterTbody.innerHTML = `<tr><td colspan="14" class="text-center py-8 text-muted">Belum ada data konfigurasi di migration_config untuk environment ini.</td></tr>`;
       state.pipeline.selectedConfigId = null;
       document.getElementById('pipeline-detail-title').textContent = 'Detail Pipeline';
       document.getElementById('pipeline-detail-desc').textContent = 'Belum ada alur rekonsiliasi untuk environment ini.';
@@ -4309,63 +4361,119 @@ async function loadPipelineReconciliation() {
       return;
     }
 
+    function renderActionStatusBadge(actionStatus, postedAt, rolledBackAt) {
+      if (actionStatus === 'POSTED') {
+        const titleStr = postedAt ? `Sudah diposting ke target (${formatDate(postedAt)})` : 'Sudah diposting ke target vendor';
+        return `<span class="badge badge-success font-bold" title="${titleStr}" style="font-size: 0.78rem;">🚀 Posted</span>`;
+      }
+      if (actionStatus === 'STAGING_ONLY') {
+        return `<span class="badge badge-warning font-bold" title="Data berada di tahap staging, belum diposting ke target" style="font-size: 0.78rem;">📦 Staging</span>`;
+      }
+      if (actionStatus === 'ROLLED_BACK') {
+        const titleStr = rolledBackAt ? `Data di-rollback dari target (${formatDate(rolledBackAt)})` : 'Data di-rollback dari target';
+        return `<span class="badge badge-danger font-bold" title="${titleStr}" style="font-size: 0.78rem;">↩️ Rolled Back</span>`;
+      }
+      return `<span class="badge badge-neutral" style="font-size: 0.78rem;">-</span>`;
+    }
+
     masterTbody.innerHTML = data.pipelines.map((p) => {
       const isSelected = p.configId === state.pipeline.selectedConfigId;
-      const srcRows = p.source.rows ?? 0;
-      const stgRows = p.staging.rows ?? 0;
-      const tgtRows = p.target.rows ?? 0;
-
+      const targets = (p.targets && p.targets.length > 0) ? p.targets : [{
+        schema: p.target.schema,
+        table: p.target.table,
+        sumSource: p.source.rows ?? 0,
+        sumStaging: p.staging.rows ?? 0,
+        sumBefore: 0,
+        sumAfter: p.target.rows ?? 0,
+        lastRunId: p.latestRun?.run_id || null,
+        actionStatus: 'NONE',
+      }];
+      const spanCount = targets.length;
       const isMatch = p.reconciliation.sourceToStagingStatus === 'MATCH';
       const statusBadge = isMatch
-        ? `<span class="badge badge-success">✓ 100% Match</span>`
-        : `<span class="badge badge-warning">⏳ Selisih (${p.reconciliation.deltaSourceToStaging})</span>`;
+        ? `<span class="badge badge-success font-bold" style="font-size: 0.78rem;">✓ 100% Match</span>`
+        : `<span class="badge badge-warning font-bold" style="font-size: 0.78rem;">⏳ Selisih</span>`;
 
-      return `
-        <tr class="${isSelected ? 'active-row' : ''}" id="cfg-row-${p.configId}">
-          <td class="font-mono font-bold">#${p.configId}</td>
-          <td class="font-mono">${p.execOrder}</td>
-          <td><strong class="text-cyan">[${p.source.schema}].[${p.source.view}]</strong></td>
-          <td><strong class="text-amber">stg_antam.${p.staging.table}</strong></td>
-          <td><strong class="text-emerald">${p.target.schema}.${p.target.table}</strong></td>
-          <td class="font-mono" style="font-size: 0.8125rem;">
-            ${formatNumber(srcRows)} <span class="text-muted">➔</span> ${formatNumber(stgRows)} <span class="text-muted">➔</span> ${formatNumber(tgtRows)}
-          </td>
-          <td>${statusBadge}</td>
-          <td>
-            <span class="badge ${p.reconciliation.errorsLogged > 0 ? 'badge-danger' : 'badge-neutral'}">
-              ${p.reconciliation.errorsLogged} errors
-            </span>
-          </td>
-          <td>
-            <div style="display: flex; gap: 0.35rem;">
-              <button class="btn btn-secondary btn-sm" onclick="selectPipelineConfig(${p.configId})">Tinjau</button>
-              <button class="btn btn-primary btn-sm" onclick="openBeritaAcara(${p.configId})" title="Cetak Berita Acara">🖨️ BA</button>
-            </div>
-          </td>
-        </tr>
-      `;
+      const errorClass = p.reconciliation.errorsLogged > 0 ? 'text-rose font-bold' : 'text-muted';
+      const errorText = p.reconciliation.errorsLogged > 0 ? `${p.reconciliation.errorsLogged} errors` : '0 errors';
+
+      return targets.map((t, idx) => {
+        const isFirst = idx === 0;
+        const actionBadge = renderActionStatusBadge(t.actionStatus, t.postedAt, t.rolledBackAt);
+
+        const firstCols = isFirst ? `
+          <td class="font-mono font-bold text-center pipeline-merge-cell" rowspan="${spanCount}">#${p.configId}</td>
+          <td class="font-mono text-center pipeline-merge-cell" rowspan="${spanCount}">${p.execOrder}</td>
+          <td class="pipeline-merge-cell" rowspan="${spanCount}"><strong class="text-cyan">[${p.source.schema}].[${p.source.view}]</strong></td>
+          <td class="pipeline-merge-cell" rowspan="${spanCount}"><strong class="text-amber">stg_antam.${p.staging.table}</strong></td>
+        ` : '';
+
+        return `
+          <tr class="${isSelected ? 'active-row' : ''} ${isFirst ? 'pipeline-row-start' : 'pipeline-row-child'}" data-config-id="${p.configId}">
+            ${firstCols}
+            <td><strong class="text-emerald">${t.schema}.${t.table}</strong></td>
+            <td class="font-mono text-center font-bold text-emerald">${t.sumSource !== null && t.sumSource !== undefined ? formatNumber(t.sumSource) : (p.source.rows !== undefined ? formatNumber(p.source.rows) : '-')}</td>
+            <td class="font-mono text-center font-bold text-emerald">${t.sumStaging !== null && t.sumStaging !== undefined ? formatNumber(t.sumStaging) : (p.staging.rows !== undefined ? formatNumber(p.staging.rows) : '-')}</td>
+            <td class="font-mono text-center font-bold text-emerald">${t.sumBefore !== null && t.sumBefore !== undefined ? formatNumber(t.sumBefore) : '<span class="text-muted">-</span>'}</td>
+            <td class="font-mono text-center font-bold text-emerald">${t.sumAfter !== null && t.sumAfter !== undefined ? formatNumber(t.sumAfter) : '<span class="text-muted">-</span>'}</td>
+            <td class="font-mono text-center font-bold text-emerald">${t.lastRunId ? t.lastRunId : '-'}</td>
+            <td class="text-center">${actionBadge}</td>
+            <td class="text-center">${statusBadge}</td>
+            <td class="text-center"><span class="${errorClass}">${errorText}</span></td>
+            <td class="text-center">
+              <div style="display: flex; gap: 0.35rem; justify-content: center;">
+                <button class="btn btn-secondary btn-xs" onclick="openPipelineInspectorModal(${p.configId}, '${t.table}')">Tinjau</button>
+                <button class="btn btn-primary btn-xs" onclick="openBeritaAcara(${p.configId})" title="Cetak Berita Acara">🖨️ BA</button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
     }).join('');
 
     const targetConfigId = (state.pipeline.selectedConfigId && data.pipelines.some((x) => x.configId === state.pipeline.selectedConfigId))
       ? state.pipeline.selectedConfigId
       : data.pipelines[0].configId;
-    selectPipelineConfig(targetConfigId);
+    state.pipeline.selectedConfigId = targetConfigId;
   } catch (err) {
-    masterTbody.innerHTML = `<tr><td colspan="9" class="text-center py-8 text-rose">${err.message}</td></tr>`;
+    masterTbody.innerHTML = `<tr><td colspan="14" class="text-center py-8 text-rose">${err.message}</td></tr>`;
   }
 }
 
-window.selectPipelineConfig = function (configId) {
+window.openPipelineInspectorModal = function (configId, targetTableName) {
+  selectPipelineConfig(configId, targetTableName);
+  const modal = document.getElementById('modal-pipeline-inspector');
+  if (modal) {
+    const cfgBadge = document.getElementById('pipeline-modal-cfg-badge');
+    if (cfgBadge) cfgBadge.textContent = `Config #${configId}`;
+    modal.classList.remove('hidden');
+  }
+};
+
+window.closePipelineInspectorModal = function () {
+  const modal = document.getElementById('modal-pipeline-inspector');
+  if (modal) {
+    modal.classList.add('hidden');
+  }
+};
+
+window.selectPipelineConfig = function (configId, targetTableName) {
   state.pipeline.selectedConfigId = configId;
+  if (targetTableName) {
+    state.pipeline.selectedTargetTable = targetTableName;
+  }
   document.querySelectorAll('#pipeline-master-tbody tr').forEach((tr) => tr.classList.remove('active-row'));
-  const activeTr = document.getElementById(`cfg-row-${configId}`);
-  if (activeTr) activeTr.classList.add('active-row');
+  document.querySelectorAll(`#pipeline-master-tbody tr[data-config-id="${configId}"]`).forEach((tr) => tr.classList.add('active-row'));
 
   const p = state.pipeline.pipelines.find((x) => x.configId === configId);
   if (!p) return;
 
+  const activeTarget = (targetTableName && p.targets)
+    ? (p.targets.find((t) => t.table === targetTableName) || p.targets[0] || p.target)
+    : (p.targets?.[0] || p.target);
+
   document.getElementById('pipeline-detail-title').textContent = `Detail Pipeline: Config #${p.configId} (${p.source.view})`;
-  document.getElementById('pipeline-detail-desc').textContent = `Alur rekonsiliasi: [${p.source.schema}].[${p.source.view}] ➔ stg_antam.${p.staging.table} ➔ ${p.target.schema}.${p.target.table}`;
+  document.getElementById('pipeline-detail-desc').textContent = `Alur rekonsiliasi: [${p.source.schema}].[${p.source.view}] ➔ stg_antam.${p.staging.table} ➔ ${activeTarget.schema}.${activeTarget.table}`;
 
   const delta1 = p.reconciliation.deltaSourceToStaging;
   const isMatch = p.reconciliation.sourceToStagingStatus === 'MATCH';
@@ -4376,8 +4484,8 @@ window.selectPipelineConfig = function (configId) {
 
   const srcRows = p.source.rows ?? 0;
   const stgRows = p.staging.rows ?? 0;
-  const tgtRows = p.target.rows ?? 0;
-  const delta2 = p.reconciliation.deltaStagingToTarget;
+  const tgtRows = activeTarget.sumAfter ?? p.target.rows ?? 0;
+  const delta2 = tgtRows - stgRows;
 
   document.getElementById('pipeline-flow-diagram').innerHTML = `
     <div class="pipeline-node source">
@@ -4402,11 +4510,17 @@ window.selectPipelineConfig = function (configId) {
     </div>
     <div class="pipeline-node target">
       <div class="node-stage-label text-emerald">3. Final Target (PostgreSQL)</div>
-      <div class="node-table-name">${p.target.schema}.${p.target.table}</div>
+      <div class="node-table-name">${activeTarget.schema}.${activeTarget.table}</div>
       <div class="node-rows-val">${formatNumber(tgtRows)}</div>
       <div class="node-db-meta">Database: ${p.target.database || 'PostgreSQL'}</div>
     </div>
   `;
+
+  // Hubungkan tombol Cetak Berita Acara di dalam modal dengan config terpilih
+  const btnOpenBa = document.getElementById('btn-open-ba');
+  if (btnOpenBa) {
+    btnOpenBa.onclick = () => openBeritaAcara(configId);
+  }
 
   state.pipeline.page = 1;
   loadPipelineStageData();
@@ -4415,6 +4529,9 @@ window.selectPipelineConfig = function (configId) {
 async function loadPipelineStageData() {
   const configId = state.pipeline.selectedConfigId;
   const stage = state.pipeline.selectedStage;
+  const targetParam = (stage === 'target' && state.pipeline.selectedTargetTable)
+    ? `&targetTable=${encodeURIComponent(state.pipeline.selectedTargetTable)}`
+    : '';
 
   document.querySelectorAll('.stage-btn').forEach((btn) => {
     btn.classList.toggle('active', btn.getAttribute('data-stage') === stage);
@@ -4427,7 +4544,7 @@ async function loadPipelineStageData() {
   tbody.innerHTML = `<tr><td class="text-center py-8 text-muted">Mengambil data dari database...</td></tr>`;
 
   try {
-    const url = `/api/reconciliation/stage-data?configId=${configId}&stage=${stage}&page=${state.pipeline.page}&limit=${state.pipeline.limit}`;
+    const url = `/api/reconciliation/stage-data?configId=${configId}&stage=${stage}&page=${state.pipeline.page}&limit=${state.pipeline.limit}${targetParam}`;
     const res = await fetch(url);
     const json = await res.json();
     if (!json.success) throw new Error(json.error);
@@ -4492,137 +4609,1071 @@ async function loadPipelineStageData() {
 }
 
 // =========================================================================
-// BERITA ACARA VALIDASI GENERATOR & CSV EXPORT
+// BERITA ACARA RESMI FORMAT SISI — GENERATOR, EDITOR & EXPORT
 // =========================================================================
+
+const STANDARD_BA_DEFAULTS = {
+  docNo: '033/BA/251253/G300/10.2025',
+  datePicker: '2025-10-14',
+  dayName: 'Selasa',
+  dateWords: 'Empat Belas',
+  monthWords: 'Oktober',
+  yearWords: 'Dua Ribu Dua Puluh Lima',
+  dateFormatted: '14-10-2025',
+  migSchedule: 'Selasa, 07 Oktober 2025',
+  p1Name: 'RM Hendra Hadiwijaya',
+  p1Title: 'Kadiv Kebijakan Keuangan',
+  p1Comp: 'PT Sinergi Mitra Investama Tbk',
+  p2Name: 'Arief Wicaksono',
+  p2Title: 'Project Manager',
+  p2Comp: 'PT Sinergi Informatika Semen Indonesia',
+  woNo: 'WO/HO-HEAD-25-08-000007',
+  woDesc: 'Jasa Implementasi dan Subcription Aplikasi ERP dan HRIS FORCA',
+  modName: 'Business Partner',
+  rowsBefore: '-',
+  rowsAfter: '663',
+  rowsNote: 'Terlampir',
+  s1Comp: 'PT Sinergi Informatika Semen Indonesia',
+  s1Name: 'Tsalitsa Maulida Zahro',
+  s1Title: 'Funct. Forca ERP',
+  s2Comp: 'PT Sinergi Mitra Investama',
+  s2Name: 'Tytys Dwi Saputri',
+  s2Title: 'Kadep Akuntansi',
+  s3Comp: 'PT Sinergi Informatika Semen Indonesia',
+  s3Name: 'Arief Wicaksono',
+  s3Title: 'Project Manager',
+  s4Comp: 'PT Sinergi Mitra Investama',
+  s4Name: 'RM Hendra Hadiwijaya',
+  s4Title: 'Kadiv Kebijakan Keuangan',
+  showSigs: true,
+  includeAtt: true,
+  attTitle: '1. Business Partner',
+  logoLeftMode: 'antam',
+  logoLeftUrl: '',
+  logoLeftHeight: 40,
+  logoRightMode: 'sisi',
+  logoRightUrl: '',
+  logoRightHeight: 42
+};
+
+// Fallback sample data lampiran jika database belum memiliki data (persis lampiran PDF halaman 3-4)
+const SAMPLE_BP_ATTACHMENT_ROWS = [
+  { name: 'PT ADHIGUNA MITRA NIAGA', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '032721300063000', taxType: '04_04 - DPP Nilai Lain' },
+  { name: 'ADNAN BUYUNG NASUTION & PARTNERS', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '018165845062000', taxType: '04_04 - DPP Nilai Lain' },
+  { name: 'PT AGUNG SOLUSI TRANS', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '033240854021000', taxType: '04_04 - DPP Nilai Lain' },
+  { name: 'AHMAD FARIS MUSTOFA', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'NATIONAL ID', idNumber: '725116800525000', taxId: '725116800525000', taxType: '04_04 - DPP Nilai Lain' },
+  { name: 'PT ARFA EXPLORINDO NUSANTARA', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '864434576423000', taxType: '04_04 - DPP Nilai Lain' },
+  { name: 'PT ARGA BANGUN BANGSA', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '022904791013000', taxType: '04_04 - DPP Nilai Lain' },
+  { name: 'ASSEGAF HAMZAH & PARTNERS', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '020418687062000', taxType: '04_04 - DPP Nilai Lain' },
+  { name: 'PT BINUANG MITRA BERSAMA BLOK DUA', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '709910145732000', taxType: '04_04 - DPP Nilai Lain' },
+  { name: 'PT BRAVO SATRIA PERKASA (GRAHA BSP)', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '021106182007000', taxType: '04_04 - DPP Nilai Lain' },
+  { name: 'CAFE GLASS', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '068658749606000', taxType: '04_04 - DPP Nilai Lain' },
+  { name: 'CAHYO MURTIATMO', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'NATIONAL ID', idNumber: '245373972505000', taxId: '245373972505000', taxType: '04_04 - DPP Nilai Lain' },
+  { name: 'CIPTA PIRANTI SEJAHTERA', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '754067908029000', taxType: '04_04 - DPP Nilai Lain' },
+  { name: 'CV CITRAMEDIA', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '028243830614000', taxType: '04_04 - DPP Nilai Lain' },
+  { name: 'CV LINTANG MARGA', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '738267467604000', taxType: '04_04 - DPP Nilai Lain' },
+  { name: 'CV LIONA SEJAHTERA', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '030712335606000', taxType: '04_04 - DPP Nilai Lain' },
+  { name: 'CV TANJUNG DUREN', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '25069378432000', taxType: '04_04 - DPP Nilai Lain' },
+  { name: 'DANA PENSIUN SEMEN GRESIK (DPSG)', group: 'Affiliated Company', customer: 'Yes', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '011335239641000', taxType: '04_04 - DPP Nilai Lain' },
+  { name: 'DRS. YULIANTO', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'NATIONAL ID', idNumber: '245449541542000', taxId: '245449541542000', taxType: '04_04 - DPP Nilai Lain' },
+  { name: 'PT DUTAKOM WIBAWA PUTRA', group: 'Third Party', customer: 'Yes', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '017395369631000', taxType: '04_04 - DPP Nilai Lain' },
+  { name: 'DWI W RAHMAWATI', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'NATIONAL ID', idNumber: '086623022612000', taxId: '086623022612000', taxType: '04_04 - DPP Nilai Lain' }
+];
+
+// Vector Logo Generators
+function getAntamLogoSvg(height = 40) {
+  const h = parseInt(height, 10) || 40;
+  const w = Math.round((h * 180) / 44);
+  const uid = 'antam_grad_' + Math.random().toString(36).substr(2, 6);
+  return `
+    <svg class="ba-header-logo-svg ba-logo-antam" viewBox="0 0 180 44" width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="${uid}" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#ef4444"/>
+          <stop offset="50%" stop-color="#dc2626"/>
+          <stop offset="100%" stop-color="#991b1b"/>
+        </linearGradient>
+      </defs>
+      <g transform="translate(3, 4)">
+        <polygon points="18,2 36,20 18,38 0,20" fill="url(#${uid})" />
+        <polygon points="18,2 36,20 18,20" fill="#dc2626" opacity="0.9"/>
+        <polygon points="18,20 36,20 18,38" fill="#991b1b" opacity="0.95"/>
+        <polygon points="0,20 18,2 18,20" fill="#f87171" opacity="0.85"/>
+        <polygon points="0,20 18,20 18,38" fill="#b91c1c" opacity="0.9"/>
+        <polygon points="18,11 26,20 18,29 10,20" fill="#fbbf24" opacity="0.95"/>
+      </g>
+      <text x="46" y="25" font-family="'Plus Jakarta Sans', Arial, Helvetica, sans-serif" font-weight="900" font-size="20" fill="#0f172a" letter-spacing="1.2">ANTAM</text>
+      <text x="47" y="36" font-family="'Plus Jakarta Sans', Arial, Helvetica, sans-serif" font-weight="700" font-size="6.5" fill="#64748b" letter-spacing="1.5">MEMBER OF MIND ID</text>
+    </svg>
+  `;
+}
+
+function getSisiLogoSvg(height = 42) {
+  const h = parseInt(height, 10) || 42;
+  const w = Math.round((h * 135) / 48);
+  const uid = 'sisi_grad_' + Math.random().toString(36).substr(2, 6);
+  return `
+    <svg class="ba-header-logo-svg ba-sisi-logo" viewBox="0 0 135 48" width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="${uid}" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stop-color="#ea580c"/>
+          <stop offset="60%" stop-color="#f97316"/>
+          <stop offset="100%" stop-color="#fbbf24"/>
+        </linearGradient>
+      </defs>
+      <path d="M 52 11 C 70 2, 104 2, 131 15 C 117 7, 86 6, 58 13 Z" fill="url(#${uid})"/>
+      <path d="M 104 5 C 118 3, 130 6, 134 9 C 126 7, 116 6, 104 6.5 Z" fill="#f59e0b"/>
+      <text x="3" y="40" font-family="'Plus Jakarta Sans', Arial, Helvetica, sans-serif" font-weight="900" font-style="italic" font-size="42" fill="#005ba4" letter-spacing="-1">SISI</text>
+    </svg>
+  `;
+}
+
+function renderLogoContent(mode, url, height = 40) {
+  if (mode === 'none') return '';
+  if (mode === 'antam') return getAntamLogoSvg(height);
+  if (mode === 'sisi') return getSisiLogoSvg(height);
+  if (mode === 'custom') {
+    if (url && url.trim() !== '') {
+      return `<img src="${escapeHtml(url.trim())}" class="ba-header-logo-img" style="height:${height}px;" alt="Logo Header" />`;
+    }
+    return `<div style="font-size:10px;color:#94a3b8;font-style:italic;padding:4px 8px;border:1px dashed #cbd5e1;border-radius:4px;">[Logo Kustom]</div>`;
+  }
+  return getAntamLogoSvg(height);
+}
+
+function getIndonesianDateDetails(dateObj) {
+  const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+  const months = [
+    'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+    'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+  ];
+  const angkaTerbilang = [
+    '', 'Satu', 'Dua', 'Tiga', 'Empat', 'Lima', 'Enam', 'Tujuh', 'Delapan', 'Sembilan',
+    'Sepuluh', 'Sebelas', 'Dua Belas', 'Tiga Belas', 'Empat Belas', 'Lima Belas',
+    'Enam Belas', 'Tujuh Belas', 'Delapan Belas', 'Sembilan Belas', 'Dua Puluh',
+    'Dua Puluh Satu', 'Dua Puluh Dua', 'Dua Puluh Tiga', 'Dua Puluh Empat', 'Dua Puluh Lima',
+    'Dua Puluh Enam', 'Dua Puluh Tujuh', 'Dua Puluh Delapan', 'Dua Puluh Sembilan', 'Tiga Puluh',
+    'Tiga Puluh Satu'
+  ];
+
+  function convertYearToWords(year) {
+    const ribs = Math.floor(year / 1000);
+    const sisa = year % 1000;
+    const pul = sisa % 100;
+    let res = (ribs === 2 ? 'Dua Ribu' : ribs === 1 ? 'Seribu' : '');
+    if (pul > 0 && pul <= 31) {
+      res += ' ' + angkaTerbilang[pul];
+    } else if (pul >= 32) {
+      const p = Math.floor(pul / 10);
+      const s = pul % 10;
+      const pWords = ['', 'Sepuluh', 'Dua Puluh', 'Tiga Puluh', 'Empat Puluh', 'Lima Puluh', 'Enam Puluh', 'Tujuh Puluh', 'Delapan Puluh', 'Sembilan Puluh'];
+      res += ' ' + pWords[p] + (s > 0 ? ' ' + angkaTerbilang[s] : '');
+    }
+    return res.trim();
+  }
+
+  const d = dateObj.getDate();
+  const m = dateObj.getMonth();
+  const y = dateObj.getFullYear();
+
+  return {
+    dayName: days[dateObj.getDay()],
+    dateWords: angkaTerbilang[d] || String(d),
+    monthWords: months[m],
+    yearWords: convertYearToWords(y),
+    dateFormatted: `${String(d).padStart(2, '0')}-${String(m + 1).padStart(2, '0')}-${y}`,
+    isoDate: dateObj.toISOString().slice(0, 10),
+    scheduleText: `${days[dateObj.getDay()]}, ${String(d).padStart(2, '0')} ${months[m]} ${y}`
+  };
+}
+
+function initBeritaAcaraEvents() {
+  const btnOpenBa = document.getElementById('btn-open-ba');
+  if (btnOpenBa) {
+    btnOpenBa.addEventListener('click', () => openBeritaAcara(state.pipeline.selectedConfigId));
+  }
+
+  const btnTabOpenBa = document.getElementById('btn-tab-open-ba');
+  if (btnTabOpenBa) {
+    btnTabOpenBa.addEventListener('click', () => openBeritaAcara(state.pipeline.selectedConfigId));
+  }
+
+  const btnCloseBa = document.getElementById('btn-close-ba');
+  if (btnCloseBa) {
+    btnCloseBa.addEventListener('click', () => {
+      document.getElementById('modal-berita-acara').classList.add('hidden');
+    });
+  }
+
+  // Toggle form editor sidebar
+  const btnToggleForm = document.getElementById('btn-toggle-ba-form');
+  const formPanel = document.getElementById('ba-form-editor-panel');
+  if (btnToggleForm && formPanel) {
+    btnToggleForm.addEventListener('click', () => {
+      formPanel.classList.toggle('collapsed');
+      const isCollapsed = formPanel.classList.contains('collapsed');
+      const textSpan = document.getElementById('btn-toggle-ba-form-text');
+      const iconSpan = document.getElementById('btn-toggle-ba-form-icon');
+      if (textSpan) textSpan.textContent = isCollapsed ? 'Buka Form Editor' : 'Sembunyikan Form';
+      if (iconSpan) iconSpan.textContent = isCollapsed ? '✏️' : '◀';
+    });
+  }
+
+  // Reset to default
+  const btnResetTop = document.getElementById('btn-reset-ba-form');
+  const btnResetBtm = document.getElementById('btn-ba-reset-defaults');
+  [btnResetTop, btnResetBtm].forEach((btn) => {
+    if (btn) {
+      btn.addEventListener('click', () => {
+        populateBaForm(state.beritaAcaraData, true);
+        renderBaDocument();
+      });
+    }
+  });
+
+  // Apply Changes button
+  const btnApply = document.getElementById('btn-ba-apply-changes');
+  if (btnApply) {
+    btnApply.addEventListener('click', () => {
+      renderBaDocument();
+      const printArea = document.getElementById('ba-printable-area');
+      if (printArea) {
+        printArea.scrollIntoView({ behavior: 'smooth' });
+      }
+    });
+  }
+
+  // Print buttons
+  const btnPrintTop = document.getElementById('btn-print-ba');
+  const btnPrintBtm = document.getElementById('btn-ba-print-now');
+  [btnPrintTop, btnPrintBtm].forEach((btn) => {
+    if (btn) {
+      btn.addEventListener('click', () => {
+        renderBaDocument();
+        window.print();
+      });
+    }
+  });
+
+  // Export CSV
+  const btnExportCsv = document.getElementById('btn-export-stg-csv');
+  if (btnExportCsv) {
+    btnExportCsv.addEventListener('click', () => exportStagingCsv());
+  }
+
+  // Date Picker change helper
+  const datePicker = document.getElementById('ba_input_date_picker');
+  if (datePicker) {
+    datePicker.addEventListener('change', (e) => {
+      const val = e.target.value;
+      if (val) {
+        const parts = val.split('-');
+        if (parts.length === 3) {
+          const dObj = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+          if (!isNaN(dObj.getTime())) {
+            const dt = getIndonesianDateDetails(dObj);
+            const elDay = document.getElementById('ba_input_day_name');
+            const elDW = document.getElementById('ba_input_date_words');
+            const elMW = document.getElementById('ba_input_month_words');
+            const elYW = document.getElementById('ba_input_year_words');
+            const elDF = document.getElementById('ba_input_date_formatted');
+            if (elDay) elDay.value = dt.dayName;
+            if (elDW) elDW.value = dt.dateWords;
+            if (elMW) elMW.value = dt.monthWords;
+            if (elYW) elYW.value = dt.yearWords;
+            if (elDF) elDF.value = dt.dateFormatted;
+            renderBaDocument();
+          }
+        }
+      }
+    });
+  }
+
+  // Logo Left Controls
+  const selLogoLeft = document.getElementById('ba_input_logo_left_mode');
+  const wrapLogoLeft = document.getElementById('ba_logo_left_custom_wrap');
+  const badgeLogoLeft = document.getElementById('ba_logo_left_badge');
+  const fileLogoLeft = document.getElementById('ba_input_logo_left_file');
+  const urlLogoLeft = document.getElementById('ba_input_logo_left_url');
+  const heightLogoLeft = document.getElementById('ba_input_logo_left_height');
+
+  if (selLogoLeft) {
+    selLogoLeft.addEventListener('change', (e) => {
+      const mode = e.target.value;
+      state.beritaAcaraLogoLeft.mode = mode;
+      if (wrapLogoLeft) {
+        if (mode === 'custom') wrapLogoLeft.classList.remove('hidden');
+        else wrapLogoLeft.classList.add('hidden');
+      }
+      if (badgeLogoLeft) {
+        badgeLogoLeft.textContent = mode === 'antam' ? 'Preset: ANTAM' : (mode === 'sisi' ? 'Preset: SISI' : (mode === 'custom' ? 'Kustom' : 'None'));
+      }
+      renderBaDocument();
+    });
+  }
+
+  if (fileLogoLeft) {
+    fileLogoLeft.addEventListener('change', (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+          const dataUrl = evt.target.result;
+          state.beritaAcaraLogoLeft.url = dataUrl;
+          if (urlLogoLeft) urlLogoLeft.value = dataUrl;
+          renderBaDocument();
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+  }
+
+  if (urlLogoLeft) {
+    urlLogoLeft.addEventListener('input', (e) => {
+      state.beritaAcaraLogoLeft.url = e.target.value.trim();
+      renderBaDocument();
+    });
+  }
+
+  if (heightLogoLeft) {
+    heightLogoLeft.addEventListener('input', (e) => {
+      state.beritaAcaraLogoLeft.height = parseInt(e.target.value, 10) || 40;
+      renderBaDocument();
+    });
+  }
+
+  // Logo Right Controls
+  const selLogoRight = document.getElementById('ba_input_logo_right_mode');
+  const wrapLogoRight = document.getElementById('ba_logo_right_custom_wrap');
+  const badgeLogoRight = document.getElementById('ba_logo_right_badge');
+  const fileLogoRight = document.getElementById('ba_input_logo_right_file');
+  const urlLogoRight = document.getElementById('ba_input_logo_right_url');
+  const heightLogoRight = document.getElementById('ba_input_logo_right_height');
+
+  if (selLogoRight) {
+    selLogoRight.addEventListener('change', (e) => {
+      const mode = e.target.value;
+      state.beritaAcaraLogoRight.mode = mode;
+      if (wrapLogoRight) {
+        if (mode === 'custom') wrapLogoRight.classList.remove('hidden');
+        else wrapLogoRight.classList.add('hidden');
+      }
+      if (badgeLogoRight) {
+        badgeLogoRight.textContent = mode === 'sisi' ? 'Preset: SISI' : (mode === 'antam' ? 'Preset: ANTAM' : (mode === 'custom' ? 'Kustom' : 'None'));
+      }
+      renderBaDocument();
+    });
+  }
+
+  if (fileLogoRight) {
+    fileLogoRight.addEventListener('change', (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+          const dataUrl = evt.target.result;
+          state.beritaAcaraLogoRight.url = dataUrl;
+          if (urlLogoRight) urlLogoRight.value = dataUrl;
+          renderBaDocument();
+        };
+        reader.readAsDataURL(file);
+      }
+    });
+  }
+
+  if (urlLogoRight) {
+    urlLogoRight.addEventListener('input', (e) => {
+      state.beritaAcaraLogoRight.url = e.target.value.trim();
+      renderBaDocument();
+    });
+  }
+
+  if (heightLogoRight) {
+    heightLogoRight.addEventListener('input', (e) => {
+      state.beritaAcaraLogoRight.height = parseInt(e.target.value, 10) || 42;
+      renderBaDocument();
+    });
+  }
+
+  // Config Checklist Selection Buttons
+  const btnSelectAllCfg = document.getElementById('btn-ba-select-all-cfg');
+  if (btnSelectAllCfg) {
+    btnSelectAllCfg.addEventListener('click', () => {
+      const checkboxes = document.querySelectorAll('#ba_config_selector_list input[type="checkbox"]');
+      const allIds = [];
+      checkboxes.forEach((cb) => {
+        cb.checked = true;
+        const id = parseInt(cb.dataset.configId, 10);
+        if (id) allIds.push(id);
+        const parent = cb.closest('.ba-config-item');
+        if (parent) parent.classList.add('selected');
+      });
+      onConfigSelectionChanged(allIds);
+    });
+  }
+
+  const btnResetCfg = document.getElementById('btn-ba-reset-cfg');
+  if (btnResetCfg) {
+    btnResetCfg.addEventListener('click', () => {
+      const mainId = state.pipeline.selectedConfigId || (state.beritaAcaraSelectedConfigs && state.beritaAcaraSelectedConfigs[0]) || 1;
+      const checkboxes = document.querySelectorAll('#ba_config_selector_list input[type="checkbox"]');
+      checkboxes.forEach((cb) => {
+        const id = parseInt(cb.dataset.configId, 10);
+        cb.checked = id === mainId;
+        const parent = cb.closest('.ba-config-item');
+        if (parent) {
+          if (id === mainId) parent.classList.add('selected');
+          else parent.classList.remove('selected');
+        }
+      });
+      onConfigSelectionChanged([mainId]);
+    });
+  }
+
+  // Live update on input change for any form field
+  const formInputs = document.querySelectorAll('#ba-form-editor-panel input, #ba-form-editor-panel select');
+  formInputs.forEach((inp) => {
+    inp.addEventListener('input', () => renderBaDocument());
+    inp.addEventListener('change', () => renderBaDocument());
+  });
+}
+
+function getSelectedConfigsData() {
+  const ids = state.beritaAcaraSelectedConfigs || [];
+  const list = [];
+  ids.forEach((id) => {
+    let cfg = state.beritaAcaraConfigsCache[id];
+    const pl = (state.pipeline?.pipelines || []).find((p) => p.configId === id);
+    const masterCfg = (state.config?.masters?.migration_config || []).find((m) => m.config_id === id);
+
+    let nameConfig = masterCfg?.name_config || pl?.nameConfig || pl?.name_config || cfg?.nameConfig || cfg?.name_config;
+    let modName = nameConfig || pl?.target?.table?.replace(/_/g, ' ').toUpperCase() || cfg?.modName || ('Config #' + id);
+    if (!nameConfig) {
+      if (modName.toLowerCase().includes('vendor') && !modName.toLowerCase().includes('address')) modName = 'Vendor';
+      else if (modName.toLowerCase().includes('akta')) modName = 'Akta Perusahaan';
+      else if (modName.toLowerCase().includes('address')) modName = 'Vendor Address';
+    }
+
+    if (!cfg) {
+      if (pl) {
+        cfg = {
+          configId: id,
+          nameConfig: nameConfig || modName,
+          modName,
+          source: pl.source,
+          staging: pl.staging,
+          target: pl.target,
+          targets: pl.targets,
+          stagingAttachment: null
+        };
+      } else if (state.beritaAcaraData?.config?.configId === id) {
+        cfg = state.beritaAcaraData.config;
+      }
+    }
+
+    if (cfg) {
+      cfg.nameConfig = nameConfig || cfg.nameConfig || modName;
+      cfg.modName = modName;
+      if (pl && pl.targets && (!cfg.targets || cfg.targets.length === 0)) {
+        cfg.targets = pl.targets;
+      }
+      list.push(cfg);
+    }
+  });
+  return list;
+}
+
+async function onConfigSelectionChanged(selectedIds) {
+  state.beritaAcaraSelectedConfigs = selectedIds;
+
+  // Find any IDs not in cache
+  const missingIds = selectedIds.filter((id) => !state.beritaAcaraConfigsCache[id] || !state.beritaAcaraConfigsCache[id].stagingAttachment);
+  if (missingIds.length > 0) {
+    try {
+      const res = await fetch(`/api/reconciliation/berita-acara?configIds=${missingIds.join(',')}`);
+      const json = await res.json();
+      if (json.success && json.data?.configs) {
+        json.data.configs.forEach((c) => {
+          state.beritaAcaraConfigsCache[c.configId] = c;
+        });
+      }
+    } catch (err) {
+      console.warn('Gagal memuat detail config tambahan:', err.message);
+    }
+  }
+
+  renderBaDocument();
+}
+
 window.openBeritaAcara = async function (configId) {
-  const targetId = configId || state.pipeline.selectedConfigId || 1;
+  const targetId = parseInt(configId || state.pipeline.selectedConfigId || 1, 10);
   const modal = document.getElementById('modal-berita-acara');
   modal.classList.remove('hidden');
 
+  // Set selected config
+  if (!state.beritaAcaraSelectedConfigs || state.beritaAcaraSelectedConfigs.length === 0 || !state.beritaAcaraSelectedConfigs.includes(targetId)) {
+    state.beritaAcaraSelectedConfigs = [targetId];
+  }
+
   try {
+    // Pastikan list pipeline termuat untuk opsi checklist
+    if (!state.pipeline.pipelines || state.pipeline.pipelines.length === 0) {
+      try {
+        const pRes = await fetch('/api/reconciliation/pipeline');
+        const pJson = await pRes.json();
+        if (pJson.success && pJson.data?.pipelines) {
+          state.pipeline.pipelines = pJson.data.pipelines;
+        }
+      } catch (pe) {}
+    }
+
     const res = await fetch(`/api/reconciliation/berita-acara?configId=${targetId}`);
     const json = await res.json();
     if (!json.success) throw new Error(json.error);
     const data = json.data;
     state.beritaAcaraData = data;
-
-    document.getElementById('ba-doc-no').textContent = `Nomor: ${data.document.docNumber}`;
-    document.getElementById('ba-doc-day-date').textContent = `${data.document.dateString} pukul ${data.document.timeString} WIB`;
-
-    document.getElementById('ba-param-grid').innerHTML = `
-      <div class="ba-param-item"><strong>Config ID:</strong> Config #${data.config.configId} (Order ${data.config.execOrder})</div>
-      <div class="ba-param-item"><strong>Source View:</strong> [${data.config.source.database}].[${data.config.source.schema}].[${data.config.source.view}]</div>
-      <div class="ba-param-item"><strong>Staging Table:</strong> ${data.config.staging.database}.${data.config.staging.schema}.${data.config.staging.table}</div>
-      <div class="ba-param-item"><strong>Target Table:</strong> ${data.config.target.database}.${data.config.target.schema}.${data.config.target.table}</div>
-      <div class="ba-param-item"><strong>Kunci PK:</strong> ${data.config.pkColumns || 'id'}</div>
-      <div class="ba-param-item"><strong>Compare Columns:</strong> ${data.config.compareColumns || '-'}</div>
-    `;
-
-    const srcRows = data.config.source.rows ?? 0;
-    const stgRows = data.config.staging.rows ?? 0;
-    const tgtRows = data.config.target.rows ?? 0;
-    const delta1 = data.config.deltaSourceToStaging;
-    const delta2 = data.config.deltaStagingToTarget;
-    const isMatch = delta1 === 0 && srcRows > 0;
-
-    document.getElementById('ba-reconciliation-tbody').innerHTML = `
-      <tr>
-        <td><strong>1. Sumber Data (Source)</strong></td>
-        <td><code>[${data.config.source.schema}].[${data.config.source.view}]</code></td>
-        <td><code>${data.config.pkColumns || 'id'}</code></td>
-        <td><strong>${formatNumber(srcRows)}</strong> baris</td>
-        <td>- (Basis)</td>
-        <td><span class="badge badge-neutral">Basis Sumber</span></td>
-      </tr>
-      <tr>
-        <td><strong>2. Penampungan (Staging)</strong></td>
-        <td><code>${data.config.staging.schema}.${data.config.staging.table}</code></td>
-        <td><code>${data.config.pkColumns || 'id'}</code></td>
-        <td><strong>${formatNumber(stgRows)}</strong> baris</td>
-        <td>${delta1 === 0 ? '0' : (delta1 > 0 ? '+' + delta1 : delta1)}</td>
-        <td><span class="badge ${isMatch ? 'badge-success' : 'badge-warning'}">${isMatch ? '✓ Valid / Sinkron' : '⏳ Ada Selisih'}</span></td>
-      </tr>
-      <tr>
-        <td><strong>3. Hasil Akhir (Target)</strong></td>
-        <td><code>${data.config.target.schema}.${data.config.target.table}</code></td>
-        <td><code>${data.config.pkColumns || 'id'}</code></td>
-        <td><strong>${formatNumber(tgtRows)}</strong> baris</td>
-        <td>${delta2 >= 0 ? '+' + formatNumber(delta2) : formatNumber(delta2)}</td>
-        <td><span class="badge badge-success">Target Aktif</span></td>
-      </tr>
-    `;
-
-    document.getElementById('ba-notes-list').innerHTML = `
-      <li>Total data dari sumber SQL Server yang diproses sebanyak <strong>${formatNumber(srcRows)}</strong> baris.</li>
-      <li>Data yang berhasil disimpan di tabel staging adalah <strong>${formatNumber(stgRows)}</strong> baris.</li>
-      <li>Status rekonsiliasi data dinyatakan <strong>${data.document.verdict}</strong>.</li>
-    `;
-
-    document.getElementById('ba-attachment-heading').textContent = `REKAPITULASI DATA STAGING (${data.stagingAttachment.schema}.${data.stagingAttachment.table})`;
-    document.getElementById('ba-attachment-meta').textContent = `Total data staging: ${formatNumber(data.stagingAttachment.totalRecords)} baris.`;
-
-    const cols = data.stagingAttachment.columns;
-    const rows = data.stagingAttachment.rows;
-    const preferredCols = ['id', 'uuid', 'name', 'email', 'status', 'sap_code', 'tipe_vendor', 'company_type_id', 'created_at'];
-    const activeCols = cols.filter(c => preferredCols.includes(c.name)).concat(cols.filter(c => !preferredCols.includes(c.name))).slice(0, 10);
-
-    document.getElementById('ba-attachment-thead').innerHTML = `
-      <tr>
-        <th style="width: 35px; text-align: center;">No</th>
-        ${activeCols.map(c => `<th>${c.name}</th>`).join('')}
-      </tr>
-    `;
-
-    if (rows.length === 0) {
-      document.getElementById('ba-attachment-tbody').innerHTML = `<tr><td colspan="${activeCols.length + 1}" class="text-center py-4 text-muted">Tidak ada data staging.</td></tr>`;
-    } else {
-      document.getElementById('ba-attachment-tbody').innerHTML = rows.map((r, idx) => {
-        const cells = activeCols.map(c => {
-          const val = r[c.name];
-          if (val === null || val === undefined) return '<span style="color: #94a3b8; font-style: italic;">NULL</span>';
-          if (typeof val === 'boolean') return val ? 'TRUE' : 'FALSE';
-          return escapeHtml(String(val));
-        }).join('</td><td>');
-        return `<tr><td style="text-align: center; font-weight: bold;">${idx + 1}</td><td>${cells}</td></tr>`;
-      }).join('');
+    if (data.config) {
+      state.beritaAcaraConfigsCache[targetId] = data.config;
     }
+    if (data.configs) {
+      data.configs.forEach((c) => {
+        state.beritaAcaraConfigsCache[c.configId] = c;
+      });
+    }
+
+    // Populate form with existing data or defaults
+    populateBaForm(data, false);
+    // Render printable document
+    renderBaDocument();
   } catch (err) {
-    alert(`Gagal memuat Berita Acara: ${err.message}`);
+    console.warn('Gagal memuat API Berita Acara, menggunakan standar fallback:', err.message);
+    populateBaForm(null, true);
+    renderBaDocument();
   }
 };
 
-function exportStagingCsv() {
-  if (!state.beritaAcaraData || !state.beritaAcaraData.stagingAttachment) {
-    alert('Data lampiran staging belum tersedia.');
-    return;
+function populateBaForm(data, resetStrict = false) {
+  const cfg = data?.config;
+  const defaults = { ...STANDARD_BA_DEFAULTS };
+
+  if (cfg) {
+    if (cfg.target?.table) {
+      const tbl = cfg.target.table.toLowerCase();
+      if (tbl.includes('vendor') || tbl.includes('partner')) {
+        defaults.modName = 'Business Partner';
+        defaults.attTitle = '1. Business Partner';
+      } else if (tbl.includes('akta')) {
+        defaults.modName = 'Akta Perusahaan';
+        defaults.attTitle = '1. Akta Perusahaan';
+      } else if (tbl.includes('address')) {
+        defaults.modName = 'Alamat Vendor';
+        defaults.attTitle = '1. Alamat Vendor';
+      } else {
+        defaults.modName = cfg.target.table.replace(/_/g, ' ').toUpperCase();
+        defaults.attTitle = `1. ${defaults.modName}`;
+      }
+    }
+    if (cfg.source?.rows !== undefined && cfg.source.rows !== null) {
+      defaults.rowsBefore = cfg.source.rows > 0 ? formatNumber(cfg.source.rows) : '-';
+    }
+    if (cfg.staging?.rows || cfg.target?.rows) {
+      const cnt = cfg.target?.rows || cfg.staging?.rows;
+      defaults.rowsAfter = formatNumber(cnt);
+    }
   }
 
-  const { table, columns, rows } = state.beritaAcaraData.stagingAttachment;
-  if (!rows || rows.length === 0) {
-    alert('Tidak ada data staging untuk diekspor.');
-    return;
-  }
+  const setVal = (id, defVal) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (resetStrict || !el.value || el.value.trim() === '') {
+      el.value = defVal;
+    }
+  };
 
-  const colNames = columns.map(c => c.name);
-  const csvRows = [];
-  csvRows.push(colNames.map(c => `"${c}"`).join(','));
+  setVal('ba_input_doc_no', defaults.docNo);
+  setVal('ba_input_date_picker', defaults.datePicker);
+  setVal('ba_input_day_name', defaults.dayName);
+  setVal('ba_input_date_words', defaults.dateWords);
+  setVal('ba_input_month_words', defaults.monthWords);
+  setVal('ba_input_year_words', defaults.yearWords);
+  setVal('ba_input_date_formatted', defaults.dateFormatted);
+  setVal('ba_input_mig_schedule', defaults.migSchedule);
 
-  rows.forEach(r => {
-    const values = colNames.map(c => {
-      let val = r[c];
-      if (val === null || val === undefined) return '""';
-      if (typeof val === 'object') val = JSON.stringify(val);
-      const strVal = String(val).replace(/"/g, '""');
-      return `"${strVal}"`;
+  setVal('ba_input_p1_name', defaults.p1Name);
+  setVal('ba_input_p1_title', defaults.p1Title);
+  setVal('ba_input_p1_comp', defaults.p1Comp);
+
+  setVal('ba_input_p2_name', defaults.p2Name);
+  setVal('ba_input_p2_title', defaults.p2Title);
+  setVal('ba_input_p2_comp', defaults.p2Comp);
+
+  setVal('ba_input_wo_no', defaults.woNo);
+  setVal('ba_input_wo_desc', defaults.woDesc);
+
+  setVal('ba_input_rows_note', defaults.rowsNote);
+
+  setVal('ba_input_s1_name', defaults.s1Name);
+  setVal('ba_input_s1_title', defaults.s1Title);
+  setVal('ba_input_s1_comp', defaults.s1Comp);
+
+  setVal('ba_input_s2_name', defaults.s2Name);
+  setVal('ba_input_s2_title', defaults.s2Title);
+  setVal('ba_input_s2_comp', defaults.s2Comp);
+
+  setVal('ba_input_s3_name', defaults.s3Name);
+  setVal('ba_input_s3_title', defaults.s3Title);
+  setVal('ba_input_s3_comp', defaults.s3Comp);
+
+  setVal('ba_input_s4_name', defaults.s4Name);
+  setVal('ba_input_s4_title', defaults.s4Title);
+  setVal('ba_input_s4_comp', defaults.s4Comp);
+
+  const elShowSigs = document.getElementById('ba_input_show_sigs');
+  if (elShowSigs && resetStrict) elShowSigs.checked = defaults.showSigs;
+
+  // Set Logo values
+  const selLogoLeft = document.getElementById('ba_input_logo_left_mode');
+  if (selLogoLeft) selLogoLeft.value = state.beritaAcaraLogoLeft.mode;
+  const heightLogoLeft = document.getElementById('ba_input_logo_left_height');
+  if (heightLogoLeft) heightLogoLeft.value = state.beritaAcaraLogoLeft.height;
+  const urlLogoLeft = document.getElementById('ba_input_logo_left_url');
+  if (urlLogoLeft) urlLogoLeft.value = state.beritaAcaraLogoLeft.url;
+
+  const selLogoRight = document.getElementById('ba_input_logo_right_mode');
+  if (selLogoRight) selLogoRight.value = state.beritaAcaraLogoRight.mode;
+  const heightLogoRight = document.getElementById('ba_input_logo_right_height');
+  if (heightLogoRight) heightLogoRight.value = state.beritaAcaraLogoRight.height;
+  const urlLogoRight = document.getElementById('ba_input_logo_right_url');
+  if (urlLogoRight) urlLogoRight.value = state.beritaAcaraLogoRight.url;
+
+  // Build Config Checklist Items
+  renderConfigChecklist();
+}
+
+function renderConfigChecklist() {
+  const container = document.getElementById('ba_config_selector_list');
+  if (!container) return;
+
+  // Kumpulkan list konfigurasi unik
+  const configsMap = new Map();
+
+  // Dari pipeline summary
+  if (state.pipeline?.pipelines) {
+    state.pipeline.pipelines.forEach((p) => {
+      let modName = p.nameConfig || p.name_config || p.target?.table?.replace(/_/g, ' ').toUpperCase() || `Config #${p.configId}`;
+      if (!p.nameConfig && !p.name_config) {
+        if (p.target?.table?.toLowerCase().includes('vendor')) modName = 'Vendor';
+        else if (p.target?.table?.toLowerCase().includes('akta')) modName = 'Akta Perusahaan';
+        else if (p.target?.table?.toLowerCase().includes('address')) modName = 'Vendor Address';
+      }
+
+      configsMap.set(p.configId, {
+        configId: p.configId,
+        modName,
+        srcView: p.source?.view || '',
+        tgtTable: p.target?.table || '',
+        rows: p.target?.rows || p.staging?.rows || 0
+      });
     });
-    csvRows.push(values.join(','));
+  }
+
+  // Dari master migration_config
+  if (state.config?.masters?.migration_config) {
+    state.config.masters.migration_config.forEach((c) => {
+      if (!configsMap.has(c.config_id)) {
+        let modName = c.name_config || (c.tgt_table || '').replace(/_/g, ' ').toUpperCase() || `Config #${c.config_id}`;
+        if (!c.name_config) {
+          if (c.tgt_table?.toLowerCase().includes('vendor')) modName = 'Vendor';
+          else if (c.tgt_table?.toLowerCase().includes('akta')) modName = 'Akta Perusahaan';
+          else if (c.tgt_table?.toLowerCase().includes('address')) modName = 'Vendor Address';
+        }
+
+        configsMap.set(c.config_id, {
+          configId: c.config_id,
+          modName,
+          srcView: c.src_view || '',
+          tgtTable: c.tgt_table || '',
+          rows: 0
+        });
+      }
+    });
+  }
+
+  // Fallback jika belum ada
+  if (configsMap.size === 0) {
+    const curId = state.beritaAcaraData?.config?.configId || 1;
+    configsMap.set(curId, {
+      configId: curId,
+      modName: state.beritaAcaraData?.config?.target?.table || 'Business Partner',
+      srcView: state.beritaAcaraData?.config?.source?.view || 'v_migration_vendor',
+      tgtTable: state.beritaAcaraData?.config?.target?.table || 'slave_vendors',
+      rows: state.beritaAcaraData?.config?.target?.rows || 663
+    });
+  }
+
+  const allConfigs = Array.from(configsMap.values()).sort((a, b) => a.configId - b.configId);
+
+  container.innerHTML = allConfigs.map((c) => {
+    const isChecked = state.beritaAcaraSelectedConfigs.includes(c.configId);
+    return `
+      <label class="ba-config-item ${isChecked ? 'selected' : ''}" id="ba_cfg_label_${c.configId}">
+        <div class="ba-config-item-main">
+          <input type="checkbox" data-config-id="${c.configId}" ${isChecked ? 'checked' : ''} />
+          <span class="badge badge-primary text-2xs font-mono">#${c.configId}</span>
+          <span class="font-semibold text-white">${escapeHtml(c.modName)}</span>
+          <span class="text-2xs text-muted">(${escapeHtml(c.srcView)} ➔ ${escapeHtml(c.tgtTable)})</span>
+        </div>
+        <span class="badge badge-neutral text-2xs font-mono">${formatNumber(c.rows)} baris</span>
+      </label>
+    `;
+  }).join('');
+
+  // Wire checkbox events
+  container.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+    cb.addEventListener('change', (e) => {
+      const id = parseInt(e.target.dataset.configId, 10);
+      const isChecked = e.target.checked;
+      const label = document.getElementById(`ba_cfg_label_${id}`);
+      if (label) {
+        if (isChecked) label.classList.add('selected');
+        else label.classList.remove('selected');
+      }
+
+      let currentIds = [...state.beritaAcaraSelectedConfigs];
+      if (isChecked && !currentIds.includes(id)) {
+        currentIds.push(id);
+      } else if (!isChecked && currentIds.includes(id)) {
+        currentIds = currentIds.filter((x) => x !== id);
+      }
+      onConfigSelectionChanged(currentIds);
+    });
+  });
+}
+
+function renderBaDocument() {
+  const getVal = (id, defVal) => {
+    const el = document.getElementById(id);
+    const val = el ? el.value.trim() : '';
+    return val !== '' ? val : defVal;
+  };
+
+  const getCheck = (id, defVal) => {
+    const el = document.getElementById(id);
+    return el ? el.checked : defVal;
+  };
+
+  const docNo = getVal('ba_input_doc_no', STANDARD_BA_DEFAULTS.docNo);
+  const dayName = getVal('ba_input_day_name', STANDARD_BA_DEFAULTS.dayName);
+  const dateWords = getVal('ba_input_date_words', STANDARD_BA_DEFAULTS.dateWords);
+  const monthWords = getVal('ba_input_month_words', STANDARD_BA_DEFAULTS.monthWords);
+  const yearWords = getVal('ba_input_year_words', STANDARD_BA_DEFAULTS.yearWords);
+  const dateFormatted = getVal('ba_input_date_formatted', STANDARD_BA_DEFAULTS.dateFormatted);
+  const migSchedule = getVal('ba_input_mig_schedule', STANDARD_BA_DEFAULTS.migSchedule);
+
+  const p1Name = getVal('ba_input_p1_name', STANDARD_BA_DEFAULTS.p1Name);
+  const p1Title = getVal('ba_input_p1_title', STANDARD_BA_DEFAULTS.p1Title);
+  const p1Comp = getVal('ba_input_p1_comp', STANDARD_BA_DEFAULTS.p1Comp);
+
+  const p2Name = getVal('ba_input_p2_name', STANDARD_BA_DEFAULTS.p2Name);
+  const p2Title = getVal('ba_input_p2_title', STANDARD_BA_DEFAULTS.p2Title);
+  const p2Comp = getVal('ba_input_p2_comp', STANDARD_BA_DEFAULTS.p2Comp);
+
+  const woNo = getVal('ba_input_wo_no', STANDARD_BA_DEFAULTS.woNo);
+  const woDesc = getVal('ba_input_wo_desc', STANDARD_BA_DEFAULTS.woDesc);
+
+  const rowsNote = getVal('ba_input_rows_note', STANDARD_BA_DEFAULTS.rowsNote);
+
+  const s1Name = getVal('ba_input_s1_name', STANDARD_BA_DEFAULTS.s1Name);
+  const s1Title = getVal('ba_input_s1_title', STANDARD_BA_DEFAULTS.s1Title);
+  const s1Comp = getVal('ba_input_s1_comp', STANDARD_BA_DEFAULTS.s1Comp);
+
+  const s2Name = getVal('ba_input_s2_name', STANDARD_BA_DEFAULTS.s2Name);
+  const s2Title = getVal('ba_input_s2_title', STANDARD_BA_DEFAULTS.s2Title);
+  const s2Comp = getVal('ba_input_s2_comp', STANDARD_BA_DEFAULTS.s2Comp);
+
+  const s3Name = getVal('ba_input_s3_name', STANDARD_BA_DEFAULTS.s3Name);
+  const s3Title = getVal('ba_input_s3_title', STANDARD_BA_DEFAULTS.s3Title);
+  const s3Comp = getVal('ba_input_s3_comp', STANDARD_BA_DEFAULTS.s3Comp);
+
+  const s4Name = getVal('ba_input_s4_name', STANDARD_BA_DEFAULTS.s4Name);
+  const s4Title = getVal('ba_input_s4_title', STANDARD_BA_DEFAULTS.s4Title);
+  const s4Comp = getVal('ba_input_s4_comp', STANDARD_BA_DEFAULTS.s4Comp);
+
+  const showSigs = getCheck('ba_input_show_sigs', true);
+  const selectedConfigs = getSelectedConfigsData();
+  const includeAtt = selectedConfigs.length > 0;
+
+  // Logo Left & Right Rendering
+  const logoLeftMode = (document.getElementById('ba_input_logo_left_mode')?.value) || state.beritaAcaraLogoLeft.mode;
+  const logoLeftHeight = parseInt(document.getElementById('ba_input_logo_left_height')?.value || state.beritaAcaraLogoLeft.height, 10);
+  const logoLeftUrl = (document.getElementById('ba_input_logo_left_url')?.value) || state.beritaAcaraLogoLeft.url;
+
+  const logoRightMode = (document.getElementById('ba_input_logo_right_mode')?.value) || state.beritaAcaraLogoRight.mode;
+  const logoRightHeight = parseInt(document.getElementById('ba_input_logo_right_height')?.value || state.beritaAcaraLogoRight.height, 10);
+  const logoRightUrl = (document.getElementById('ba_input_logo_right_url')?.value) || state.beritaAcaraLogoRight.url;
+
+  const leftHtml = renderLogoContent(logoLeftMode, logoLeftUrl, logoLeftHeight);
+  const rightHtml = renderLogoContent(logoRightMode, logoRightUrl, logoRightHeight);
+
+  // Render to Page 1, Page 2, and Lampiran
+  ['ba-view-logo-left-p1', 'ba-view-logo-left-p2', 'ba-view-logo-left-att'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = leftHtml;
+  });
+
+  ['ba-view-logo-right-p1', 'ba-view-logo-right-p2', 'ba-view-logo-right-att'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = rightHtml;
+  });
+
+  // Render to Form Editor Previews
+  const prevLeft = document.getElementById('ba_logo_left_preview');
+  if (prevLeft) prevLeft.innerHTML = leftHtml || '<span class="text-2xs text-muted">Sembunyi</span>';
+  const prevRight = document.getElementById('ba_logo_right_preview');
+  if (prevRight) prevRight.innerHTML = rightHtml || '<span class="text-2xs text-muted">Sembunyi</span>';
+
+  // Render to DOM Texts
+  const setText = (id, text) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+  };
+
+  setText('ba-view-doc-no', docNo);
+  setText('ba-view-day-name', dayName);
+  setText('ba-view-date-words', dateWords);
+  setText('ba-view-month-words', monthWords);
+  setText('ba-view-year-words', yearWords);
+  setText('ba-view-date-formatted', dateFormatted);
+  setText('ba-view-mig-date', migSchedule);
+
+  setText('ba-view-p1-name', p1Name);
+  setText('ba-view-p1-title', p1Title);
+  setText('ba-view-p1-comp', p1Comp);
+
+  setText('ba-view-p2-name', p2Name);
+  setText('ba-view-p2-title', p2Title);
+  setText('ba-view-p2-comp', p2Comp);
+
+  setText('ba-view-wo-no', woNo);
+  setText('ba-view-wo-desc', woDesc);
+
+  const allModNames = selectedConfigs.map((c) => c.nameConfig || c.modName).join(', ') || 'Data Master';
+  setText('ba-view-mod-target', allModNames);
+
+  setText('ba-view-s1-comp', s1Comp);
+  setText('ba-view-s1-name', s1Name);
+  setText('ba-view-s1-title', s1Title);
+
+  setText('ba-view-s2-comp', s2Comp);
+  setText('ba-view-s2-name', s2Name);
+  setText('ba-view-s2-title', s2Title);
+
+  setText('ba-view-s3-comp', s3Comp);
+  setText('ba-view-s3-name', s3Name);
+  setText('ba-view-s3-title', s3Title);
+
+  setText('ba-view-s4-comp', s4Comp);
+  setText('ba-view-s4-name', s4Name);
+  setText('ba-view-s4-title', s4Title);
+
+  // Render Tabel Ringkasan (Halaman 1) Sesuai Format Gambar Lampiran 2
+  const summaryTbody = document.getElementById('ba-view-summary-tbody');
+  if (summaryTbody) {
+    if (selectedConfigs.length === 0) {
+      summaryTbody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-muted">Belum ada konfigurasi yang dipilih untuk ringkasan migrasi.</td></tr>`;
+    } else {
+      let rowsHtml = '';
+      selectedConfigs.forEach((cfg, cfgIdx) => {
+        const name = cfg.nameConfig || cfg.modName || `Config #${cfg.configId}`;
+        const targets = (cfg.targets && cfg.targets.length > 0) ? cfg.targets : [{
+          schema: cfg.target?.schema || 'vendor',
+          table: cfg.target?.table || cfg.staging?.table || '-',
+          sumSource: cfg.source?.rows ?? 0,
+          sumStaging: cfg.staging?.rows ?? 0,
+          sumBefore: cfg.sumBefore ?? null,
+          sumAfter: cfg.target?.rows ?? cfg.staging?.rows ?? 0
+        }];
+        const spanCount = targets.length;
+
+        targets.forEach((t, tIdx) => {
+          const isFirst = tIdx === 0;
+          const firstCols = isFirst ? `
+            <td style="text-align: center; font-weight: 600; vertical-align: middle;" rowspan="${spanCount}">${cfgIdx + 1}</td>
+            <td style="font-weight: 600; vertical-align: middle;" rowspan="${spanCount}">${escapeHtml(name)}</td>
+          ` : '';
+
+          const lastCol = isFirst ? `
+            <td style="text-align: center; vertical-align: middle;" rowspan="${spanCount}">${escapeHtml(rowsNote)}</td>
+          ` : '';
+
+          const srcVal = (t.sumSource !== null && t.sumSource !== undefined) ? formatNumber(t.sumSource) : (cfg.source?.rows !== undefined ? formatNumber(cfg.source.rows) : '-');
+          const stgVal = (t.sumStaging !== null && t.sumStaging !== undefined) ? formatNumber(t.sumStaging) : (cfg.staging?.rows !== undefined ? formatNumber(cfg.staging.rows) : '-');
+          const beforeVal = (t.sumBefore !== null && t.sumBefore !== undefined) ? formatNumber(t.sumBefore) : '-';
+          const afterVal = (t.sumAfter !== null && t.sumAfter !== undefined) ? formatNumber(t.sumAfter) : '-';
+
+          rowsHtml += `
+            <tr>
+              ${firstCols}
+              <td><strong style="color: #059669;">${escapeHtml(t.schema ? `${t.schema}.${t.table}` : t.table)}</strong></td>
+              <td style="text-align: center; font-weight: bold; color: #059669;">${srcVal}</td>
+              <td style="text-align: center; font-weight: bold; color: #059669;">${stgVal}</td>
+              <td style="text-align: center; font-weight: bold; color: #059669;">${beforeVal}</td>
+              <td style="text-align: center; font-weight: bold; color: #059669;">${afterVal}</td>
+              ${lastCol}
+            </tr>
+          `;
+        });
+      });
+      summaryTbody.innerHTML = rowsHtml;
+    }
+  }
+
+  // Signatures SVG visibility
+  const sig1Box = document.getElementById('ba-view-s1-box');
+  const sig3Box = document.getElementById('ba-view-s3-box');
+  if (sig1Box) sig1Box.style.opacity = showSigs ? '1' : '0';
+  if (sig3Box) sig3Box.style.opacity = showSigs ? '1' : '0';
+
+  // Attachment display toggle
+  const attBreak = document.getElementById('ba-att-page-break');
+  const attContainer = document.getElementById('ba-attachment-page-container');
+  if (attBreak) attBreak.style.display = includeAtt ? 'block' : 'none';
+  if (attContainer) attContainer.style.display = includeAtt ? 'flex' : 'none';
+
+  // Render attachment table untuk seluruh config yang dipilih
+  if (includeAtt) {
+    renderBaAttachmentTable();
+  }
+}
+
+function renderBaAttachmentTable() {
+  const host = document.getElementById('ba-attachment-tables-host');
+  if (!host) return;
+
+  const selectedConfigs = getSelectedConfigsData();
+  if (selectedConfigs.length === 0) {
+    host.innerHTML = `<div class="text-center py-6 text-muted">Tidak ada konfigurasi yang dipilih untuk lampiran.</div>`;
+    return;
+  }
+
+  let html = '';
+  selectedConfigs.forEach((cfg, idx) => {
+    const attData = cfg.stagingAttachment || (cfg.configId === state.beritaAcaraData?.config?.configId ? state.beritaAcaraData?.stagingAttachment : null);
+    const realRows = attData?.rows;
+    const title = `${idx + 1}. ${cfg.modName || cfg.target?.table || cfg.source?.view || 'Data Migrasi'}${cfg.target?.table ? ` (${cfg.target.table})` : ''}`;
+
+    let tableHtml = '';
+    if (realRows && realRows.length > 0) {
+      const cols = attData.columns || [];
+      const preferredCols = ['name', 'nama', 'group', 'customer', 'vendor', 'employee', 'buyer_document', 'id_number', 'tax_id', 'tax_payer_type', 'tipe_vendor', 'email', 'status', 'sap_code'];
+      const activeCols = cols.filter((c) => preferredCols.includes(c.name.toLowerCase()))
+        .concat(cols.filter((c) => !preferredCols.includes(c.name.toLowerCase())))
+        .slice(0, 10);
+
+      tableHtml = `
+        <table class="ba-official-att-table mb-4">
+          <thead>
+            <tr>
+              <th style="width: 36px; text-align: center;">No</th>
+              ${activeCols.map((c) => `<th>${escapeHtml(c.name.replace(/_/g, ' ').toUpperCase())}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${realRows.slice(0, 500).map((r, rIdx) => {
+              const cells = activeCols.map((c) => {
+                const val = r[c.name];
+                if (val === null || val === undefined) return '<span style="color: #94a3b8; font-style: italic;">-</span>';
+                if (typeof val === 'boolean') return val ? 'Yes' : 'No';
+                return escapeHtml(String(val));
+              }).join('</td><td>');
+              return `<tr><td style="text-align: center; font-weight: 600;">${rIdx + 1}</td><td>${cells}</td></tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      `;
+    } else {
+      // Fallback sample data
+      tableHtml = `
+        <table class="ba-official-att-table mb-4">
+          <thead>
+            <tr>
+              <th style="width: 36px; text-align: center;">No</th>
+              <th>Name</th>
+              <th>Group</th>
+              <th style="text-align: center; width: 65px;">Customer</th>
+              <th style="text-align: center; width: 60px;">Vendor</th>
+              <th style="text-align: center; width: 65px;">Employee</th>
+              <th>ID Number</th>
+              <th>Tax ID</th>
+              <th>Tax Payer Type</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${SAMPLE_BP_ATTACHMENT_ROWS.slice(0, 500).map((r, rIdx) => `
+              <tr>
+                <td style="text-align: center; font-weight: 600;">${rIdx + 1}</td>
+                <td><strong>${escapeHtml(r.name)}</strong></td>
+                <td>${escapeHtml(r.group)}</td>
+                <td style="text-align: center;">${escapeHtml(r.customer)}</td>
+                <td style="text-align: center;">${escapeHtml(r.vendor)}</td>
+                <td style="text-align: center;">${escapeHtml(r.employee)}</td>
+                <td class="font-mono">${escapeHtml(r.idNumber)}</td>
+                <td class="font-mono">${escapeHtml(r.taxId)}</td>
+                <td>${escapeHtml(r.taxType)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+
+    html += `
+      <div class="ba-lampiran-section mb-4" id="ba-lampiran-cfg-${cfg.configId}">
+        <div style="font-size: 10.5pt; font-weight: 700; margin-bottom: 0.5rem; color: #0f172a; border-bottom: 2px solid #005ba4; padding-bottom: 4px; display: flex; justify-content: space-between;">
+          <span>${escapeHtml(title)}</span>
+          <span style="font-size: 8pt; font-weight: 600; color: #64748b;">Total: ${formatNumber(cfg.target?.rows || cfg.staging?.rows || 0)} Baris</span>
+        </div>
+        ${tableHtml}
+      </div>
+    `;
+  });
+
+  host.innerHTML = html;
+}
+
+function exportStagingCsv() {
+  const activeConfigs = getSelectedConfigsData();
+  const firstCfg = activeConfigs[0];
+  const attData = firstCfg?.stagingAttachment || state.beritaAcaraData?.stagingAttachment;
+  const rows = (attData && attData.rows && attData.rows.length > 0)
+    ? attData.rows
+    : SAMPLE_BP_ATTACHMENT_ROWS;
+
+  if (!rows || rows.length === 0) {
+    alert('Tidak ada data lampiran untuk diekspor.');
+    return;
+  }
+
+  const keys = Object.keys(rows[0]);
+  const csvRows = [];
+  csvRows.push(keys.map((k) => `"${k}"`).join(','));
+
+  rows.forEach((r) => {
+    const vals = keys.map((k) => {
+      let v = r[k];
+      if (v === null || v === undefined) return '""';
+      if (typeof v === 'object') v = JSON.stringify(v);
+      return `"${String(v).replace(/"/g, '""')}"`;
+    });
+    csvRows.push(vals.join(','));
   });
 
   const blob = new Blob([csvRows.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `BA_Lampiran_Staging_${table}_Config_${state.beritaAcaraData.config.configId}.csv`;
+  const cfgId = firstCfg?.configId || state.beritaAcaraData?.config?.configId || '1';
+  a.download = `BA_Lampiran_Migrasi_Config_${cfgId}.csv`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -5152,3 +6203,1144 @@ window.syncHopConfig = async function (envId, envCode, clientCode) {
     }
   }
 };
+
+// =========================================================================
+// 🔐 AUTHENTICATION & RBAC MODULE
+// =========================================================================
+
+async function authFetch(url, options = {}) {
+  const token = state.userToken || localStorage.getItem('antam_token');
+  const headers = Object.assign({}, options.headers || {});
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  const res = await fetch(url, { ...options, headers });
+  if (res.status === 401 && !url.includes('/api/auth/login')) {
+    console.warn('Sesi login telah kedaluwarsa atau tidak valid.');
+    handleLogout();
+  }
+  return res;
+}
+
+async function initAuth() {
+  const token = localStorage.getItem('antam_token');
+  const loginScreen = document.getElementById('screen-login');
+  
+  if (!token) {
+    if (loginScreen) loginScreen.classList.remove('hidden');
+    return;
+  }
+
+  try {
+    const res = await authFetch('/api/auth/me');
+    const json = await res.json();
+    if (json.success && json.data) {
+      state.userToken = token;
+      state.currentUser = json.data.user;
+      state.userMenus = json.data.menus || [];
+      updateAuthUserBadge(state.currentUser);
+      applyMenuPermissions(state.userMenus);
+      if (loginScreen) loginScreen.classList.add('hidden');
+      await initApplication();
+    } else {
+      localStorage.removeItem('antam_token');
+      state.userToken = null;
+      if (loginScreen) loginScreen.classList.remove('hidden');
+    }
+  } catch (err) {
+    console.error('Error saat verifikasi sesi auth:', err);
+    if (loginScreen) loginScreen.classList.remove('hidden');
+  }
+}
+
+async function handleLoginSubmit(event) {
+  if (event) event.preventDefault();
+  const usernameInput = document.getElementById('login-username');
+  const passwordInput = document.getElementById('login-password');
+  const alertBox = document.getElementById('login-alert-box');
+  const alertText = document.getElementById('login-alert-text');
+  const submitBtn = document.getElementById('btn-submit-login');
+  const submitBtnText = document.getElementById('btn-submit-login-text');
+  const loginScreen = document.getElementById('screen-login');
+
+  const username = usernameInput ? usernameInput.value.trim() : '';
+  const password = passwordInput ? passwordInput.value : '';
+
+  if (!username || !password) {
+    if (alertBox) alertBox.classList.remove('hidden');
+    if (alertText) alertText.textContent = 'Harap isi username dan kata sandi.';
+    return;
+  }
+
+  if (submitBtn) submitBtn.disabled = true;
+  if (submitBtnText) submitBtnText.textContent = 'Memverifikasi...';
+  if (alertBox) alertBox.classList.add('hidden');
+
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    const json = await res.json();
+
+    if (!json.success) {
+      if (alertBox) alertBox.classList.remove('hidden');
+      if (alertText) alertText.textContent = json.message || 'Login gagal. Periksa username dan password Anda.';
+      return;
+    }
+
+    // Login Berhasil
+    localStorage.setItem('antam_token', json.data.token);
+    state.userToken = json.data.token;
+    state.currentUser = json.data.user;
+    state.userMenus = json.data.menus || [];
+
+    updateAuthUserBadge(state.currentUser);
+    applyMenuPermissions(state.userMenus);
+
+    if (passwordInput) passwordInput.value = '';
+    if (loginScreen) loginScreen.classList.add('hidden');
+
+    await initApplication();
+  } catch (err) {
+    console.error('Kesalahan saat login:', err);
+    if (alertBox) alertBox.classList.remove('hidden');
+    if (alertText) alertText.textContent = 'Terjadi kesalahan koneksi server: ' + err.message;
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
+    if (submitBtnText) submitBtnText.textContent = 'Masuk Sekarang ➔';
+  }
+}
+
+function handleLogout() {
+  const token = state.userToken || localStorage.getItem('antam_token');
+  if (token) {
+    fetch('/api/auth/logout', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    }).catch(() => {});
+  }
+  localStorage.removeItem('antam_token');
+  state.userToken = null;
+  state.currentUser = null;
+  state.userMenus = [];
+  
+  // Sembunyikan tombol setting saat logout
+  applyAdminSettingsButtonVisibility();
+
+  const loginScreen = document.getElementById('screen-login');
+  if (loginScreen) {
+    loginScreen.classList.remove('hidden');
+    const alertBox = document.getElementById('login-alert-box');
+    if (alertBox) alertBox.classList.add('hidden');
+    const pwdInput = document.getElementById('login-password');
+    if (pwdInput) pwdInput.value = '';
+  }
+}
+
+function autofillLogin(username, password) {
+  const uInput = document.getElementById('login-username');
+  const pInput = document.getElementById('login-password');
+  const alertBox = document.getElementById('login-alert-box');
+  if (uInput) uInput.value = username;
+  if (pInput) pInput.value = password;
+  if (alertBox) alertBox.classList.add('hidden');
+  const submitBtn = document.getElementById('btn-submit-login');
+  if (submitBtn) submitBtn.focus();
+}
+
+function togglePasswordVisibility(inputId) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  input.type = input.type === 'password' ? 'text' : 'password';
+}
+
+function isCurrentUserAdmin() {
+  if (!state.currentUser) return false;
+  const role = (state.currentUser.role_code || state.currentUser.roleCode || '').toUpperCase();
+  return role === 'SUPERADMIN' || role === 'ADMIN' || state.currentUser.username === 'admin';
+}
+
+function applyAdminSettingsButtonVisibility() {
+  const isAdmin = isCurrentUserAdmin();
+  const settingBtns = [
+    document.getElementById('btn-open-settings'),
+    document.getElementById('btn-welcome-open-settings'),
+    document.getElementById('btn-gate-open-settings'),
+  ];
+  settingBtns.forEach(btn => {
+    if (btn) {
+      if (isAdmin) {
+        btn.classList.remove('hidden');
+        btn.style.display = '';
+      } else {
+        btn.classList.add('hidden');
+        btn.style.display = 'none';
+      }
+    }
+  });
+}
+
+function updateAuthUserBadge(user) {
+  if (!user) return;
+  const avatarEl = document.getElementById('hdr-user-avatar');
+  const nameEl = document.getElementById('hdr-user-name');
+  const roleEl = document.getElementById('hdr-user-role');
+
+  if (avatarEl) {
+    const initials = (user.full_name || user.username || 'U')
+      .split(' ')
+      .map(w => w[0])
+      .slice(0, 2)
+      .join('')
+      .toUpperCase();
+    avatarEl.textContent = initials;
+  }
+  if (nameEl) nameEl.textContent = user.full_name || user.username;
+  if (roleEl) roleEl.textContent = user.role_code || 'USER';
+
+  // Sinkronisasi visibilitas tombol setting untuk admin
+  applyAdminSettingsButtonVisibility();
+}
+
+function applyMenuPermissions(menus) {
+  const isSuperadmin = state.currentUser && state.currentUser.role_code === 'SUPERADMIN';
+  
+  // Pastikan tombol setting dikendalikan khusus untuk admin
+  applyAdminSettingsButtonVisibility();
+
+  const menuNavMap = {
+    'TAB_SOURCE': document.getElementById('nav-btn-source'),
+    'TAB_CONFIG': document.getElementById('nav-btn-config'),
+    'TAB_PROCESS': document.getElementById('nav-btn-process'),
+    'TAB_PIPELINE': document.getElementById('nav-btn-pipeline'),
+    'TAB_SYSTEM': document.getElementById('nav-btn-system'),
+  };
+
+  if (isSuperadmin) {
+    Object.values(menuNavMap).forEach(btn => {
+      if (btn) btn.style.display = '';
+    });
+    return;
+  }
+
+  // Cek masing-masing menu berdasarkan permission can_view
+  const allowedMenuCodes = new Set(
+    (menus || []).filter(m => m.can_view).map(m => m.menu_code)
+  );
+
+  let currentTabIsVisible = false;
+
+  Object.entries(menuNavMap).forEach(([code, btn]) => {
+    if (!btn) return;
+    const isAllowed = allowedMenuCodes.has(code);
+    btn.style.display = isAllowed ? '' : 'none';
+    if (isAllowed && btn.getAttribute('data-tab') === state.activeTab) {
+      currentTabIsVisible = true;
+    }
+  });
+
+  // Jika tab aktif saat ini tidak diizinkan, arahkan ke tab pertama yang diizinkan
+  if (!currentTabIsVisible) {
+    const firstAllowedBtn = Object.values(menuNavMap).find(btn => btn && btn.style.display !== 'none');
+    if (firstAllowedBtn) {
+      const targetTab = firstAllowedBtn.getAttribute('data-tab');
+      switchMainTab(targetTab);
+    }
+  }
+}
+
+function setupAuthEventListeners() {
+  document.getElementById('btn-logout')?.addEventListener('click', handleLogout);
+}
+
+// =========================================================================
+// 🛡️ SYSTEM ADMINISTRATION (USERS, ROLES, MENU MATRIX)
+// =========================================================================
+
+function setupSystemAdminEventListeners() {
+  // Subtabs switching
+  document.querySelectorAll('[data-sys-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tabId = btn.getAttribute('data-sys-tab');
+      switchSysSubtab(tabId);
+    });
+  });
+
+  // User events
+  document.getElementById('btn-add-user')?.addEventListener('click', openAddUserModal);
+  document.getElementById('btn-refresh-users')?.addEventListener('click', loadSysUsers);
+  document.getElementById('form-sys-user')?.addEventListener('submit', submitUserForm);
+  document.getElementById('btn-close-user-form')?.addEventListener('click', () => document.getElementById('modal-user-form')?.classList.add('hidden'));
+  document.getElementById('btn-cancel-user-form')?.addEventListener('click', () => document.getElementById('modal-user-form')?.classList.add('hidden'));
+  document.getElementById('btn-select-all-tenants')?.addEventListener('click', selectAllTenants);
+  document.getElementById('btn-deselect-all-tenants')?.addEventListener('click', deselectAllTenants);
+
+  // Reset password events
+  document.getElementById('form-reset-pwd')?.addEventListener('submit', submitResetPwd);
+  document.getElementById('btn-close-reset-pwd')?.addEventListener('click', () => document.getElementById('modal-user-reset-pwd')?.classList.add('hidden'));
+  document.getElementById('btn-cancel-reset-pwd')?.addEventListener('click', () => document.getElementById('modal-user-reset-pwd')?.classList.add('hidden'));
+
+  // Live filter users
+  document.getElementById('filter-sys-users')?.addEventListener('input', (e) => {
+    filterUsersList(e.target.value.toLowerCase().trim());
+  });
+
+  // Role events
+  document.getElementById('btn-add-role')?.addEventListener('click', openAddRoleModal);
+  document.getElementById('btn-refresh-roles')?.addEventListener('click', loadSysRoles);
+  document.getElementById('form-sys-role')?.addEventListener('submit', submitRoleForm);
+  document.getElementById('btn-close-role-form')?.addEventListener('click', () => document.getElementById('modal-role-form')?.classList.add('hidden'));
+  document.getElementById('btn-cancel-role-form')?.addEventListener('click', () => document.getElementById('modal-role-form')?.classList.add('hidden'));
+
+  // Matrix events
+  document.getElementById('select-matrix-role')?.addEventListener('change', (e) => {
+    loadMenuMatrixForSelectedRole(e.target.value);
+  });
+  document.getElementById('btn-save-matrix')?.addEventListener('click', saveMenuMatrix);
+
+  // Matrix "Check All" column toggles
+  ['view', 'create', 'update', 'delete'].forEach(action => {
+    document.getElementById(`check-all-${action}`)?.addEventListener('change', (e) => {
+      const checked = e.target.checked;
+      document.querySelectorAll(`input[name="matrix_${action}"]`).forEach(cb => {
+        cb.checked = checked;
+      });
+    });
+  });
+}
+
+function switchSysSubtab(subtabId) {
+  state.activeSysSubtab = subtabId;
+  document.querySelectorAll('[data-sys-tab]').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-sys-tab') === subtabId);
+  });
+
+  const paneMap = {
+    'sys-tab-users': document.getElementById('pane-sys-users'),
+    'sys-tab-roles': document.getElementById('pane-sys-roles'),
+    'sys-tab-matrix': document.getElementById('pane-sys-matrix'),
+  };
+
+  Object.entries(paneMap).forEach(([id, pane]) => {
+    if (pane) pane.classList.toggle('hidden', id !== subtabId);
+  });
+
+  if (subtabId === 'sys-tab-users') loadSysUsers();
+  else if (subtabId === 'sys-tab-roles') loadSysRoles();
+  else if (subtabId === 'sys-tab-matrix') loadSysMatrix();
+}
+
+async function loadSystemAdministration() {
+  await loadSysRolesListForSelect();
+  switchSysSubtab(state.activeSysSubtab || 'sys-tab-users');
+}
+
+// -------------------------------------------------------------------------
+// USER MANAGEMENT
+// -------------------------------------------------------------------------
+
+async function loadSysUsers() {
+  const tbody = document.getElementById('sys-users-tbody');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="9" class="text-center py-8 text-muted">Memuat daftar pengguna...</td></tr>';
+
+  try {
+    const res = await authFetch('/api/auth/users');
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message);
+
+    state.system.users = json.data || [];
+    renderSysUsers(state.system.users);
+  } catch (err) {
+    console.error('Gagal memuat users:', err);
+    if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="text-center py-8 text-danger">Gagal memuat pengguna: ${err.message}</td></tr>`;
+  }
+}
+
+function renderSysUsers(users) {
+  const tbody = document.getElementById('sys-users-tbody');
+  if (!tbody) return;
+
+  if (!users || users.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="10" class="text-center py-8 text-muted">Tidak ada pengguna terdaftar.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = users.map(u => {
+    const roleBadgeClass = u.role_code === 'SUPERADMIN' 
+      ? 'role-tag-superadmin' 
+      : u.role_code === 'OPERATOR' ? 'role-tag-operator' : 'role-tag-viewer';
+    
+    const statusBadge = u.is_active 
+      ? '<span class="badge badge-success">Aktif</span>' 
+      : '<span class="badge badge-neutral">Nonaktif</span>';
+
+    const lastLogin = u.last_login_at 
+      ? new Date(u.last_login_at).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' }) 
+      : '<span class="text-muted">-</span>';
+
+    const createdAt = u.created_at 
+      ? new Date(u.created_at).toLocaleDateString('id-ID', { dateStyle: 'short' }) 
+      : '-';
+
+    let tenantBadge = '';
+    if (u.role_code === 'SUPERADMIN') {
+      tenantBadge = `<span class="badge badge-neutral text-2xs" style="padding:0.2rem 0.5rem;background:#f8fafc;color:#0f172a;border:1px solid #cbd5e1;font-weight:600;">🌐 Global Superadmin</span>`;
+    } else if (Array.isArray(u.assigned_clients) && u.assigned_clients.length > 0) {
+      tenantBadge = `<div style="display:flex;flex-direction:column;gap:5px;">` + 
+        u.assigned_clients.map(c => {
+          const clientEnvs = (Array.isArray(u.assigned_environments) ? u.assigned_environments : []).filter(e => e.client_id == c.client_id);
+          const envsBadges = clientEnvs.length > 0 
+            ? clientEnvs.map(e => `<span class="badge badge-neutral text-3xs" style="padding:0.05rem 0.35rem;font-weight:600;">${escapeHtml(e.env_code)}</span>`).join(' ')
+            : '<span class="text-3xs text-muted">Semua Env</span>';
+          return `<div style="line-height:1.2;">
+            <span class="badge badge-primary text-2xs" style="padding:0.12rem 0.4rem;font-weight:600;">🏢 ${escapeHtml(c.client_code)}</span>
+            <div style="margin-left:0.4rem;display:inline-flex;gap:3px;align-items:center;">${envsBadges}</div>
+          </div>`;
+        }).join('') + `</div>`;
+    } else if (u.client_id) {
+      tenantBadge = `<div style="display:flex;flex-direction:column;gap:3px;">
+           <span class="badge badge-primary text-2xs" style="width:fit-content;padding:0.15rem 0.45rem;">🏢 [${escapeHtml(u.client_code || 'CLIENT')}] ${escapeHtml(u.client_name || '')}</span>
+           <span class="badge badge-neutral text-2xs" style="width:fit-content;padding:0.1rem 0.4rem;">🌐 ${escapeHtml(u.env_code ? `[${u.env_code}] ${u.env_name || ''}` : 'Semua Env')}</span>
+         </div>`;
+    } else {
+      tenantBadge = `<span class="badge badge-neutral text-2xs" style="padding:0.15rem 0.5rem;">🌐 Akses Global (Semua)</span>`;
+    }
+
+    return `
+      <tr>
+        <td class="font-mono text-muted text-xs">${u.user_id}</td>
+        <td>
+          <div class="flex-center gap-2" style="justify-content: flex-start;">
+            <div class="user-avatar" style="width:24px;height:24px;font-size:0.65rem;">
+              ${(u.full_name || u.username)[0].toUpperCase()}
+            </div>
+            <strong>${escapeHtml(u.username)}</strong>
+          </div>
+        </td>
+        <td>${escapeHtml(u.full_name || '-')}</td>
+        <td class="text-muted text-xs">${escapeHtml(u.email || '-')}</td>
+        <td>
+          <span class="badge ${roleBadgeClass}">${escapeHtml(u.role_name || u.role_code)}</span>
+        </td>
+        <td>${tenantBadge}</td>
+        <td class="text-center">${statusBadge}</td>
+        <td class="text-xs text-muted">${lastLogin}</td>
+        <td class="text-xs text-muted">${createdAt}</td>
+        <td class="text-center">
+          <div class="flex-center gap-1">
+            <button class="btn btn-secondary btn-xs" title="Edit Pengguna" onclick="openEditUserModal(${u.user_id})">✏️</button>
+            <button class="btn btn-secondary btn-xs" title="Reset Password" onclick="openResetPwdModal(${u.user_id}, '${escapeHtml(u.username)}')">🔑</button>
+            <button class="btn btn-danger btn-xs" title="Hapus Pengguna" onclick="deleteUser(${u.user_id}, '${escapeHtml(u.username)}')">🗑️</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function filterUsersList(keyword) {
+  if (!keyword) {
+    renderSysUsers(state.system.users);
+    return;
+  }
+  const filtered = (state.system.users || []).filter(u => {
+    const clientsStr = (u.assigned_clients || []).map(c => `${c.client_code} ${c.client_name}`).join(' ');
+    const envsStr = (u.assigned_environments || []).map(e => `${e.env_code} ${e.env_name}`).join(' ');
+    return (u.username || '').toLowerCase().includes(keyword) ||
+           (u.full_name || '').toLowerCase().includes(keyword) ||
+           (u.email || '').toLowerCase().includes(keyword) ||
+           (u.role_name || '').toLowerCase().includes(keyword) ||
+           (u.client_name || '').toLowerCase().includes(keyword) ||
+           (u.client_code || '').toLowerCase().includes(keyword) ||
+           clientsStr.toLowerCase().includes(keyword) ||
+           envsStr.toLowerCase().includes(keyword);
+  });
+  renderSysUsers(filtered);
+}
+
+async function loadSysRolesListForSelect() {
+  try {
+    const res = await authFetch('/api/auth/roles');
+    const json = await res.json();
+    if (json.success) {
+      state.system.roles = json.data || [];
+      populateRoleSelectOptions(state.system.roles);
+    }
+  } catch (err) {
+    console.warn('Gagal memuat daftar role:', err);
+  }
+}
+
+function populateRoleSelectOptions(roles) {
+  const userRoleSelect = document.getElementById('select-user-role');
+  const matrixRoleSelect = document.getElementById('select-matrix-role');
+
+  const optionsHtml = roles.map(r => `<option value="${r.role_id}">${escapeHtml(r.role_name)} (${r.role_code})</option>`).join('');
+
+  if (userRoleSelect) {
+    userRoleSelect.innerHTML = `<option value="">-- Pilih Role --</option>` + optionsHtml;
+  }
+  if (matrixRoleSelect) {
+    const currentVal = matrixRoleSelect.value;
+    matrixRoleSelect.innerHTML = `<option value="">-- Pilih Role --</option>` + optionsHtml;
+    if (currentVal) matrixRoleSelect.value = currentVal;
+  }
+}
+
+async function renderTenantChecklist(selectedClientIds = [], selectedEnvIds = []) {
+  const container = document.getElementById('user-tenants-checklist-container');
+  if (!container) return;
+
+  container.innerHTML = '<div class="p-3 text-center text-xs text-muted">Memuat daftar Client &amp; Environment...</div>';
+
+  try {
+    const res = await authFetch('/api/context/clients');
+    const json = await res.json();
+    const clients = json.success ? json.data : (state.clients || []);
+
+    if (!clients || clients.length === 0) {
+      container.innerHTML = '<div class="p-3 text-center text-xs text-muted">Tidak ada Client yang terdaftar di sistem.</div>';
+      return;
+    }
+
+    const selClientSet = new Set(selectedClientIds.map(Number));
+    const selEnvSet = new Set(selectedEnvIds.map(Number));
+
+    const html = `
+      <div class="tenant-client-list">
+        ${clients.map(client => {
+          const isClientChecked = selClientSet.has(Number(client.client_id));
+          const envs = Array.isArray(client.environments) ? client.environments : [];
+
+          return `
+            <div class="tenant-client-card ${isClientChecked ? 'selected' : ''}" id="tenant-card-${client.client_id}">
+              <div class="tenant-client-head">
+                <label class="flex-center gap-2 cursor-pointer" style="margin: 0; font-weight: 600; font-size: 0.85rem;">
+                  <input type="checkbox" 
+                         class="check-tenant-client" 
+                         data-client-id="${client.client_id}" 
+                         ${isClientChecked ? 'checked' : ''} 
+                         onchange="window.onTenantClientToggle(${client.client_id}, this.checked)">
+                  <span class="badge badge-primary text-2xs">${escapeHtml(client.client_code)}</span>
+                  <span>${escapeHtml(client.client_name)}</span>
+                </label>
+                <span class="text-2xs text-muted">${envs.length} Environment</span>
+              </div>
+              ${envs.length > 0 ? `
+                <div class="tenant-env-group">
+                  ${envs.map(env => {
+                    const isEnvChecked = selEnvSet.has(Number(env.env_id));
+                    return `
+                      <label class="tenant-env-chip ${isEnvChecked ? 'selected' : ''}" id="env-chip-${env.env_id}">
+                        <input type="checkbox" 
+                               class="check-tenant-env" 
+                               data-client-id="${client.client_id}" 
+                               data-env-id="${env.env_id}" 
+                               ${isEnvChecked ? 'checked' : ''} 
+                               onchange="window.onTenantEnvToggle(${client.client_id}, ${env.env_id}, this.checked)">
+                        <span class="font-mono font-bold">${escapeHtml(env.env_code)}</span>
+                        <span class="text-muted text-3xs">(${escapeHtml(env.env_name)})</span>
+                      </label>
+                    `;
+                  }).join('')}
+                </div>
+              ` : `
+                <div class="text-3xs text-muted mt-1 ml-6">Belum ada Environment terdaftar untuk client ini.</div>
+              `}
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+
+    container.innerHTML = html;
+  } catch (err) {
+    container.innerHTML = `<div class="p-3 text-center text-xs text-danger">Gagal memuat tenant: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function onTenantClientToggle(clientId, isChecked) {
+  const card = document.getElementById(`tenant-card-${clientId}`);
+  if (card) {
+    if (isChecked) card.classList.add('selected');
+    else card.classList.remove('selected');
+  }
+
+  // Centang / uncentang semua env di bawah client ini
+  const envCheckboxes = document.querySelectorAll(`.check-tenant-env[data-client-id="${clientId}"]`);
+  envCheckboxes.forEach(cb => {
+    cb.checked = isChecked;
+    const chip = document.getElementById(`env-chip-${cb.dataset.envId}`);
+    if (chip) {
+      if (isChecked) chip.classList.add('selected');
+      else chip.classList.remove('selected');
+    }
+  });
+}
+
+function onTenantEnvToggle(clientId, envId, isChecked) {
+  const chip = document.getElementById(`env-chip-${envId}`);
+  if (chip) {
+    if (isChecked) chip.classList.add('selected');
+    else chip.classList.remove('selected');
+  }
+
+  // Jika env dicentang, pastikan checkbox Client otomatis tercentang
+  const clientCb = document.querySelector(`.check-tenant-client[data-client-id="${clientId}"]`);
+  const card = document.getElementById(`tenant-card-${clientId}`);
+  if (isChecked && clientCb && !clientCb.checked) {
+    clientCb.checked = true;
+    if (card) card.classList.add('selected');
+  }
+}
+
+function selectAllTenants() {
+  document.querySelectorAll('.check-tenant-client').forEach(cb => {
+    cb.checked = true;
+    const card = document.getElementById(`tenant-card-${cb.dataset.clientId}`);
+    if (card) card.classList.add('selected');
+  });
+  document.querySelectorAll('.check-tenant-env').forEach(cb => {
+    cb.checked = true;
+    const chip = document.getElementById(`env-chip-${cb.dataset.envId}`);
+    if (chip) chip.classList.add('selected');
+  });
+}
+
+function deselectAllTenants() {
+  document.querySelectorAll('.check-tenant-client').forEach(cb => {
+    cb.checked = false;
+    const card = document.getElementById(`tenant-card-${cb.dataset.clientId}`);
+    if (card) card.classList.remove('selected');
+  });
+  document.querySelectorAll('.check-tenant-env').forEach(cb => {
+    cb.checked = false;
+    const chip = document.getElementById(`env-chip-${cb.dataset.envId}`);
+    if (chip) chip.classList.remove('selected');
+  });
+}
+
+function openAddUserModal() {
+  const form = document.getElementById('form-sys-user');
+  if (form) form.reset();
+
+  document.getElementById('modal-user-title').textContent = '👤 Tambah Pengguna Baru';
+  document.getElementById('input-user-id').value = '';
+  document.getElementById('input-user-username').disabled = false;
+  
+  const pwdGroup = document.getElementById('group-user-password');
+  const pwdInput = document.getElementById('input-user-password');
+  const pwdHint = document.getElementById('user-password-hint');
+  if (pwdGroup) pwdGroup.style.display = '';
+  if (pwdInput) {
+    pwdInput.required = true;
+    pwdInput.value = '';
+  }
+  if (pwdHint) pwdHint.textContent = 'Wajib diisi untuk pengguna baru (min 6 karakter).';
+
+  document.getElementById('check-user-active').checked = true;
+  renderTenantChecklist([], []);
+  document.getElementById('modal-user-form')?.classList.remove('hidden');
+}
+
+function openEditUserModal(userId) {
+  const user = (state.system.users || []).find(u => u.user_id == userId);
+  if (!user) return;
+
+  document.getElementById('modal-user-title').textContent = '👤 Edit Pengguna';
+  document.getElementById('input-user-id').value = user.user_id;
+  
+  const usernameInput = document.getElementById('input-user-username');
+  if (usernameInput) {
+    usernameInput.value = user.username;
+    usernameInput.disabled = (user.username === 'admin'); // Proteksi username admin
+  }
+
+  document.getElementById('input-user-fullname').value = user.full_name || '';
+  document.getElementById('input-user-email').value = user.email || '';
+  document.getElementById('select-user-role').value = user.role_id;
+  document.getElementById('check-user-active').checked = !!user.is_active;
+
+  // Sembunyikan field password saat edit (gunakan modal reset password)
+  const pwdGroup = document.getElementById('group-user-password');
+  const pwdInput = document.getElementById('input-user-password');
+  if (pwdGroup) pwdGroup.style.display = 'none';
+  if (pwdInput) pwdInput.required = false;
+
+  let selClientIds = [];
+  if (Array.isArray(user.assigned_clients) && user.assigned_clients.length > 0) {
+    selClientIds = user.assigned_clients.map(c => c.client_id);
+  } else if (user.client_id) {
+    selClientIds = [user.client_id];
+  }
+
+  let selEnvIds = [];
+  if (Array.isArray(user.assigned_environments) && user.assigned_environments.length > 0) {
+    selEnvIds = user.assigned_environments.map(e => e.env_id);
+  } else if (user.env_id) {
+    selEnvIds = [user.env_id];
+  }
+
+  renderTenantChecklist(selClientIds, selEnvIds);
+  document.getElementById('modal-user-form')?.classList.remove('hidden');
+}
+
+async function submitUserForm(event) {
+  if (event) event.preventDefault();
+  const userId = document.getElementById('input-user-id')?.value;
+  const username = document.getElementById('input-user-username')?.value.trim();
+  const full_name = document.getElementById('input-user-fullname')?.value.trim();
+  const email = document.getElementById('input-user-email')?.value.trim();
+  const role_id = document.getElementById('select-user-role')?.value;
+  const is_active = document.getElementById('check-user-active')?.checked;
+  const password = document.getElementById('input-user-password')?.value;
+
+  // Ambil seluruh client_ids yang dicentang
+  const checkedClients = Array.from(document.querySelectorAll('.check-tenant-client:checked')).map(cb => parseInt(cb.dataset.clientId, 10));
+  const checkedEnvs = Array.from(document.querySelectorAll('.check-tenant-env:checked')).map(cb => parseInt(cb.dataset.envId, 10));
+
+  // Pastikan jika ada env yang dicentang, client_id pemiliknya juga masuk
+  document.querySelectorAll('.check-tenant-env:checked').forEach(cb => {
+    const cid = parseInt(cb.dataset.clientId, 10);
+    if (!checkedClients.includes(cid)) {
+      checkedClients.push(cid);
+    }
+  });
+
+  const btnSubmit = document.getElementById('btn-submit-user-form');
+  if (btnSubmit) btnSubmit.disabled = true;
+
+  try {
+    if (!userId) {
+      // POST Create User
+      const res = await authFetch('/api/auth/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          username, 
+          password, 
+          full_name, 
+          email, 
+          role_id, 
+          client_ids: checkedClients, 
+          env_ids: checkedEnvs, 
+          is_active 
+        }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message);
+      alert('✓ Pengguna baru berhasil ditambahkan!');
+    } else {
+      // PUT Update User
+      const res = await authFetch(`/api/auth/users/${userId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          username, 
+          full_name, 
+          email, 
+          role_id, 
+          client_ids: checkedClients, 
+          env_ids: checkedEnvs, 
+          is_active 
+        }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message);
+      alert('✓ Data pengguna berhasil diperbarui!');
+    }
+
+    document.getElementById('modal-user-form')?.classList.add('hidden');
+    await loadSysUsers();
+  } catch (err) {
+    alert('Gagal menyimpan pengguna: ' + err.message);
+  } finally {
+    if (btnSubmit) btnSubmit.disabled = false;
+  }
+}
+
+function openResetPwdModal(userId, username) {
+  document.getElementById('reset-user-id').value = userId;
+  document.getElementById('reset-user-display').textContent = `${username} (ID: ${userId})`;
+  document.getElementById('input-reset-password').value = '';
+  document.getElementById('input-reset-password-confirm').value = '';
+  document.getElementById('modal-user-reset-pwd')?.classList.remove('hidden');
+}
+
+async function submitResetPwd(event) {
+  if (event) event.preventDefault();
+  const userId = document.getElementById('reset-user-id')?.value;
+  const pwd = document.getElementById('input-reset-password')?.value;
+  const confirmPwd = document.getElementById('input-reset-password-confirm')?.value;
+
+  if (pwd !== confirmPwd) {
+    alert('Konfirmasi kata sandi baru tidak cocok!');
+    return;
+  }
+
+  const btn = document.getElementById('btn-submit-reset-pwd');
+  if (btn) btn.disabled = true;
+
+  try {
+    const res = await authFetch(`/api/auth/users/${userId}/reset-password`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ new_password: pwd }),
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message);
+
+    alert('✓ Kata sandi pengguna berhasil diubah!');
+    document.getElementById('modal-user-reset-pwd')?.classList.add('hidden');
+  } catch (err) {
+    alert('Gagal mereset kata sandi: ' + err.message);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function deleteUser(userId, username) {
+  if (state.currentUser && state.currentUser.user_id == userId) {
+    alert('Anda tidak dapat menghapus akun Anda sendiri yang sedang aktif digunakan.');
+    return;
+  }
+
+  if (!confirm(`Apakah Anda yakin ingin menghapus pengguna "${username}"?`)) {
+    return;
+  }
+
+  try {
+    const res = await authFetch(`/api/auth/users/${userId}`, { method: 'DELETE' });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message);
+
+    alert(`✓ Pengguna "${username}" berhasil dihapus.`);
+    await loadSysUsers();
+  } catch (err) {
+    alert('Gagal menghapus pengguna: ' + err.message);
+  }
+}
+
+// -------------------------------------------------------------------------
+// ROLE MANAGEMENT
+// -------------------------------------------------------------------------
+
+async function loadSysRoles() {
+  const tbody = document.getElementById('sys-roles-tbody');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="8" class="text-center py-8 text-muted">Memuat daftar role...</td></tr>';
+
+  try {
+    const res = await authFetch('/api/auth/roles');
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message);
+
+    state.system.roles = json.data || [];
+    populateRoleSelectOptions(state.system.roles);
+    renderSysRoles(state.system.roles);
+  } catch (err) {
+    console.error('Gagal memuat roles:', err);
+    if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-danger">Gagal memuat role: ${err.message}</td></tr>`;
+  }
+}
+
+function renderSysRoles(roles) {
+  const tbody = document.getElementById('sys-roles-tbody');
+  if (!tbody) return;
+
+  if (!roles || roles.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" class="text-center py-8 text-muted">Tidak ada role terdaftar.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = roles.map(r => {
+    const isProtected = r.role_code === 'SUPERADMIN';
+    const statusBadge = r.is_active 
+      ? '<span class="badge badge-success">Aktif</span>' 
+      : '<span class="badge badge-neutral">Nonaktif</span>';
+
+    const createdAt = r.created_at 
+      ? new Date(r.created_at).toLocaleDateString('id-ID', { dateStyle: 'short' }) 
+      : '-';
+
+    return `
+      <tr>
+        <td class="font-mono text-muted text-xs">${r.role_id}</td>
+        <td>
+          <span class="font-mono font-bold text-cyan">${escapeHtml(r.role_code)}</span>
+        </td>
+        <td><strong>${escapeHtml(r.role_name)}</strong></td>
+        <td class="text-muted text-xs">${escapeHtml(r.description || '-')}</td>
+        <td class="text-center">
+          <span class="badge badge-neutral font-mono">${r.user_count || 0} user</span>
+        </td>
+        <td class="text-center">${statusBadge}</td>
+        <td class="text-xs text-muted">${createdAt}</td>
+        <td class="text-center">
+          <div class="flex-center gap-1">
+            <button class="btn btn-secondary btn-xs" title="Edit Role" onclick="openEditRoleModal(${r.role_id})">✏️</button>
+            <button class="btn btn-danger btn-xs" title="Hapus Role" onclick="deleteRole(${r.role_id}, '${escapeHtml(r.role_name)}')" ${isProtected ? 'disabled style="opacity:0.35;cursor:not-allowed;"' : ''}>🗑️</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function openAddRoleModal() {
+  const form = document.getElementById('form-sys-role');
+  if (form) form.reset();
+
+  document.getElementById('modal-role-title').textContent = '🎭 Tambah Role Baru';
+  document.getElementById('input-role-id').value = '';
+  document.getElementById('input-role-code').disabled = false;
+  document.getElementById('check-role-active').checked = true;
+  document.getElementById('modal-role-form')?.classList.remove('hidden');
+}
+
+function openEditRoleModal(roleId) {
+  const role = (state.system.roles || []).find(r => r.role_id == roleId);
+  if (!role) return;
+
+  document.getElementById('modal-role-title').textContent = '🎭 Edit Role';
+  document.getElementById('input-role-id').value = role.role_id;
+  
+  const codeInput = document.getElementById('input-role-code');
+  if (codeInput) {
+    codeInput.value = role.role_code;
+    codeInput.disabled = (role.role_code === 'SUPERADMIN');
+  }
+
+  document.getElementById('input-role-name').value = role.role_name || '';
+  document.getElementById('input-role-desc').value = role.description || '';
+  document.getElementById('check-role-active').checked = !!role.is_active;
+
+  document.getElementById('modal-role-form')?.classList.remove('hidden');
+}
+
+async function submitRoleForm(event) {
+  if (event) event.preventDefault();
+  const roleId = document.getElementById('input-role-id')?.value;
+  const role_code = document.getElementById('input-role-code')?.value.trim();
+  const role_name = document.getElementById('input-role-name')?.value.trim();
+  const description = document.getElementById('input-role-desc')?.value.trim();
+  const is_active = document.getElementById('check-role-active')?.checked;
+
+  const btn = document.getElementById('btn-submit-role-form');
+  if (btn) btn.disabled = true;
+
+  try {
+    if (!roleId) {
+      const res = await authFetch('/api/auth/roles', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role_code, role_name, description, is_active }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message);
+      alert('✓ Role baru berhasil ditambahkan!');
+    } else {
+      const res = await authFetch(`/api/auth/roles/${roleId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role_code, role_name, description, is_active }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.message);
+      alert('✓ Data role berhasil diperbarui!');
+    }
+
+    document.getElementById('modal-role-form')?.classList.add('hidden');
+    await loadSysRoles();
+  } catch (err) {
+    alert('Gagal menyimpan role: ' + err.message);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function deleteRole(roleId, roleName) {
+  if (!confirm(`Apakah Anda yakin ingin menghapus role "${roleName}"?\nUser yang memiliki role ini tidak akan dapat login.`)) {
+    return;
+  }
+
+  try {
+    const res = await authFetch(`/api/auth/roles/${roleId}`, { method: 'DELETE' });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message);
+
+    alert(`✓ Role "${roleName}" berhasil dihapus.`);
+    await loadSysRoles();
+  } catch (err) {
+    alert('Gagal menghapus role: ' + err.message);
+  }
+}
+
+// -------------------------------------------------------------------------
+// MENU & PERMISSION MATRIX (RBAC)
+// -------------------------------------------------------------------------
+
+async function loadSysMatrix() {
+  await loadSysRolesListForSelect();
+  const select = document.getElementById('select-matrix-role');
+  if (select && select.value) {
+    loadMenuMatrixForSelectedRole(select.value);
+  } else if (select && select.options.length > 1) {
+    select.selectedIndex = 1;
+    loadMenuMatrixForSelectedRole(select.value);
+  }
+}
+
+async function loadMenuMatrixForSelectedRole(roleId) {
+  const tbody = document.getElementById('sys-matrix-tbody');
+  const descEl = document.getElementById('matrix-role-desc');
+
+  if (!roleId) {
+    if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-muted">Silakan pilih role untuk menampilkan matriks perizinan.</td></tr>';
+    if (descEl) descEl.textContent = '';
+    return;
+  }
+
+  state.system.selectedMatrixRoleId = roleId;
+  const targetRole = (state.system.roles || []).find(r => r.role_id == roleId);
+  if (descEl && targetRole) {
+    descEl.textContent = targetRole.description ? `• ${targetRole.description}` : '';
+  }
+
+  if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-muted">Memuat matriks perizinan menu...</td></tr>';
+
+  try {
+    const res = await authFetch(`/api/auth/role-menus/${roleId}`);
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message);
+
+    state.system.menuMatrix = json.data || [];
+    renderMenuMatrix(state.system.menuMatrix);
+  } catch (err) {
+    console.error('Gagal memuat matriks role menus:', err);
+    if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-danger">Gagal memuat matriks: ${err.message}</td></tr>`;
+  }
+}
+
+function renderMenuMatrix(matrix) {
+  const tbody = document.getElementById('sys-matrix-tbody');
+  if (!tbody) return;
+
+  if (!matrix || matrix.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-muted">Tidak ada data menu sistem.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = matrix.map((m, idx) => {
+    return `
+      <tr data-menu-id="${m.menu_id}">
+        <td class="text-center text-muted text-xs">${idx + 1}</td>
+        <td>
+          <div class="flex-center gap-2" style="justify-content: flex-start;">
+            <span style="font-size: 1.15rem;">${m.menu_icon || '📄'}</span>
+            <strong>${escapeHtml(m.menu_name)}</strong>
+            <span class="text-muted font-mono text-2xs">(${m.menu_code})</span>
+          </div>
+        </td>
+        <td>
+          <span class="badge badge-neutral font-mono text-xs">${escapeHtml(m.route_tab)}</span>
+        </td>
+        <td class="text-center">
+          <input type="checkbox" name="matrix_view" data-menu-id="${m.menu_id}" ${m.can_view ? 'checked' : ''}>
+        </td>
+        <td class="text-center">
+          <input type="checkbox" name="matrix_create" data-menu-id="${m.menu_id}" ${m.can_create ? 'checked' : ''}>
+        </td>
+        <td class="text-center">
+          <input type="checkbox" name="matrix_update" data-menu-id="${m.menu_id}" ${m.can_update ? 'checked' : ''}>
+        </td>
+        <td class="text-center">
+          <input type="checkbox" name="matrix_delete" data-menu-id="${m.menu_id}" ${m.can_delete ? 'checked' : ''}>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function saveMenuMatrix() {
+  const roleId = state.system.selectedMatrixRoleId || document.getElementById('select-matrix-role')?.value;
+  if (!roleId) {
+    alert('Pilih role terlebih dahulu!');
+    return;
+  }
+
+  const rows = document.querySelectorAll('#sys-matrix-tbody tr[data-menu-id]');
+  if (!rows || rows.length === 0) {
+    alert('Tidak ada matriks menu yang dapat disimpan.');
+    return;
+  }
+
+  const permissions = [];
+  rows.forEach(tr => {
+    const menuId = parseInt(tr.getAttribute('data-menu-id'), 10);
+    const can_view = tr.querySelector('input[name="matrix_view"]')?.checked || false;
+    const can_create = tr.querySelector('input[name="matrix_create"]')?.checked || false;
+    const can_update = tr.querySelector('input[name="matrix_update"]')?.checked || false;
+    const can_delete = tr.querySelector('input[name="matrix_delete"]')?.checked || false;
+
+    permissions.push({
+      menu_id: menuId,
+      can_view,
+      can_create,
+      can_update,
+      can_delete,
+    });
+  });
+
+  const btn = document.getElementById('btn-save-matrix');
+  if (btn) btn.disabled = true;
+
+  try {
+    const res = await authFetch(`/api/auth/role-menus/${roleId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ permissions }),
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message);
+
+    alert('✓ Matriks perizinan menu berhasil disimpan!');
+
+    // Jika role yang diperbarui sama dengan role user aktif saat ini, perbarui session & navigasi
+    if (state.currentUser && state.currentUser.role_id == roleId) {
+      const meRes = await authFetch('/api/auth/me');
+      const meJson = await meRes.json();
+      if (meJson.success && meJson.data) {
+        state.userMenus = meJson.data.menus || [];
+        applyMenuPermissions(state.userMenus);
+      }
+    }
+  } catch (err) {
+    alert('Gagal menyimpan matriks perizinan: ' + err.message);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// Global Exports
+window.handleLoginSubmit = handleLoginSubmit;
+window.handleLogout = handleLogout;
+window.autofillLogin = autofillLogin;
+window.togglePasswordVisibility = togglePasswordVisibility;
+window.openAddUserModal = openAddUserModal;
+window.openEditUserModal = openEditUserModal;
+window.openResetPwdModal = openResetPwdModal;
+window.deleteUser = deleteUser;
+window.openAddRoleModal = openAddRoleModal;
+window.openEditRoleModal = openEditRoleModal;
+window.deleteRole = deleteRole;
+window.switchSysSubtab = switchSysSubtab;
+window.saveMenuMatrix = saveMenuMatrix;
+window.onTenantClientToggle = onTenantClientToggle;
+window.onTenantEnvToggle = onTenantEnvToggle;
+window.selectAllTenants = selectAllTenants;
+window.deselectAllTenants = deselectAllTenants;
+window.isCurrentUserAdmin = isCurrentUserAdmin;
+window.applyAdminSettingsButtonVisibility = applyAdminSettingsButtonVisibility;
+
