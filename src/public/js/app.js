@@ -103,6 +103,8 @@ const state = {
     columns: [],
     rows: [],
     location: '',
+    sortBy: null,
+    sortDir: 'ASC',
   },
 
   // Berita Acara
@@ -648,6 +650,8 @@ function setupEventListeners() {
       document.querySelectorAll('.stage-btn').forEach((b) => b.classList.remove('active'));
       e.currentTarget.classList.add('active');
       state.pipeline.selectedStage = stage;
+      state.pipeline.sortBy = null;
+      state.pipeline.sortDir = 'ASC';
       state.pipeline.page = 1;
       loadPipelineStageData();
     });
@@ -4421,10 +4425,7 @@ async function loadPipelineReconciliation() {
             <td class="text-center">${statusBadge}</td>
             <td class="text-center"><span class="${errorClass}">${errorText}</span></td>
             <td class="text-center">
-              <div style="display: flex; gap: 0.35rem; justify-content: center;">
-                <button class="btn btn-secondary btn-xs" onclick="openPipelineInspectorModal(${p.configId}, '${t.table}')">Tinjau</button>
-                <button class="btn btn-primary btn-xs" onclick="openBeritaAcara(${p.configId})" title="Cetak Berita Acara">🖨️ BA</button>
-              </div>
+              <button class="btn btn-secondary btn-xs" onclick="openPipelineInspectorModal(${p.configId}, '${t.table}')">Tinjau</button>
             </td>
           </tr>
         `;
@@ -4459,6 +4460,8 @@ window.closePipelineInspectorModal = function () {
 
 window.selectPipelineConfig = function (configId, targetTableName) {
   state.pipeline.selectedConfigId = configId;
+  state.pipeline.sortBy = null;
+  state.pipeline.sortDir = 'ASC';
   if (targetTableName) {
     state.pipeline.selectedTargetTable = targetTableName;
   }
@@ -4544,7 +4547,10 @@ async function loadPipelineStageData() {
   tbody.innerHTML = `<tr><td class="text-center py-8 text-muted">Mengambil data dari database...</td></tr>`;
 
   try {
-    const url = `/api/reconciliation/stage-data?configId=${configId}&stage=${stage}&page=${state.pipeline.page}&limit=${state.pipeline.limit}${targetParam}`;
+    const sortParam = state.pipeline.sortBy 
+      ? `&sortBy=${encodeURIComponent(state.pipeline.sortBy)}&sortDir=${encodeURIComponent(state.pipeline.sortDir || 'ASC')}` 
+      : '';
+    const url = `/api/reconciliation/stage-data?configId=${configId}&stage=${stage}&page=${state.pipeline.page}&limit=${state.pipeline.limit}${targetParam}${sortParam}`;
     const res = await fetch(url);
     const json = await res.json();
     if (!json.success) throw new Error(json.error);
@@ -4582,8 +4588,20 @@ async function loadPipelineStageData() {
 
     thead.innerHTML = `
       <tr>
-        <th style="width: 45px;">#</th>
-        ${data.columns.map((c) => `<th>${c.name} <span class="text-muted" style="font-size: 0.65rem">(${c.type})</span></th>`).join('')}
+        <th style="width: 45px; text-align: center;">#</th>
+        ${data.columns.map((c) => {
+          const isSorted = state.pipeline.sortBy && state.pipeline.sortBy.toLowerCase() === c.name.toLowerCase();
+          const sortIcon = isSorted ? (state.pipeline.sortDir === 'ASC' ? '▲' : '▼') : '↕';
+          const sortClass = isSorted ? (state.pipeline.sortDir === 'ASC' ? 'sorted-asc' : 'sorted-desc') : '';
+          return `
+            <th class="sortable ${sortClass}" onclick="window.sortStageData('${escapeHtml(c.name)}')" title="Klik untuk mengurutkan kolom ${escapeHtml(c.name)}" style="cursor: pointer; user-select: none;">
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+                <span>${escapeHtml(c.name)} <span class="text-muted" style="font-size: 0.65rem;">(${escapeHtml(c.type)})</span></span>
+                <span class="sort-icon" style="font-size: 0.72rem; opacity: ${isSorted ? '1' : '0.4'};">${sortIcon}</span>
+              </div>
+            </th>
+          `;
+        }).join('')}
       </tr>
     `;
 
@@ -4600,13 +4618,24 @@ async function loadPipelineStageData() {
         if (typeof val === 'boolean') return `<td><span class="badge ${val ? 'badge-success' : 'badge-danger'}">${val}</span></td>`;
         return `<td>${escapeHtml(String(val))}</td>`;
       }).join('');
-      return `<tr><td class="font-mono text-muted">${rowNum}</td>${cells}</tr>`;
+      return `<tr><td class="font-mono text-muted text-center">${rowNum}</td>${cells}</tr>`;
     }).join('');
   } catch (err) {
     thead.innerHTML = `<tr><th class="text-center py-8 text-rose">Gagal memuat data</th></tr>`;
     tbody.innerHTML = `<tr><td class="text-center py-8 text-rose">${escapeHtml(err.message)}</td></tr>`;
   }
 }
+
+window.sortStageData = function (colName) {
+  if (state.pipeline.sortBy && state.pipeline.sortBy.toLowerCase() === colName.toLowerCase()) {
+    state.pipeline.sortDir = state.pipeline.sortDir === 'ASC' ? 'DESC' : 'ASC';
+  } else {
+    state.pipeline.sortBy = colName;
+    state.pipeline.sortDir = 'ASC';
+  }
+  state.pipeline.page = 1;
+  loadPipelineStageData();
+};
 
 // =========================================================================
 // BERITA ACARA RESMI FORMAT SISI — GENERATOR, EDITOR & EXPORT

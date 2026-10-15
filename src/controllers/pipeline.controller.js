@@ -27,12 +27,12 @@ class PipelineController {
 
   async getPipelineStageData(req, res) {
     try {
-      const { configId, stage, page, limit, targetTable, targetSchema } = req.query;
+      const { configId, stage, page, limit, targetTable, targetSchema, sortBy, sortDir } = req.query;
       if (!configId) {
         return res.status(400).json({ success: false, error: 'Parameter "configId" wajib diisi.' });
       }
 
-      const data = await pipelineService.getPipelineStageData({ configId, stage, page, limit, targetTable, targetSchema });
+      const data = await pipelineService.getPipelineStageData({ configId, stage, page, limit, targetTable, targetSchema, sortBy, sortDir });
       return res.json({ success: true, data });
     } catch (err) {
       return res.status(500).json({ success: false, error: err.message });
