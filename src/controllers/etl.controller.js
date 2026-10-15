@@ -27,7 +27,7 @@ class EtlController {
   // ==========================================
   async getClients(req, res) {
     try {
-      const data = await etlService.getClients();
+      const data = await etlService.getClients(req.user);
       return res.json({ success: true, data });
     } catch (err) {
       return res.status(500).json({ success: false, error: err.message });
@@ -94,7 +94,7 @@ class EtlController {
   async getEnvironments(req, res) {
     try {
       const { clientId } = req.query;
-      const data = await etlService.getEnvironments(clientId);
+      const data = await etlService.getEnvironments(clientId, req.user);
       return res.json({ success: true, data });
     } catch (err) {
       return res.status(500).json({ success: false, error: err.message });

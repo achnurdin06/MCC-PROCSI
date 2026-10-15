@@ -5,6 +5,35 @@ const migrationController = require('../controllers/migration.controller');
 const sourceController = require('../controllers/source.controller');
 const etlController = require('../controllers/etl.controller');
 const pipelineController = require('../controllers/pipeline.controller');
+const authController = require('../controllers/auth.controller');
+const { requireAuth, requireRole, optionalAuth } = require('../middleware/auth.middleware');
+
+// ==========================================
+// 0. Autentikasi & RBAC (User, Role, Menu)
+// ==========================================
+router.post('/auth/login', (req, res) => authController.login(req, res));
+router.post('/auth/logout', (req, res) => authController.logout(req, res));
+router.get('/auth/me', requireAuth, (req, res) => authController.getMe(req, res));
+
+// User Management CRUD (SUPERADMIN only)
+router.get('/auth/users', requireAuth, requireRole(['SUPERADMIN']), (req, res) => authController.getUsers(req, res));
+router.post('/auth/users', requireAuth, requireRole(['SUPERADMIN']), (req, res) => authController.createUser(req, res));
+router.put('/auth/users/:id', requireAuth, requireRole(['SUPERADMIN']), (req, res) => authController.updateUser(req, res));
+router.post('/auth/users/:id/reset-password', requireAuth, requireRole(['SUPERADMIN']), (req, res) => authController.resetPassword(req, res));
+router.put('/auth/users/:id/reset-password', requireAuth, requireRole(['SUPERADMIN']), (req, res) => authController.resetPassword(req, res));
+router.delete('/auth/users/:id', requireAuth, requireRole(['SUPERADMIN']), (req, res) => authController.deleteUser(req, res));
+
+// Role Management CRUD (SUPERADMIN only)
+router.get('/auth/roles', requireAuth, requireRole(['SUPERADMIN']), (req, res) => authController.getRoles(req, res));
+router.post('/auth/roles', requireAuth, requireRole(['SUPERADMIN']), (req, res) => authController.createRole(req, res));
+router.put('/auth/roles/:id', requireAuth, requireRole(['SUPERADMIN']), (req, res) => authController.updateRole(req, res));
+router.delete('/auth/roles/:id', requireAuth, requireRole(['SUPERADMIN']), (req, res) => authController.deleteRole(req, res));
+
+// Menu & Permissions Matrix CRUD (SUPERADMIN only for saving)
+router.get('/auth/menus', requireAuth, (req, res) => authController.getMenus(req, res));
+router.get('/auth/role-menus/:roleId', requireAuth, (req, res) => authController.getRolePermissions(req, res));
+router.post('/auth/role-menus/:roleId', requireAuth, requireRole(['SUPERADMIN']), (req, res) => authController.saveRolePermissions(req, res));
+router.put('/auth/role-menus/:roleId', requireAuth, requireRole(['SUPERADMIN']), (req, res) => authController.saveRolePermissions(req, res));
 
 // ==========================================
 // 1. Core Health Check
@@ -18,13 +47,13 @@ router.get('/context/status', (req, res) => etlController.getStatus(req, res));
 router.post('/context/init-wizard', (req, res) => etlController.initWizard(req, res));
 
 // Master Client CRUD
-router.get('/context/clients', (req, res) => etlController.getClients(req, res));
+router.get('/context/clients', optionalAuth, (req, res) => etlController.getClients(req, res));
 router.post('/context/clients', (req, res) => etlController.createClient(req, res));
 router.put('/context/clients/:id', (req, res) => etlController.updateClient(req, res));
 router.delete('/context/clients/:id', (req, res) => etlController.deleteClient(req, res));
 
 // Master Environment CRUD
-router.get('/context/environments', (req, res) => etlController.getEnvironments(req, res));
+router.get('/context/environments', optionalAuth, (req, res) => etlController.getEnvironments(req, res));
 router.get('/context/environments/:id/details', (req, res) => etlController.getEnvironmentDetails(req, res));
 router.get('/context/environments/:id/health', (req, res) => etlController.getEnvironmentHealth(req, res));
 router.post('/context/environments/save-with-connections', (req, res) => etlController.saveEnvironmentWithConnections(req, res));
