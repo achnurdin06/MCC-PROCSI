@@ -189,6 +189,16 @@ class EtlController {
     }
   }
 
+  async generateConfigDefaults(req, res) {
+    try {
+      const params = req.method === 'POST' ? req.body : req.query;
+      const data = await etlService.generateMigrationConfigDefaults(params);
+      return res.json({ success: true, ...data });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  }
+
   async createConfigRecord(req, res) {
     try {
       const { table } = req.params;

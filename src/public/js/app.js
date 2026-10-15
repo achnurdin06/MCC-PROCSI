@@ -3496,11 +3496,11 @@ const FORM_DEFINITIONS = {
       { name: 'tgt_schema', label: 'Target Schema', type: 'text', default: 'vendor', required: true },
       { name: 'tgt_table', label: 'Target Table (PostgreSQL)', type: 'text', placeholder: 'vendor_header', required: true },
       { name: 'pk_columns', label: 'PK Columns', type: 'text', placeholder: 'id', required: true },
-      { name: 'compare_columns', label: 'Compare Columns', type: 'textarea', placeholder: 'name, email, status' },
+      { name: 'compare_columns', label: 'Compare Columns', type: 'textarea', placeholder: 'e.g. name, email, status (Akan terisi otomatis saat simpan jika dikosongkan)' },
       { name: 'id_column', label: 'ID Column', type: 'text', placeholder: 'id' },
       { name: 'id_width', label: 'ID Width', type: 'number', default: 10 },
       { name: 'id_seed', label: 'ID Seed', type: 'text', default: '1' },
-      { name: 'src_precheck_sql', label: 'Source Precheck SQL', type: 'textarea', placeholder: 'SELECT COUNT(*) FROM ...' },
+      { name: 'src_precheck_sql', label: 'Source Precheck SQL', type: 'textarea', placeholder: 'SELECT COUNT(*) FROM ... (Akan terisi otomatis saat simpan jika dikosongkan)' },
       { name: 'is_active', label: 'Status Aktif', type: 'boolean', default: true },
     ],
   },
@@ -3826,6 +3826,58 @@ function openUniversalForm(entityType, id = null, existingData = null) {
       };
       selSsh.addEventListener('change', toggleSsh);
       toggleSsh();
+    }
+  }
+
+  // Interactive enhancements khusus migration_config form
+  if (entityType === 'migration_config') {
+    const compareGroup = container.querySelector('[name="compare_columns"]')?.closest('.form-group');
+    if (compareGroup && !compareGroup.querySelector('#btn-auto-fill-defaults')) {
+      const helperDiv = document.createElement('div');
+      helperDiv.className = 'flex items-center justify-between mt-1 mb-1.5';
+      helperDiv.innerHTML = `
+        <span class="text-muted" style="font-size: 11px;">💡 Otomatis terisi saat simpan jika dikosongkan</span>
+        <button type="button" id="btn-auto-fill-defaults" class="btn btn-xs btn-indigo flex items-center gap-1" style="font-size: 11px; padding: 2px 8px;">
+          <span>⚡ Isi Otomatis Sekarang</span>
+        </button>
+      `;
+      const txtArea = compareGroup.querySelector('textarea');
+      if (txtArea) {
+        compareGroup.insertBefore(helperDiv, txtArea);
+      } else {
+        compareGroup.appendChild(helperDiv);
+      }
+
+      const btnAutoFill = helperDiv.querySelector('#btn-auto-fill-defaults');
+      btnAutoFill.addEventListener('click', async () => {
+        const formEl = document.getElementById('form-universal-crud');
+        const fData = new FormData(formEl);
+        const srcView = (fData.get('src_view') || '').trim();
+        if (!srcView) {
+          alert('Silakan isi kolom "Source View (SQL Server)" terlebih dahulu.');
+          return;
+        }
+        btnAutoFill.disabled = true;
+        btnAutoFill.textContent = 'Memuat metadata...';
+        try {
+          const res = await fetch(`/api/etl/configs/migration_config/defaults?src_schema=${encodeURIComponent(fData.get('src_schema') || 'dbo')}&src_view=${encodeURIComponent(srcView)}&pk_columns=${encodeURIComponent(fData.get('pk_columns') || '')}&stg_table=${encodeURIComponent(fData.get('stg_table') || '')}`);
+          const json = await res.json();
+          if (json.success) {
+            const cmpEl = formEl.querySelector('[name="compare_columns"]');
+            const preEl = formEl.querySelector('[name="src_precheck_sql"]');
+            if (cmpEl && json.compare_columns) cmpEl.value = json.compare_columns;
+            if (preEl && json.src_precheck_sql) preEl.value = json.src_precheck_sql;
+            alert('✓ Kolom Compare & Precheck SQL berhasil digenerate otomatis!');
+          } else {
+            alert('Gagal mengambil metadata: ' + (json.error || 'Terjadi kesalahan'));
+          }
+        } catch (err) {
+          alert('Gagal generate: ' + err.message);
+        } finally {
+          btnAutoFill.disabled = false;
+          btnAutoFill.innerHTML = '<span>⚡ Isi Otomatis Sekarang</span>';
+        }
+      });
     }
   }
 
