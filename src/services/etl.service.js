@@ -3,8 +3,14 @@ const path = require('path');
 const { queryPostgres } = require('../config/postgres');
 const sql = require('mssql');
 const { Pool } = require('pg');
-const { checkSqlServerConnection, getSqlServerPool } = require('../config/sqlserver');
+const { checkSqlServerConnection, getSqlServerPool, querySqlServer } = require('../config/sqlserver');
 const { ensureTunnel } = require('../config/tunnel');
+
+function sanitizeIdentifier(name) {
+  if (!name || typeof name !== 'string') return null;
+  const clean = name.replace(/[^a-zA-Z0-9_]/g, '');
+  return clean.length > 0 ? clean : null;
+}
 
 const ALLOWED_CONFIG_TABLES = {
   migration_config: { pk: 'config_id', autoPk: true },
@@ -1110,9 +1116,128 @@ class EtlService {
     };
   }
 
+  /**
+   * Helper untuk generate otomatis compare_columns dan src_precheck_sql
+   */
+  async generateMigrationConfigDefaults(params = {}) {
+    const srcSchema = sanitizeIdentifier(params.src_schema) || 'dbo';
+    const srcView = sanitizeIdentifier(params.src_view);
+    const stgTable = sanitizeIdentifier(params.stg_table);
+    const rawPk = params.pk_columns ? String(params.pk_columns).split(',')[0].trim() : 'id';
+    const pkCol = sanitizeIdentifier(rawPk) || 'id';
+
+    let columns = [];
+    if (srcView) {
+      try {
+        const colRes = await querySqlServer(`
+          SELECT COLUMN_NAME
+          FROM INFORMATION_SCHEMA.COLUMNS
+          WHERE TABLE_SCHEMA = '${srcSchema}' AND TABLE_NAME = '${srcView}'
+          ORDER BY ORDINAL_POSITION
+        `);
+        if (colRes?.recordset?.length > 0) {
+          columns = colRes.recordset.map((r) => r.COLUMN_NAME);
+        }
+      } catch (err) {
+        console.warn(`[generateDefaults] Gagal query columns dari SQL Server (${srcSchema}.${srcView}):`, err.message);
+      }
+    }
+
+    if (columns.length === 0 && stgTable) {
+      try {
+        const pgColRes = await queryPostgres(`
+          SELECT column_name
+          FROM information_schema.columns
+          WHERE (table_schema = 'stg_antam' OR table_schema = 'public')
+            AND table_name = $1
+          ORDER BY ordinal_position
+        `, [stgTable]);
+        if (pgColRes?.rows?.length > 0) {
+          columns = pgColRes.rows
+            .map((r) => r.column_name)
+            .filter((c) => !['id', 'created_at', 'updated_at', 'is_updated', 'fields_before'].includes(c));
+        }
+      } catch (err) {
+        console.warn(`[generateDefaults] Gagal query columns dari PostgreSQL staging (${stgTable}):`, err.message);
+      }
+    }
+
+    const compareColumns = columns.length > 0 ? columns.join(', ') : '';
+
+    let srcPrecheckSql = '';
+    if (srcView) {
+      const targetIdCol = (columns.length > 0 ? columns.find((c) => c.toLowerCase() === pkCol.toLowerCase()) : null)
+        || (columns.length > 0 ? columns.find((c) => c.toLowerCase().endsWith('_id') || ['uuid', 'code', 'id'].includes(c.toLowerCase())) : null)
+        || (columns.length > 0 ? columns[0] : null)
+        || pkCol;
+
+      const cleanTargetIdCol = sanitizeIdentifier(targetIdCol) || 'id';
+
+      srcPrecheckSql = `SELECT
+  -- 1. Cek potensi duplikasi record
+  (SELECT COUNT(*) FROM (
+     SELECT [${cleanTargetIdCol}]
+     FROM [${srcSchema}].[${srcView}]
+     GROUP BY [${cleanTargetIdCol}]
+     HAVING COUNT(*) > 1
+   ) d)
+  -- 2. Cek apakah ada record dengan identifier NULL
+  + (SELECT COUNT(*) FROM [${srcSchema}].[${srcView}]
+     WHERE [${cleanTargetIdCol}] IS NULL) AS n`;
+    }
+
+    return {
+      compare_columns: compareColumns,
+      src_precheck_sql: srcPrecheckSql,
+      columns,
+    };
+  }
+
+  async autoPopulateMigrationConfigFields(data, id = null) {
+    let currentRecord = null;
+    if (id) {
+      try {
+        const curRes = await queryPostgres('SELECT * FROM etl_antam.migration_config WHERE config_id = $1', [id]);
+        currentRecord = curRes.rows[0];
+      } catch (e) {
+        console.warn('[autoPopulateMigrationConfigFields] Gagal ambil existing record:', e.message);
+      }
+    }
+
+    const srcSchema = data.src_schema || currentRecord?.src_schema || 'dbo';
+    const srcView = data.src_view || currentRecord?.src_view;
+    const stgTable = data.stg_table || currentRecord?.stg_table;
+    const pkCol = data.pk_columns || currentRecord?.pk_columns || 'id';
+
+    const needCompare = data.compare_columns === undefined || data.compare_columns === null || String(data.compare_columns).trim() === '';
+    const needPrecheck = data.src_precheck_sql === undefined || data.src_precheck_sql === null || String(data.src_precheck_sql).trim() === '';
+
+    if (!needCompare && !needPrecheck) {
+      return;
+    }
+
+    const defaults = await this.generateMigrationConfigDefaults({
+      src_schema: srcSchema,
+      src_view: srcView,
+      stg_table: stgTable,
+      pk_columns: pkCol,
+    });
+
+    if (needCompare && defaults.compare_columns) {
+      data.compare_columns = defaults.compare_columns;
+    }
+    if (needPrecheck && defaults.src_precheck_sql) {
+      data.src_precheck_sql = defaults.src_precheck_sql;
+    }
+  }
+
   async createConfigRecord(tableName, data) {
     const meta = ALLOWED_CONFIG_TABLES[tableName];
     if (!meta) throw new Error(`Tabel "${tableName}" tidak diizinkan untuk operasi konfigurasi.`);
+
+    if (tableName === 'migration_config') {
+      await this.autoPopulateMigrationConfigFields(data);
+    }
 
     const keys = Object.keys(data).filter((k) => meta.autoPk ? k !== meta.pk : true);
     if (keys.length === 0) throw new Error('Tidak ada data kolom yang dikirim.');
@@ -1134,6 +1259,10 @@ class EtlService {
   async updateConfigRecord(tableName, id, data) {
     const meta = ALLOWED_CONFIG_TABLES[tableName];
     if (!meta) throw new Error(`Tabel "${tableName}" tidak diizinkan untuk operasi konfigurasi.`);
+
+    if (tableName === 'migration_config') {
+      await this.autoPopulateMigrationConfigFields(data, id);
+    }
 
     const keys = Object.keys(data).filter((k) => k !== meta.pk);
     if (keys.length === 0) throw new Error('Tidak ada kolom yang diubah.');
