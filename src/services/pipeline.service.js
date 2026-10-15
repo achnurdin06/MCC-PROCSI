@@ -131,12 +131,23 @@ class PipelineService {
         }
       }
 
-      // Ambil jumlah error terkait config_id ini
-      const errorCountRes = await queryPostgres(
-        `SELECT COUNT(*) AS total FROM etl_antam.migration_error_log WHERE config_id = $1`,
-        [cfg.config_id]
-      );
-      const errorsCount = parseInt(errorCountRes.rows[0]?.total, 10) || 0;
+      // Cari run yang relevan dengan config ini (exact token match)
+      const idStr = String(cfg.config_id);
+      const matchedRun = allRuns.find((r) => {
+        if (!r.config_id) return false;
+        const ids = r.config_id.split(',').map((s) => s.trim());
+        return ids.includes(idStr);
+      }) || null;
+
+      // Ambil jumlah error terkait sesi terakhir config_id ini
+      let errorsCount = 0;
+      if (matchedRun && matchedRun.run_id) {
+        const errorCountRes = await queryPostgres(
+          `SELECT COUNT(*) AS total FROM etl_antam.migration_error_log WHERE config_id = $1 AND run_id = $2`,
+          [cfg.config_id, matchedRun.run_id]
+        );
+        errorsCount = parseInt(errorCountRes.rows[0]?.total, 10) || 0;
+      }
 
       // Ambil log langkah terakhir
       const lastStepRes = await queryPostgres(
@@ -144,10 +155,6 @@ class PipelineService {
         [cfg.config_id]
       );
       const lastStep = lastStepRes.rows[0] || null;
-
-      // Cari run yang relevan dengan config ini
-      const idStr = String(cfg.config_id);
-      const matchedRun = allRuns.find((r) => r.config_id === idStr || (r.config_id && r.config_id.includes(idStr))) || null;
 
       // Evaluasi status alur Source ➔ Staging
       let stage1Status = 'UNKNOWN';
@@ -180,8 +187,13 @@ class PipelineService {
         const tSchema = sanitizeIdentifier(t.tgt_schema) || 'vendor';
         const tTable = sanitizeIdentifier(t.tgt_table);
 
-        // Cari step log yang cocok dengan tabel target ini
+        // Cari step log yang cocok dengan tabel target ini (utamakan run sesi yang bersangkutan)
         const matchedLog = allPostStepLogs.find((sl) =>
+          sl.config_id === cfg.config_id &&
+          (matchedRun ? sl.run_id === matchedRun.run_id : true) &&
+          sl.message && tTable &&
+          sl.message.toLowerCase().includes(tTable.toLowerCase())
+        ) || allPostStepLogs.find((sl) =>
           sl.config_id === cfg.config_id &&
           sl.message && tTable &&
           sl.message.toLowerCase().includes(tTable.toLowerCase())
@@ -237,7 +249,7 @@ class PipelineService {
           }
         }
 
-        const lastRunId = matchedLog?.run_id || matchedRun?.run_id || null;
+        const lastRunId = matchedRun?.run_id || matchedLog?.run_id || null;
 
         resolvedTargets.push({
           targetConfigId: t.target_config_id,
