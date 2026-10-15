@@ -609,12 +609,12 @@
 
         <!-- Full-Width Panel: Daftar & Summary Views -->
         <div class="panel-card mb-4">
-          <div class="panel-header flex-wrap">
+          <div class="panel-header flex-wrap flex-between">
             <div>
               <h2 class="panel-title">Daftar Views di dbo (SQL Server)</h2>
               <p class="panel-desc">Seluruh object VIEW pada schema dbo antam_scm beserta status pemetaan ke target PostgreSQL</p>
             </div>
-            <div class="panel-actions flex-wrap gap-2">
+            <div class="panel-actions">
               <input type="text" id="search-source-views" class="search-input" placeholder="🔍 Cari nama view...">
               <select id="filter-source-config-status" class="select-input select-sm">
                 <option value="ALL">Semua Relasi & Status</option>
@@ -623,9 +623,9 @@
                 <option value="SYNCED">✓ Sinkron di Katalog View</option>
                 <option value="UNSYNCED">Perlu Sync di Katalog View</option>
               </select>
-              <div class="flex-center gap-1">
+              <div class="flex-center gap-1" style="display: inline-flex; align-items: center; white-space: nowrap;">
                 <span class="text-xs text-muted">Limit:</span>
-                <select id="select-source-views-limit" class="select-input select-sm">
+                <select id="select-source-views-limit" class="select-input select-sm" style="min-width: 65px;">
                   <option value="10">10</option>
                   <option value="25" selected>25</option>
                   <option value="50">50</option>
