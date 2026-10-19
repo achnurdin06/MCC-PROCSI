@@ -106,6 +106,7 @@ router.get('/etl/error-logs', (req, res) => etlController.getErrorLogs(req, res)
 router.get('/reconciliation/pipeline', (req, res) => pipelineController.getPipelineSummary(req, res));
 router.get('/reconciliation/config-details', (req, res) => pipelineController.getConfigDetail(req, res));
 router.get('/reconciliation/stage-data', (req, res) => pipelineController.getPipelineStageData(req, res));
+router.get('/reconciliation/compare', (req, res) => pipelineController.comparePipelineConfig(req, res));
 router.get('/reconciliation/berita-acara', (req, res) => pipelineController.getBeritaAcara(req, res));
 
 // Legacy compatibility

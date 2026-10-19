@@ -107,6 +107,17 @@ const state = {
     sortDir: 'ASC',
   },
 
+  // Modul 4: 3-Tier Column & Status Comparator
+  compare: {
+    selectedConfigId: null,
+    selectedTargetTable: null,
+    selectedRunId: null,
+    data: null,
+    activeTab: 'matrix',
+    filterStatus: 'ALL',
+    searchQuery: '',
+  },
+
   // Berita Acara
   beritaAcaraData: null,
   beritaAcaraSelectedConfigs: [1],
@@ -848,6 +859,7 @@ function setupEventListeners() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       const modalIds = [
+        'modal-pipeline-compare',
         'modal-pipeline-inspector',
         'modal-source-inspector',
         'modal-delete-confirm',
@@ -869,6 +881,9 @@ function setupEventListeners() {
 
   // Modal Berita Acara Events
   initBeritaAcaraEvents();
+
+  // Modal Compare 3-Tier Events
+  initCompareModalEvents();
 }
 
 function setupSearchFilter(inputId, tbodyId) {
@@ -4477,7 +4492,10 @@ async function loadPipelineReconciliation() {
             <td class="text-center">${statusBadge}</td>
             <td class="text-center"><span class="${errorClass}">${errorText}</span></td>
             <td class="text-center">
-              <button class="btn btn-secondary btn-xs" onclick="openPipelineInspectorModal(${p.configId}, '${t.table}')">Tinjau</button>
+              <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
+                <button class="btn btn-secondary btn-xs" onclick="openPipelineInspectorModal(${p.configId}, '${t.table}')" title="Buka dialog peninjauan alur &amp; data tahap">Tinjau</button>
+                <button class="btn btn-compare-pipeline btn-xs" onclick="openPipelineCompareModal(${p.configId}, '${t.table}', ${t.lastRunId ? `'${t.lastRunId}'` : 'null'})" title="Komparasi kolom 3-Tier &amp; evaluasi sukses migrasi (Run: #${t.lastRunId || '-'})">⚖️ Compare</button>
+              </div>
             </td>
           </tr>
         `;
@@ -4688,6 +4706,607 @@ window.sortStageData = function (colName) {
   state.pipeline.page = 1;
   loadPipelineStageData();
 };
+
+// =========================================================================
+// MODUL 4: 3-TIER COLUMN & STATUS COMPARATOR (COMPARE ACTION)
+// =========================================================================
+
+function initCompareModalEvents() {
+  const btnClose = document.getElementById('btn-close-pipeline-compare');
+  if (btnClose) btnClose.addEventListener('click', closePipelineCompareModal);
+
+  const btnCloseFooter = document.getElementById('btn-close-pipeline-compare-footer');
+  if (btnCloseFooter) btnCloseFooter.addEventListener('click', closePipelineCompareModal);
+
+  const btnRefresh = document.getElementById('btn-refresh-compare');
+  if (btnRefresh) {
+    btnRefresh.addEventListener('click', () => {
+      if (state.compare.selectedConfigId) {
+        loadPipelineComparison(state.compare.selectedConfigId, state.compare.selectedTargetTable, state.compare.selectedRunId);
+      }
+    });
+  }
+
+  const selTarget = document.getElementById('compare-target-select');
+  if (selTarget) {
+    selTarget.addEventListener('change', (e) => {
+      const tgt = e.target.value;
+      state.compare.selectedTargetTable = tgt;
+      if (state.compare.selectedConfigId) {
+        loadPipelineComparison(state.compare.selectedConfigId, tgt, state.compare.selectedRunId);
+      }
+    });
+  }
+
+  const selRun = document.getElementById('compare-run-select');
+  if (selRun) {
+    selRun.addEventListener('change', (e) => {
+      const runVal = e.target.value;
+      state.compare.selectedRunId = runVal || null;
+      if (state.compare.selectedConfigId) {
+        loadPipelineComparison(state.compare.selectedConfigId, state.compare.selectedTargetTable, state.compare.selectedRunId);
+      }
+    });
+  }
+}
+
+window.openPipelineCompareModal = function (configId, targetTableName, runId) {
+  state.compare.selectedConfigId = configId;
+  state.compare.selectedTargetTable = targetTableName || null;
+  state.compare.selectedRunId = runId || null;
+  state.compare.activeTab = 'matrix';
+  state.compare.filterStatus = 'ALL';
+  state.compare.searchQuery = '';
+
+  const modal = document.getElementById('modal-pipeline-compare');
+  if (!modal) return;
+
+  const cfgBadge = document.getElementById('compare-modal-cfg-badge');
+  if (cfgBadge) cfgBadge.textContent = `Config #${configId}`;
+
+  const runBadge = document.getElementById('compare-modal-run-badge');
+  if (runBadge) {
+    runBadge.textContent = runId ? `Run: #${runId}` : 'Run: -';
+  }
+
+  const searchInput = document.getElementById('filter-cmp-col-input');
+  if (searchInput) searchInput.value = '';
+
+  switchCompareTab('matrix');
+  modal.classList.remove('hidden');
+
+  loadPipelineComparison(configId, targetTableName, runId);
+};
+
+window.closePipelineCompareModal = function () {
+  const modal = document.getElementById('modal-pipeline-compare');
+  if (modal) modal.classList.add('hidden');
+};
+
+window.switchCompareTab = function (tabName) {
+  state.compare.activeTab = tabName;
+
+  document.querySelectorAll('#modal-pipeline-compare .sub-tab-btn').forEach((btn) => {
+    btn.classList.remove('active');
+  });
+
+  const activeBtn = document.getElementById(`btn-cmp-tab-${tabName}`);
+  if (activeBtn) activeBtn.classList.add('active');
+
+  const panes = ['matrix', 'samples', 'audit'];
+  panes.forEach((p) => {
+    const paneEl = document.getElementById(`cmp-pane-${p}`);
+    if (paneEl) paneEl.style.display = p === tabName ? 'block' : 'none';
+  });
+};
+
+async function loadPipelineComparison(configId, targetTableName, runId) {
+  const verdictContainer = document.getElementById('compare-verdict-container');
+  const matrixTbody = document.getElementById('cmp-matrix-tbody');
+
+  if (verdictContainer) {
+    verdictContainer.innerHTML = `
+      <div class="verdict-hero-card verdict-info">
+        <div class="flex-center py-4 gap-3 text-cyan">
+          <div class="spinner" style="width: 24px; height: 24px; border-width: 2px;"></div>
+          <span>Menganalisis keselarasan kolom 3-Tier &amp; menghitung validasi status migrasi...</span>
+        </div>
+      </div>
+    `;
+  }
+  if (matrixTbody) {
+    matrixTbody.innerHTML = `<tr><td colspan="6" class="text-center py-8 text-muted">Mengambil data perbandingan kolom...</td></tr>`;
+  }
+
+  try {
+    const targetParam = targetTableName ? `&targetTable=${encodeURIComponent(targetTableName)}` : '';
+    const runParam = runId ? `&runId=${encodeURIComponent(runId)}` : '';
+    const res = await fetch(`/api/reconciliation/compare?configId=${configId}${targetParam}${runParam}`);
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Gagal memuat data komparasi');
+
+    const data = json.data;
+    state.compare.data = data;
+    state.compare.selectedRunId = data.effectiveRunId;
+
+    // Update Header
+    const titleEl = document.getElementById('compare-modal-title');
+    if (titleEl) {
+      titleEl.innerHTML = `Komparasi Kolom &amp; Validasi: <span class="text-cyan">${escapeHtml(data.nameConfig || `Config #${data.configId}`)}</span>`;
+    }
+    const descEl = document.getElementById('compare-modal-desc');
+    if (descEl) {
+      descEl.textContent = `Alur: [${data.source.schema}].[${data.source.view}] ➔ ${data.staging.schema}.${data.staging.table} ➔ ${data.target.schema}.${data.target.table}`;
+    }
+    const tgtBadge = document.getElementById('compare-modal-target-badge');
+    if (tgtBadge) {
+      tgtBadge.textContent = `Target: ${data.target.schema}.${data.target.table}`;
+      tgtBadge.className = `badge ${data.target.exists ? 'badge-success' : 'badge-danger'} text-xs`;
+    }
+    const runBadge = document.getElementById('compare-modal-run-badge');
+    if (runBadge) {
+      runBadge.textContent = data.effectiveRunId ? `Run: #${data.effectiveRunId}` : 'Run: -';
+      const runStatusClass = data.latestRun?.status === 'SUCCESS' ? 'badge-success' : (data.latestRun?.status === 'FAILED' ? 'badge-danger' : 'badge-neutral');
+      runBadge.className = `badge ${runStatusClass} text-xs font-mono`;
+      runBadge.title = data.latestRun?.status ? `Status Run: ${data.latestRun.status}` : 'Run ID';
+    }
+
+    // Sesi Run switcher dropdown
+    const runWrapper = document.getElementById('compare-run-selector-wrapper');
+    const runSelect = document.getElementById('compare-run-select');
+    if (runWrapper && runSelect) {
+      const allRuns = data.availableRuns || [];
+      if (allRuns.length > 0) {
+        runWrapper.style.display = 'inline-flex';
+        runSelect.innerHTML = allRuns.map((r) => {
+          const statusIcon = r.status === 'SUCCESS' ? '✓' : (r.status === 'FAILED' ? '✕' : '⏳');
+          const isSel = String(r.run_id) === String(data.effectiveRunId);
+          return `<option value="${r.run_id}" ${isSel ? 'selected' : ''}>${statusIcon} #${r.run_id} (${r.status || 'RUN'})</option>`;
+        }).join('');
+      } else {
+        runWrapper.style.display = 'none';
+      }
+    }
+
+    // Target table switcher if multi-target exists
+    const targetWrapper = document.getElementById('compare-target-selector-wrapper');
+    const targetSelect = document.getElementById('compare-target-select');
+    if (targetWrapper && targetSelect) {
+      const allTargets = data.target.allTargetConfigs || [];
+      if (allTargets.length > 1) {
+        targetWrapper.style.display = 'inline-flex';
+        targetSelect.innerHTML = allTargets.map((t) => `
+          <option value="${escapeHtml(t.tgt_table)}" ${t.tgt_table === data.target.table ? 'selected' : ''}>
+            ${escapeHtml(t.tgt_schema || 'vendor')}.${escapeHtml(t.tgt_table)}
+          </option>
+        `).join('');
+      } else {
+        targetWrapper.style.display = 'none';
+      }
+    }
+
+    // Connect footer buttons
+    const btnOpenBa = document.getElementById('btn-compare-open-ba');
+    if (btnOpenBa) {
+      btnOpenBa.onclick = () => {
+        closePipelineCompareModal();
+        openBeritaAcara(configId);
+      };
+    }
+    const btnOpenInspector = document.getElementById('btn-compare-open-inspector');
+    if (btnOpenInspector) {
+      btnOpenInspector.onclick = () => {
+        closePipelineCompareModal();
+        openPipelineInspectorModal(configId, data.target.table);
+      };
+    }
+
+    // Render all components
+    renderCompareVerdict(data);
+    renderCompareMatrix(data);
+    renderCompareSamples(data);
+    renderCompareAudit(data);
+  } catch (err) {
+    if (verdictContainer) {
+      verdictContainer.innerHTML = `
+        <div class="verdict-hero-card verdict-danger">
+          <div class="text-rose font-bold py-2">Terjadi kesalahan: ${escapeHtml(err.message)}</div>
+        </div>
+      `;
+    }
+    if (matrixTbody) {
+      matrixTbody.innerHTML = `<tr><td colspan="6" class="text-center py-8 text-rose">${escapeHtml(err.message)}</td></tr>`;
+    }
+  }
+}
+
+function renderCompareVerdict(data) {
+  const container = document.getElementById('compare-verdict-container');
+  if (!container) return;
+
+  const v = data.verdict;
+  let icon = '✅';
+  let heroClass = 'verdict-success';
+
+  if (v.level === 'WARNING') {
+    icon = '⏳';
+    heroClass = 'verdict-warning';
+  } else if (v.level === 'FAILED') {
+    icon = '❌';
+    heroClass = 'verdict-danger';
+  } else if (v.level === 'STAGING_ONLY') {
+    icon = '📦';
+    heroClass = 'verdict-info';
+  }
+
+  // Row Count Reconciliation details
+  const srcN = data.source.rowsCount;
+  const stgN = data.staging.rowsCount;
+  const tgtN = data.target.rowsCount;
+  const isRowSync = srcN === stgN && srcN > 0;
+  const rowDeltaBadge = isRowSync 
+    ? `<span class="badge badge-success text-xs font-bold">✓ Match 100%</span>`
+    : `<span class="badge badge-warning text-xs font-bold">Selisih ${Math.abs(stgN - srcN)} baris</span>`;
+
+  // Mapped coverage percentage
+  const totalTgt = data.metrics.totalTargetCols || 1;
+  const mappedTgt = data.metrics.mappedTargetCols || 0;
+  const coveragePct = Math.round((mappedTgt / totalTgt) * 100);
+
+  container.innerHTML = `
+    <div class="verdict-hero-card ${heroClass}">
+      <div class="verdict-header-row">
+        <div class="verdict-title-group">
+          <div class="verdict-icon-bubble">${icon}</div>
+          <div>
+            <h4 class="verdict-main-title">
+              <span>${escapeHtml(v.title)}</span>
+              <span class="badge ${v.badgeClass} text-xs">${v.level}</span>
+            </h4>
+            <div class="verdict-main-subtitle">${escapeHtml(v.subtitle)}</div>
+          </div>
+        </div>
+        <div class="flex-center gap-2">
+          <span class="badge badge-neutral text-xs">Run: #${data.latestRun?.run_id || '-'}</span>
+          <span class="badge ${data.isActive ? 'badge-success' : 'badge-neutral'} text-xs">${data.isActive ? 'Active' : 'Inactive'}</span>
+        </div>
+      </div>
+
+      <div class="verdict-metrics-grid">
+        <!-- Metric 1: Row Reconciliation -->
+        <div class="verdict-metric-item">
+          <span class="verdict-metric-label">1. Integritas Jumlah Baris</span>
+          <div class="verdict-metric-val">
+            <span class="text-cyan">${formatNumber(srcN)}</span>
+            <span class="text-muted" style="font-size:0.75rem;">➔</span>
+            <span class="text-amber">${formatNumber(stgN)}</span>
+            <span class="text-muted" style="font-size:0.75rem;">➔</span>
+            <span class="text-emerald">${formatNumber(tgtN)}</span>
+          </div>
+          <div style="margin-top: 3px;">${rowDeltaBadge}</div>
+        </div>
+
+        <!-- Metric 2: Target Column Coverage -->
+        <div class="verdict-metric-item">
+          <span class="verdict-metric-label">2. Cakupan Kolom Target</span>
+          <div class="verdict-metric-val text-emerald">
+            <span>${mappedTgt} / ${totalTgt}</span>
+            <span style="font-size: 0.8rem; font-weight: normal; color: var(--text-muted);">(${coveragePct}%)</span>
+          </div>
+          <div class="text-xs text-muted" style="margin-top: 3px;">
+            ${coveragePct === 100 ? '<span class="text-emerald font-bold">✓ Semua kolom terpetakan</span>' : `<span class="text-amber">${totalTgt - mappedTgt} kolom unmapped/seed</span>`}
+          </div>
+        </div>
+
+        <!-- Metric 3: Convert Rules Active -->
+        <div class="verdict-metric-item">
+          <span class="verdict-metric-label">3. Aturan Konversi (Rule)</span>
+          <div class="verdict-metric-val text-cyan">
+            <span>${data.metrics.convertRulesActive} Rule</span>
+          </div>
+          <div class="text-xs text-muted" style="margin-top: 3px;">
+            ${data.metrics.convertRulesActive > 0 ? '✓ Lookup & normalisasi aktif' : 'Direct 1:1 schema mapping'}
+          </div>
+        </div>
+
+        <!-- Metric 4: Error Logs & Health -->
+        <div class="verdict-metric-item">
+          <span class="verdict-metric-label">4. Audit Log &amp; Error</span>
+          <div class="verdict-metric-val ${data.metrics.errorsCount === 0 ? 'text-emerald' : 'text-rose'}">
+            <span>${data.metrics.errorsCount} Error Log</span>
+          </div>
+          <div class="text-xs text-muted" style="margin-top: 3px;">
+            ${data.metrics.errorsCount === 0 ? '<span class="text-emerald">✓ Alur migrasi bersih</span>' : '<span class="text-rose font-bold">⚠️ Periksa tab Audit Log</span>'}
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderCompareMatrix(data) {
+  const tbody = document.getElementById('cmp-matrix-tbody');
+  if (!tbody) return;
+
+  const matrix = data.columnMatrix || [];
+
+  // Update counter badges
+  const cntAll = matrix.length;
+  const cntMatch = matrix.filter((c) => c.status === 'MATCH').length;
+  const cntConv = matrix.filter((c) => c.status === 'CONVERTED' || c.status === 'TYPE_CONVERTED').length;
+  const cntWarn = matrix.filter((c) => ['MISSING_REQUIRED', 'UNMAPPED_TARGET', 'UNMAPPED_SOURCE', 'STAGING_EXTRA'].includes(c.status)).length;
+
+  const elAll = document.getElementById('cmp-count-all');
+  if (elAll) elAll.textContent = cntAll;
+  const elMatch = document.getElementById('cmp-count-match');
+  if (elMatch) elMatch.textContent = cntMatch;
+  const elConv = document.getElementById('cmp-count-conv');
+  if (elConv) elConv.textContent = cntConv;
+  const elWarn = document.getElementById('cmp-count-warn');
+  if (elWarn) elWarn.textContent = cntWarn;
+
+  // Filter matrix based on current state
+  const filter = state.compare.filterStatus;
+  const query = (state.compare.searchQuery || '').toLowerCase().trim();
+
+  const filtered = matrix.filter((c) => {
+    // Status filter
+    if (filter === 'MATCH' && c.status !== 'MATCH') return false;
+    if (filter === 'CONVERTED' && !['CONVERTED', 'TYPE_CONVERTED'].includes(c.status)) return false;
+    if (filter === 'WARNING' && !['MISSING_REQUIRED', 'UNMAPPED_TARGET', 'UNMAPPED_SOURCE', 'STAGING_EXTRA'].includes(c.status)) return false;
+
+    // Search query
+    if (query) {
+      const srcName = c.sourceCol?.name?.toLowerCase() || '';
+      const stgName = c.stagingCol?.name?.toLowerCase() || '';
+      const tgtName = c.targetCol?.name?.toLowerCase() || '';
+      const ruleText = c.rule?.lookupName?.toLowerCase() || '';
+      return srcName.includes(query) || stgName.includes(query) || tgtName.includes(query) || ruleText.includes(query);
+    }
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" class="text-center py-8 text-muted">Tidak ada kolom yang cocok dengan kriteria filter saat ini.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = filtered.map((c, idx) => {
+    // Source Col Cell
+    let srcCell = `<span class="text-muted font-italic">- (Tidak ada di Source)</span>`;
+    if (c.sourceCol) {
+      const nullBadge = c.sourceCol.nullable === 'NO' ? `<span class="col-cell-notnull">NOT NULL</span>` : `<span class="col-cell-null">NULL</span>`;
+      srcCell = `
+        <div>
+          <strong class="text-cyan">${escapeHtml(c.sourceCol.name)}</strong>
+          ${nullBadge}
+          <div class="col-cell-type">${escapeHtml(c.sourceCol.type)}</div>
+        </div>
+      `;
+    }
+
+    // Staging Col Cell
+    let stgCell = `<span class="text-muted font-italic">- (Tidak ada di Staging)</span>`;
+    if (c.stagingCol) {
+      const nullBadge = c.stagingCol.nullable === 'NO' ? `<span class="col-cell-notnull">NOT NULL</span>` : `<span class="col-cell-null">NULL</span>`;
+      stgCell = `
+        <div>
+          <strong class="text-amber">${escapeHtml(c.stagingCol.name)}</strong>
+          ${nullBadge}
+          <div class="col-cell-type">${escapeHtml(c.stagingCol.type)}</div>
+        </div>
+      `;
+    }
+
+    // Target Col Cell
+    let tgtCell = `<span class="text-muted font-italic">- (Tidak masuk Target)</span>`;
+    if (c.targetCol) {
+      const pkBadge = c.isPk ? `<span class="badge badge-primary" style="font-size:0.6rem; padding: 1px 4px; margin-left: 4px;">PK</span>` : '';
+      const nullBadge = c.targetCol.nullable === 'NO' ? `<span class="col-cell-notnull">NOT NULL</span>` : `<span class="col-cell-null">NULL</span>`;
+      tgtCell = `
+        <div>
+          <strong class="text-emerald">${escapeHtml(c.targetCol.name)}</strong>
+          ${pkBadge}
+          ${nullBadge}
+          <div class="col-cell-type">${escapeHtml(c.targetCol.type)}</div>
+        </div>
+      `;
+    }
+
+    // Rule Cell
+    let ruleCell = `<span class="text-muted" style="font-size:0.75rem;">Direct (1:1)</span>`;
+    if (c.rule) {
+      ruleCell = `
+        <div style="font-size: 0.75rem;">
+          <strong class="text-cyan">${escapeHtml(c.rule.lookupName || 'Convert Rule')}</strong>
+          ${c.rule.masterTable ? `<div class="text-muted" style="font-size: 0.68rem;">Tabel: ${escapeHtml(c.rule.masterTable)}</div>` : ''}
+          ${c.rule.onUnmapped ? `<div class="text-muted" style="font-size: 0.68rem;">On Unmapped: ${escapeHtml(c.rule.onUnmapped)}</div>` : ''}
+        </div>
+      `;
+    } else if (c.isPk && !c.sourceCol && !c.stagingCol) {
+      ruleCell = `<span class="badge badge-primary text-xs">Generated Seed / PK</span>`;
+    }
+
+    return `
+      <tr>
+        <td class="text-center font-mono text-muted">${idx + 1}</td>
+        <td>${srcCell}</td>
+        <td>${stgCell}</td>
+        <td>${tgtCell}</td>
+        <td>${ruleCell}</td>
+        <td class="text-center">
+          <span class="badge ${c.statusBadge}" style="font-size: 0.72rem; white-space: nowrap;">
+            ${escapeHtml(c.statusLabel)}
+          </span>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+window.filterCompareMatrix = function (filterType) {
+  state.compare.filterStatus = filterType;
+  document.querySelectorAll('.filter-cmp-btn').forEach((btn) => {
+    btn.classList.toggle('active', btn.getAttribute('data-filter') === filterType);
+  });
+  if (state.compare.data) {
+    renderCompareMatrix(state.compare.data);
+  }
+};
+
+window.handleCompareSearch = function (query) {
+  state.compare.searchQuery = query;
+  if (state.compare.data) {
+    renderCompareMatrix(state.compare.data);
+  }
+};
+
+function renderCompareSamples(data) {
+  const badgeInfo = document.getElementById('cmp-sample-info-badge');
+  if (badgeInfo) {
+    const srcLen = data.source.sampleRows?.length || 0;
+    const stgLen = data.staging.sampleRows?.length || 0;
+    const tgtLen = data.target.sampleRows?.length || 0;
+    const count = Math.min(5, Math.max(srcLen, stgLen, tgtLen));
+    badgeInfo.textContent = tgtLen > 0 
+      ? `Menampilkan ${count} Baris Sampel (Target: ${tgtLen} Rekaman Hasil Migrasi)`
+      : `Menampilkan ${count} Baris Sampel (Target: Belum Ada Data Termigrasi)`;
+  }
+
+  // Tags
+  const srcTag = document.getElementById('cmp-sample-src-tag');
+  if (srcTag) srcTag.textContent = `[${data.source.schema}].[${data.source.view}]`;
+
+  const stgTag = document.getElementById('cmp-sample-stg-tag');
+  if (stgTag) stgTag.textContent = `${data.staging.schema}.${data.staging.table}`;
+
+  const tgtTag = document.getElementById('cmp-sample-tgt-tag');
+  if (tgtTag) {
+    const hasMigrated = data.target.sampleRows && data.target.sampleRows.length > 0;
+    tgtTag.innerHTML = hasMigrated 
+      ? `${data.target.schema}.${data.target.table} <span style="margin-left: 4px;">(✓ Termigrasi)</span>`
+      : `${data.target.schema}.${data.target.table} <span style="margin-left: 4px;">(Belum Ada Data)</span>`;
+    tgtTag.className = `badge ${hasMigrated ? 'badge-success' : 'badge-warning'} text-xs font-bold`;
+  }
+
+  // Helper render single sample table
+  function populateSampleTable(theadId, tbodyId, cols, rows, emptyHtml) {
+    const thead = document.getElementById(theadId);
+    const tbody = document.getElementById(tbodyId);
+    if (!thead || !tbody) return;
+
+    if (!cols || cols.length === 0) {
+      thead.innerHTML = '<tr><th>Kolom</th></tr>';
+      tbody.innerHTML = '<tr><td class="text-muted text-center py-4">Tidak ada kolom terdeteksi.</td></tr>';
+      return;
+    }
+
+    thead.innerHTML = `<tr><th style="width:30px;">#</th>${cols.map((c) => `<th>${escapeHtml(c.name)}</th>`).join('')}</tr>`;
+
+    if (!rows || rows.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="${cols.length + 1}" class="text-center py-6 text-muted">${emptyHtml || 'Belum ada baris data.'}</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = rows.map((r, rIdx) => {
+      const cells = cols.map((c) => {
+        const val = r[c.name];
+        if (val === null || val === undefined) return `<td class="text-muted font-italic">NULL</td>`;
+        if (typeof val === 'boolean') return `<td><span class="badge ${val ? 'badge-success' : 'badge-danger'} text-xs">${val}</span></td>`;
+        return `<td>${escapeHtml(String(val))}</td>`;
+      }).join('');
+      return `<tr><td class="text-center font-mono text-muted">${rIdx + 1}</td>${cells}</tr>`;
+    }).join('');
+  }
+
+  populateSampleTable('cmp-sample-src-thead', 'cmp-sample-src-tbody', data.source.columns, data.source.sampleRows);
+  populateSampleTable('cmp-sample-stg-thead', 'cmp-sample-stg-tbody', data.staging.columns, data.staging.sampleRows);
+  
+  const targetEmptyHtml = `
+    <div style="padding: 1rem 0;">
+      <span class="badge badge-warning text-xs" style="margin-bottom: 6px;">📦 Belum Ada Data Termigrasi</span><br>
+      <span class="text-muted text-xs">Belum ada data dari staging yang diposting ke tabel target ini (Status: Staging Only).<br>Gunakan aksi posting untuk memindahkan data ke target vendor.</span>
+    </div>
+  `;
+  populateSampleTable('cmp-sample-tgt-thead', 'cmp-sample-tgt-tbody', data.target.columns, data.target.sampleRows, targetEmptyHtml);
+}
+
+function renderCompareAudit(data) {
+  const cardsContainer = document.getElementById('cmp-audit-checklist-cards');
+  if (cardsContainer) {
+    const checklist = data.auditChecklist || [];
+    cardsContainer.innerHTML = checklist.map((chk) => {
+      let icon = '✓';
+      let cardClass = 'pass';
+      let badgeClass = 'badge-success';
+
+      if (chk.status === 'WARN') {
+        icon = '⚠️';
+        cardClass = 'warn';
+        badgeClass = 'badge-warning';
+      } else if (chk.status === 'FAIL') {
+        icon = '✕';
+        cardClass = 'fail';
+        badgeClass = 'badge-danger';
+      } else if (chk.status === 'INFO') {
+        icon = 'ℹ';
+        cardClass = 'info';
+        badgeClass = 'badge-info';
+      }
+
+      return `
+        <div class="audit-card-item ${cardClass}">
+          <div class="audit-card-top">
+            <span class="text-xs text-muted font-bold">${escapeHtml(chk.category)}</span>
+            <span class="badge ${badgeClass} text-xs font-bold">${chk.status}</span>
+          </div>
+          <div class="audit-card-title flex-center gap-1" style="justify-content: flex-start;">
+            <span>${icon}</span>
+            <span>${escapeHtml(chk.title)}</span>
+          </div>
+          <div class="audit-card-desc">${escapeHtml(chk.message)}</div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // Error Log Table
+  const errTbody = document.getElementById('cmp-error-log-tbody');
+  if (errTbody) {
+    const errs = data.recentErrors || [];
+    if (errs.length === 0) {
+      errTbody.innerHTML = `<tr><td colspan="4" class="text-emerald text-center py-4">✓ 0 error log. Eksekusi alur migrasi berhasil bersih.</td></tr>`;
+    } else {
+      errTbody.innerHTML = errs.map((e) => `
+        <tr>
+          <td class="font-mono text-muted">${formatDate(e.created_at || e.error_time)}</td>
+          <td class="font-mono font-bold text-cyan">#${e.run_id || '-'}</td>
+          <td>${escapeHtml(e.target_table || '-')}</td>
+          <td class="text-rose font-bold">${escapeHtml(e.error_message || e.message || '-')}</td>
+        </tr>
+      `).join('');
+    }
+  }
+
+  // Step Log Table
+  const stepTbody = document.getElementById('cmp-step-log-tbody');
+  if (stepTbody) {
+    const steps = data.recentSteps || [];
+    if (steps.length === 0) {
+      stepTbody.innerHTML = `<tr><td colspan="5" class="text-muted text-center py-4">Belum ada catatan langkah step log.</td></tr>`;
+    } else {
+      stepTbody.innerHTML = steps.map((s) => `
+        <tr>
+          <td><strong class="text-cyan">${escapeHtml(s.step_name)}</strong></td>
+          <td class="font-mono">${s.rows_before !== null && s.rows_before !== undefined ? formatNumber(s.rows_before) : '-'}</td>
+          <td class="font-mono font-bold text-emerald">${s.rows_after !== null && s.rows_after !== undefined ? formatNumber(s.rows_after) : '-'}</td>
+          <td><span class="badge ${s.status === 'SUCCESS' || s.status === 'COMPLETED' ? 'badge-success' : 'badge-neutral'} text-xs">${escapeHtml(s.status || 'OK')}</span></td>
+          <td class="font-mono text-muted">${formatDate(s.start_time || s.created_at)}</td>
+        </tr>
+      `).join('');
+    }
+  }
+}
 
 // =========================================================================
 // BERITA ACARA RESMI FORMAT SISI — GENERATOR, EDITOR & EXPORT

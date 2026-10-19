@@ -770,6 +770,576 @@ class PipelineService {
       stagingAttachment: firstItem.stagingAttachment,
     };
   }
+
+  /**
+   * Komparasi mendalam kolom dan data antara Source View, Staging, dan Target
+   * untuk evaluasi status keberhasilan migrasi (Sukses / Warning / Gagal)
+   */
+  async comparePipelineConfig(options = {}) {
+    const { configId, targetTable, runId } = options;
+    const cid = parseInt(configId, 10);
+    if (!cid) throw new Error('configId wajib diisi dan harus berupa angka.');
+
+    // 1. Ambil info konfigurasi utama
+    const cfgRes = await queryPostgres(
+      `SELECT * FROM etl_antam.migration_config WHERE config_id = $1`,
+      [cid]
+    );
+    const cfg = cfgRes.rows[0];
+    if (!cfg) throw new Error(`Konfigurasi dengan config_id ${cid} tidak ditemukan.`);
+
+    // 2. Ambil seluruh riwayat run untuk menemukan last_run_id konfigurasi ini
+    const allRunsRes = await queryPostgres(`
+      SELECT run_id, run_ts, start_time, end_time, status, is_posted, posted_at, is_rolled_back, rolled_back_at, note, config_id,
+             ROUND(EXTRACT(EPOCH FROM (end_time - start_time))::numeric, 2) AS duration_seconds
+      FROM etl_antam.migration_run
+      ORDER BY run_id DESC
+      LIMIT 100
+    `);
+
+    const idStr = String(cid);
+    const matchedRuns = allRunsRes.rows.filter((r) => {
+      if (!r.config_id) return false;
+      const ids = r.config_id.split(',').map((s) => s.trim());
+      return ids.includes(idStr);
+    });
+
+    let selectedRun = null;
+    if (runId) {
+      selectedRun = allRunsRes.rows.find((r) => String(r.run_id) === String(runId)) || null;
+    }
+    if (!selectedRun) {
+      selectedRun = matchedRuns[0] || null;
+    }
+    // Fallback: periksa migration_step_log untuk config_id ini jika tidak ditemukan di migration_run
+    if (!selectedRun) {
+      const lastStepRun = await queryPostgres(
+        `SELECT run_id FROM etl_antam.migration_step_log WHERE config_id = $1 ORDER BY log_id DESC LIMIT 1`,
+        [cid]
+      );
+      if (lastStepRun.rows[0]?.run_id) {
+        selectedRun = allRunsRes.rows.find((r) => String(r.run_id) === String(lastStepRun.rows[0].run_id)) || null;
+      }
+    }
+    if (!selectedRun && allRunsRes.rows.length > 0) {
+      selectedRun = allRunsRes.rows[0];
+    }
+
+    const effectiveRunId = selectedRun ? selectedRun.run_id : null;
+
+    // 3. Ambil convert rules, target configs, error logs & step logs KHUSUS SESI RUN INI
+    const [rulesRes, targetsRes, errorLogsRes, stepLogsRes] = await Promise.all([
+      queryPostgres(`SELECT * FROM etl_antam.migration_convert_rule WHERE config_id = $1 ORDER BY rule_id`, [cid]),
+      queryPostgres(`SELECT * FROM etl_antam.migration_target_config WHERE config_id = $1 ORDER BY exec_order`, [cid]),
+      effectiveRunId
+        ? queryPostgres(`SELECT * FROM etl_antam.migration_error_log WHERE config_id = $1 AND run_id = $2 ORDER BY error_id DESC LIMIT 20`, [cid, effectiveRunId])
+        : { rows: [] },
+      effectiveRunId
+        ? queryPostgres(`SELECT * FROM etl_antam.migration_step_log WHERE config_id = $1 AND run_id = $2 ORDER BY log_id DESC LIMIT 20`, [cid, effectiveRunId])
+        : queryPostgres(`SELECT * FROM etl_antam.migration_step_log WHERE config_id = $1 ORDER BY log_id DESC LIMIT 10`, [cid]),
+    ]);
+
+    const rules = rulesRes.rows;
+    const targetConfigs = targetsRes.rows;
+    const errorLogs = errorLogsRes.rows;
+    let stepLogs = stepLogsRes.rows;
+    if (stepLogs.length === 0) {
+      const fallbackStep = await queryPostgres(`SELECT * FROM etl_antam.migration_step_log WHERE config_id = $1 ORDER BY log_id DESC LIMIT 10`, [cid]);
+      stepLogs = fallbackStep.rows;
+    }
+    const latestRun = selectedRun;
+
+    // Tentukan target yang dibandingkan
+    let selectedTargetConfig = null;
+    if (targetTable) {
+      selectedTargetConfig = targetConfigs.find((t) => t.tgt_table === targetTable) || null;
+    }
+    if (!selectedTargetConfig && targetConfigs.length > 0) {
+      selectedTargetConfig = targetConfigs[0];
+    }
+
+    const cleanSrcSchema = sanitizeIdentifier(cfg.src_schema) || 'dbo';
+    const cleanSrcView = sanitizeIdentifier(cfg.src_view);
+    const cleanStgSchema = 'stg_antam';
+    const cleanStgTable = sanitizeIdentifier(cfg.stg_table);
+    const cleanTgtSchema = sanitizeIdentifier(selectedTargetConfig?.tgt_schema || cfg.tgt_schema) || 'vendor';
+    const cleanTgtTable = sanitizeIdentifier(selectedTargetConfig?.tgt_table || cfg.tgt_table);
+
+    // 3. Ambil Metadata Kolom Source (SQL Server)
+    let sourceCols = [];
+    let sourceRowsCount = 0;
+    let sourceSampleRows = [];
+    let sourceError = null;
+
+    if (cleanSrcView) {
+      try {
+        const colQ = await querySqlServer(`
+          SELECT 
+            COLUMN_NAME AS name, 
+            DATA_TYPE AS data_type, 
+            CHARACTER_MAXIMUM_LENGTH AS max_length,
+            IS_NULLABLE AS is_nullable,
+            ORDINAL_POSITION AS position
+          FROM INFORMATION_SCHEMA.COLUMNS
+          WHERE TABLE_SCHEMA = '${cleanSrcSchema}' AND TABLE_NAME = '${cleanSrcView}'
+          ORDER BY ORDINAL_POSITION
+        `);
+        sourceCols = colQ.recordset || [];
+
+        const cntQ = await querySqlServer(`SELECT COUNT_BIG(1) AS total FROM [${cleanSrcSchema}].[${cleanSrcView}]`);
+        sourceRowsCount = parseInt(cntQ.recordset[0]?.total, 10) || 0;
+
+        const sampleQ = await querySqlServer(`
+          SELECT TOP 5 * FROM [${cleanSrcSchema}].[${cleanSrcView}]
+        `);
+        sourceSampleRows = sampleQ.recordset || [];
+      } catch (err) {
+        sourceError = err.message;
+      }
+    }
+
+    // 4. Ambil Metadata Kolom Staging (PostgreSQL)
+    let stagingCols = [];
+    let stagingRowsCount = 0;
+    let stagingSampleRows = [];
+    let stagingError = null;
+    let stagingExists = false;
+
+    if (cleanStgTable) {
+      try {
+        const chkQ = await queryPostgres(`
+          SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2
+        `, [cleanStgSchema, cleanStgTable]);
+        stagingExists = chkQ.rows.length > 0;
+
+        if (stagingExists) {
+          const colQ = await queryPostgres(`
+            SELECT 
+              column_name AS name, 
+              data_type, 
+              character_maximum_length AS max_length,
+              is_nullable,
+              ordinal_position AS position
+            FROM information_schema.columns
+            WHERE table_schema = $1 AND table_name = $2
+            ORDER BY ordinal_position
+          `, [cleanStgSchema, cleanStgTable]);
+          stagingCols = colQ.rows;
+
+          const cntQ = await queryPostgres(`SELECT COUNT(*) AS total FROM "${cleanStgSchema}"."${cleanStgTable}"`);
+          stagingRowsCount = parseInt(cntQ.rows[0]?.total, 10) || 0;
+
+          const sampleQ = await queryPostgres(`SELECT * FROM "${cleanStgSchema}"."${cleanStgTable}" LIMIT 5`);
+          stagingSampleRows = sampleQ.rows;
+        }
+      } catch (err) {
+        stagingError = err.message;
+      }
+    }
+
+    // 5. Ambil Metadata Kolom Target (PostgreSQL)
+    let targetCols = [];
+    let targetRowsCount = 0;
+    let targetSampleRows = [];
+    let targetError = null;
+    let targetExists = false;
+
+    if (cleanTgtTable) {
+      try {
+        const chkQ = await queryPostgres(`
+          SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2
+        `, [cleanTgtSchema, cleanTgtTable]);
+        targetExists = chkQ.rows.length > 0;
+
+        if (targetExists) {
+          const colQ = await queryPostgres(`
+            SELECT 
+              column_name AS name, 
+              data_type, 
+              character_maximum_length AS max_length,
+              is_nullable,
+              ordinal_position AS position
+            FROM information_schema.columns
+            WHERE table_schema = $1 AND table_name = $2
+            ORDER BY ordinal_position
+          `, [cleanTgtSchema, cleanTgtTable]);
+          targetCols = colQ.rows;
+
+          const cntQ = await queryPostgres(`SELECT COUNT(*) AS total FROM "${cleanTgtSchema}"."${cleanTgtTable}"`);
+          targetRowsCount = parseInt(cntQ.rows[0]?.total, 10) || 0;
+
+          // Ambil HANYA data yang berhasil dimigrasi dari staging ke tabel target
+          const tColNames = targetCols.map((c) => c.name.toLowerCase());
+          const sColNames = stagingCols.map((c) => c.name.toLowerCase());
+
+          // 1. Coba ekstrak kondisi relasi dari mapping_sql
+          let parsedCondition = null;
+          if (selectedTargetConfig?.mapping_sql) {
+            const match = selectedTargetConfig.mapping_sql.match(/WHERE\s+NOT\s+EXISTS\s*\([\s\S]*?WHERE\s+([\s\S]+?)\s*\)\s*$/i);
+            if (match && match[1]) {
+              parsedCondition = match[1].trim();
+            }
+          }
+
+          // 2. Fallback kondisi korelasi berdasarkan kolom identitas
+          const fallbackClauses = [];
+          if (tColNames.includes('vendor_reference_id') && sColNames.includes('vendor_reference_id')) {
+            fallbackClauses.push('(s.vendor_reference_id IS NOT NULL AND t.vendor_reference_id = s.vendor_reference_id)');
+          }
+          if (tColNames.includes('uuid') && sColNames.includes('uuid')) {
+            fallbackClauses.push('(s.uuid IS NOT NULL AND t.uuid = s.uuid)');
+          }
+          if (tColNames.includes('id') && sColNames.includes('id')) {
+            fallbackClauses.push('t.id = s.id');
+          }
+          if (tColNames.includes('username') && sColNames.includes('username')) {
+            fallbackClauses.push('(s.username IS NOT NULL AND t.username = s.username)');
+          }
+
+          const joinSql = parsedCondition || (fallbackClauses.length > 0 ? fallbackClauses.join(' OR ') : 't.id = s.id');
+          const orderCol = sColNames.includes('id') ? 's.id' : (sColNames.includes('uuid') ? 's.uuid' : '1');
+
+          if (stagingExists && stagingRowsCount > 0) {
+            try {
+              const sampleQ = await queryPostgres(`
+                SELECT t.* 
+                FROM "${cleanTgtSchema}"."${cleanTgtTable}" t
+                INNER JOIN "${cleanStgSchema}"."${cleanStgTable}" s ON ${joinSql}
+                ORDER BY ${orderCol} ASC
+                LIMIT 5
+              `);
+              targetSampleRows = sampleQ.rows;
+            } catch (errSample) {
+              console.warn('[compare] Gagal query correlated target sample, fallback ke basic sample:', errSample.message);
+              const sampleQ = await queryPostgres(`SELECT * FROM "${cleanTgtSchema}"."${cleanTgtTable}" LIMIT 5`);
+              targetSampleRows = sampleQ.rows;
+            }
+          } else {
+            targetSampleRows = [];
+          }
+        }
+      } catch (err) {
+        targetError = err.message;
+      }
+    }
+
+    // 6. Evaluasi Step Log POST_TARGET untuk mengetahui rows_before & rows_after aktual
+    const postStep = stepLogs.find((s) => s.step_name === 'POST_TARGET') || null;
+    const postRowsBefore = postStep && postStep.rows_before !== null ? parseInt(postStep.rows_before, 10) : null;
+    const postRowsAfter = postStep && postStep.rows_after !== null ? parseInt(postStep.rows_after, 10) : null;
+
+    // 7. Konstruksi Matriks Komparasi Kolom 3-Tahap
+    // Kita kumpulkan semua kolom secara terpadu: Source, Staging, Target
+    const pkColsList = (cfg.pk_columns ? String(cfg.pk_columns).split(',') : []).map((s) => s.trim().toLowerCase());
+    const idCol = cfg.id_column ? String(cfg.id_column).trim().toLowerCase() : 'id';
+    const metadataColNames = ['stg_id', 'created_at', 'updated_at', 'is_updated', 'fields_before', 'run_id'];
+
+    const columnMatrix = [];
+    const usedStagingCols = new Set();
+    const usedSourceCols = new Set();
+    const usedTargetCols = new Set();
+
+    // Prioritas 1: Petakan berdasarkan Kolom Target
+    for (const tCol of targetCols) {
+      const tName = tCol.name;
+      const tNameLower = tName.toLowerCase();
+      const isPk = pkColsList.includes(tNameLower) || tNameLower === idCol;
+
+      // Cari rule di migration_convert_rule
+      const matchedRule = rules.find((r) =>
+        r.column_name && r.column_name.toLowerCase() === tNameLower
+      ) || null;
+
+      // Cari kolom Staging yang bersesuaian
+      let matchedStg = null;
+      if (matchedRule && matchedRule.source_column) {
+        matchedStg = stagingCols.find((s) => s.name.toLowerCase() === matchedRule.source_column.toLowerCase()) || null;
+      }
+      if (!matchedStg) {
+        matchedStg = stagingCols.find((s) => s.name.toLowerCase() === tNameLower) || null;
+      }
+
+      // Cari kolom Source yang bersesuaian
+      let matchedSrc = null;
+      if (matchedRule && matchedRule.source_column) {
+        matchedSrc = sourceCols.find((s) => s.name.toLowerCase() === matchedRule.source_column.toLowerCase()) || null;
+      }
+      if (!matchedSrc && matchedStg) {
+        matchedSrc = sourceCols.find((s) => s.name.toLowerCase() === matchedStg.name.toLowerCase()) || null;
+      }
+      if (!matchedSrc) {
+        matchedSrc = sourceCols.find((s) => s.name.toLowerCase() === tNameLower) || null;
+      }
+
+      if (matchedStg) usedStagingCols.add(matchedStg.name.toLowerCase());
+      if (matchedSrc) usedSourceCols.add(matchedSrc.name.toLowerCase());
+      usedTargetCols.add(tNameLower);
+
+      let status = 'MATCH';
+      let statusLabel = 'Sempurna (1:1)';
+      let statusBadge = 'badge-success';
+
+      if (matchedRule) {
+        status = 'CONVERTED';
+        statusLabel = matchedRule.lookup_name ? `Lookup (${matchedRule.lookup_name})` : 'Transformasi Rule';
+        statusBadge = 'badge-info';
+      } else if (!matchedSrc && !matchedStg) {
+        if (isPk) {
+          status = 'GENERATED_ID';
+          statusLabel = 'Auto Generated / Seed';
+          statusBadge = 'badge-primary';
+        } else if (tCol.is_nullable === 'NO') {
+          status = 'MISSING_REQUIRED';
+          statusLabel = 'Wajib tapi Belum Terpetakan';
+          statusBadge = 'badge-danger';
+        } else {
+          status = 'UNMAPPED_TARGET';
+          statusLabel = 'Opsional / Nullable Target';
+          statusBadge = 'badge-neutral';
+        }
+      } else if (matchedSrc && matchedStg && matchedSrc.data_type.toLowerCase() !== tCol.data_type.toLowerCase()) {
+        status = 'TYPE_CONVERTED';
+        statusLabel = `Cast (${matchedSrc.data_type} ➔ ${tCol.data_type})`;
+        statusBadge = 'badge-warning';
+      }
+
+      columnMatrix.push({
+        sourceCol: matchedSrc ? { name: matchedSrc.name, type: matchedSrc.data_type, nullable: matchedSrc.is_nullable } : null,
+        stagingCol: matchedStg ? { name: matchedStg.name, type: matchedStg.data_type, nullable: matchedStg.is_nullable } : null,
+        targetCol: { name: tCol.name, type: tCol.data_type, nullable: tCol.is_nullable },
+        rule: matchedRule ? {
+          ruleId: matchedRule.rule_id,
+          lookupName: matchedRule.lookup_name,
+          masterTable: matchedRule.master_table,
+          onUnmapped: matchedRule.on_unmapped,
+          defaultValue: matchedRule.default_value,
+        } : null,
+        isPk,
+        status,
+        statusLabel,
+        statusBadge,
+      });
+    }
+
+    // Prioritas 2: Kolom Staging yang belum terpetakan ke Target
+    for (const sCol of stagingCols) {
+      const sNameLower = sCol.name.toLowerCase();
+      if (usedStagingCols.has(sNameLower)) continue;
+
+      const isMeta = metadataColNames.includes(sNameLower);
+      const matchedSrc = sourceCols.find((src) => src.name.toLowerCase() === sNameLower) || null;
+      if (matchedSrc) usedSourceCols.add(matchedSrc.name.toLowerCase());
+
+      columnMatrix.push({
+        sourceCol: matchedSrc ? { name: matchedSrc.name, type: matchedSrc.data_type, nullable: matchedSrc.is_nullable } : null,
+        stagingCol: { name: sCol.name, type: sCol.data_type, nullable: sCol.is_nullable },
+        targetCol: null,
+        rule: null,
+        isPk: false,
+        status: isMeta ? 'METADATA_ETL' : 'STAGING_EXTRA',
+        statusLabel: isMeta ? 'Metadata ETL Staging' : 'Tambahan Staging (Unmapped)',
+        statusBadge: isMeta ? 'badge-neutral' : 'badge-warning',
+      });
+    }
+
+    // Prioritas 3: Kolom Source yang belum terpetakan sama sekali
+    for (const srcCol of sourceCols) {
+      const srcNameLower = srcCol.name.toLowerCase();
+      if (usedSourceCols.has(srcNameLower)) continue;
+
+      columnMatrix.push({
+        sourceCol: { name: srcCol.name, type: srcCol.data_type, nullable: srcCol.is_nullable },
+        stagingCol: null,
+        targetCol: null,
+        rule: null,
+        isPk: false,
+        status: 'UNMAPPED_SOURCE',
+        statusLabel: 'Tidak Masuk Staging/Target',
+        statusBadge: 'badge-neutral',
+      });
+    }
+
+    // 8. Evaluasi Status Keberhasilan Migrasi (Verdict Engine)
+    const rowCountMatchStage1 = sourceRowsCount === stagingRowsCount && sourceRowsCount > 0;
+    const errorsCount = errorLogs.length;
+    const isPosted = latestRun?.is_posted || (postStep !== null && postRowsAfter !== null && postRowsAfter > 0);
+    const hasMissingRequiredTarget = columnMatrix.some((c) => c.status === 'MISSING_REQUIRED');
+
+    // Cek target row match
+    let targetSyncStatus = 'UNKNOWN';
+    if (!targetExists) {
+      targetSyncStatus = 'TABLE_NOT_FOUND';
+    } else if (isPosted) {
+      if (postRowsBefore !== null && postRowsAfter !== null) {
+        const delta = postRowsAfter - postRowsBefore;
+        if (delta === stagingRowsCount) {
+          targetSyncStatus = 'FULL_INSERT';
+        } else if (postRowsAfter >= stagingRowsCount) {
+          targetSyncStatus = 'SYNCED_OR_UPSERT';
+        } else {
+          targetSyncStatus = 'PARTIAL_POST';
+        }
+      } else if (targetRowsCount >= stagingRowsCount && stagingRowsCount > 0) {
+        targetSyncStatus = 'SYNCED_OR_EXCEEDS';
+      } else {
+        targetSyncStatus = 'PARTIAL';
+      }
+    } else {
+      targetSyncStatus = 'NOT_POSTED';
+    }
+
+    // Tentukan Level Keputusan Akhir
+    let verdictLevel = 'SUCCESS';
+    let verdictTitle = 'MIGRASI SUKSES (100% SINKRON)';
+    let verdictSubtitle = effectiveRunId 
+      ? `[Sesi Run #${effectiveRunId} (${selectedRun?.status || 'OK'})] Seluruh data sumber terverifikasi utuh di Staging dan selaras dengan skema Target.`
+      : 'Seluruh data sumber terverifikasi utuh di Staging dan selaras dengan skema Target.';
+    let verdictBadge = 'badge-success';
+
+    if (errorsCount > 0) {
+      verdictLevel = 'FAILED';
+      verdictTitle = 'MIGRASI GAGAL / MEMERLUKAN PERBAIKAN';
+      verdictSubtitle = effectiveRunId
+        ? `[Sesi Run #${effectiveRunId} (${selectedRun?.status || 'FAILED'})] Ditemukan ${errorsCount} log kesalahan saat eksekusi alur migrasi sesi ini.`
+        : `Ditemukan ${errorsCount} log kesalahan saat eksekusi alur migrasi ini.`;
+      verdictBadge = 'badge-danger';
+    } else if (hasMissingRequiredTarget) {
+      verdictLevel = 'WARNING';
+      verdictTitle = 'SKEMA BELUM LENGKAP (KOLOM WAJIB BELUM TERPETAKAN)';
+      verdictSubtitle = 'Terdapat kolom NOT NULL pada target yang belum memiliki sumber pemetaan.';
+      verdictBadge = 'badge-warning';
+    } else if (!rowCountMatchStage1 && sourceRowsCount > 0) {
+      verdictLevel = 'WARNING';
+      verdictTitle = 'TERDAPAT SELISIH BARIS (SOURCE ➔ STAGING)';
+      verdictSubtitle = `Source View memiliki ${sourceRowsCount} baris, sedangkan Staging Table memiliki ${stagingRowsCount} baris.`;
+      verdictBadge = 'badge-warning';
+    } else if (targetSyncStatus === 'NOT_POSTED') {
+      verdictLevel = 'STAGING_ONLY';
+      verdictTitle = 'SUKSES DI TAHAP STAGING (BELUM DIPOSTING KE TARGET)';
+      verdictSubtitle = effectiveRunId
+        ? `[Sesi Run #${effectiveRunId} (${selectedRun?.status || 'OK'})] Data Source 100% match di Staging. Siap diposting ke target vendor bila diperlukan.`
+        : 'Data Source 100% match di Staging. Siap diposting ke target vendor bila diperlukan.';
+      verdictBadge = 'badge-info';
+    }
+
+    // Indikator Checklist
+    const auditChecklist = [
+      {
+        id: 'chk_row_sync',
+        category: 'Integritas Jumlah Baris',
+        title: 'Rekonsiliasi Baris Source ➔ Staging',
+        status: rowCountMatchStage1 ? 'PASS' : (stagingRowsCount === 0 ? 'FAIL' : 'WARN'),
+        message: rowCountMatchStage1
+          ? `✓ 100% Match: ${sourceRowsCount} baris dari SQL Server berhasil masuk ke PostgreSQL stg_antam.`
+          : `Selisih: Source = ${sourceRowsCount} baris, Staging = ${stagingRowsCount} baris.`,
+      },
+      {
+        id: 'chk_target_posting',
+        category: 'Pemuatan Target Vendor',
+        title: 'Status Posting ke Target PostgreSQL',
+        status: isPosted ? 'PASS' : 'INFO',
+        message: isPosted
+          ? `✓ Data telah diposting ke tabel ${cleanTgtSchema}.${cleanTgtTable} (Total Target: ${targetRowsCount} baris).`
+          : `Data masih berada di staging (belum di-post ke ${cleanTgtSchema}.${cleanTgtTable}).`,
+      },
+      {
+        id: 'chk_schema_alignment',
+        category: 'Keselarasan Struktur Kolom',
+        title: 'Kesesuaian Kolom Target & Source',
+        status: hasMissingRequiredTarget ? 'FAIL' : 'PASS',
+        message: hasMissingRequiredTarget
+          ? 'Ada kolom wajib (NOT NULL) di target yang tidak terpetakan dari sumber/rule.'
+          : `✓ Seluruh ${targetCols.length} kolom target memiliki pemetaan yang valid dan konsisten.`,
+      },
+      {
+        id: 'chk_rules_validity',
+        category: 'Aturan Transformasi (Convert Rules)',
+        title: 'Validasi Aturan Konversi & Lookup Master',
+        status: rules.length > 0 ? 'PASS' : 'INFO',
+        message: rules.length > 0
+          ? `✓ Dikonfigurasi ${rules.length} aturan konversi (lookup & normalisasi) yang aktif.`
+          : 'Konfigurasi ini tidak memerlukan convert rule tambahan (direct 1:1 mapping).',
+      },
+      {
+        id: 'chk_error_logs',
+        category: 'Audit Log & Integritas Sistem',
+        title: 'Pemeriksaan Log Kesalahan (Error Logs)',
+        status: errorsCount === 0 ? 'PASS' : 'FAIL',
+        message: errorsCount === 0
+          ? `✓ 0 error log pada sesi Run #${effectiveRunId || '-'}. Eksekusi migrasi berjalan bersih tanpa anomali data.`
+          : `Terdeteksi ${errorsCount} error log pada sesi Run #${effectiveRunId || '-'}.`,
+      },
+    ];
+
+    return {
+      configId: cid,
+      nameConfig: cfg.name_config,
+      execOrder: cfg.exec_order,
+      isActive: cfg.is_active,
+      effectiveRunId,
+      availableRuns: matchedRuns.slice(0, 15),
+      source: {
+        schema: cleanSrcSchema,
+        view: cleanSrcView,
+        database: 'antam_scm (SQL Server)',
+        rowsCount: sourceRowsCount,
+        columnsCount: sourceCols.length,
+        columns: sourceCols,
+        sampleRows: sourceSampleRows,
+        error: sourceError,
+      },
+      staging: {
+        schema: cleanStgSchema,
+        table: cleanStgTable,
+        database: 'db_procsi (PostgreSQL)',
+        exists: stagingExists,
+        rowsCount: stagingRowsCount,
+        columnsCount: stagingCols.length,
+        columns: stagingCols,
+        sampleRows: stagingSampleRows,
+        error: stagingError,
+      },
+      target: {
+        schema: cleanTgtSchema,
+        table: cleanTgtTable,
+        database: 'db_procsi (PostgreSQL)',
+        exists: targetExists,
+        rowsCount: targetRowsCount,
+        columnsCount: targetCols.length,
+        columns: targetCols,
+        sampleRows: targetSampleRows,
+        migratedSampleCount: targetSampleRows.length,
+        error: targetError,
+        allTargetConfigs: targetConfigs,
+      },
+      rules,
+      columnMatrix,
+      metrics: {
+        totalSourceCols: sourceCols.length,
+        totalStagingCols: stagingCols.length,
+        totalTargetCols: targetCols.length,
+        totalMatrixCols: columnMatrix.length,
+        mappedTargetCols: columnMatrix.filter((c) => c.targetCol && c.status !== 'UNMAPPED_TARGET' && c.status !== 'MISSING_REQUIRED').length,
+        convertRulesActive: rules.length,
+        errorsCount,
+      },
+      verdict: {
+        level: verdictLevel,
+        title: verdictTitle,
+        subtitle: verdictSubtitle,
+        badgeClass: verdictBadge,
+        isSuccess: verdictLevel === 'SUCCESS',
+        isStagingOnly: verdictLevel === 'STAGING_ONLY',
+        rowCountMatch: rowCountMatchStage1,
+        targetSyncStatus,
+      },
+      auditChecklist,
+      recentErrors: errorLogs,
+      recentSteps: stepLogs,
+      latestRun: selectedRun,
+    };
+  }
 }
 
 module.exports = new PipelineService();
+

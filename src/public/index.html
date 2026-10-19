@@ -1233,7 +1233,7 @@
                   <th class="text-center">Status Action</th>
                   <th class="text-center">Status Alur</th>
                   <th class="text-center">Errors Logged</th>
-                  <th class="text-center" style="width: 90px;">Aksi</th>
+                  <th class="text-center" style="width: 145px;">Aksi</th>
                 </tr>
               </thead>
               <tbody id="pipeline-master-tbody">
@@ -1248,7 +1248,7 @@
           <div class="flex-between flex-wrap gap-3">
             <div class="flex-center gap-2">
               <span class="badge badge-info">💡 Info</span>
-              <span class="text-sm text-muted">Klik tombol <strong class="text-cyan">Tinjau</strong> pada salah satu baris konfigurasi di atas untuk membuka <strong>Dialog Peninjauan Rekonsiliasi Alur &amp; Data 3-Tier</strong>.</span>
+              <span class="text-sm text-muted">Gunakan tombol <strong class="text-cyan">Tinjau</strong> untuk melihat data record tiap tahapan, atau tombol <strong class="text-emerald">⚖️ Compare</strong> untuk membandingkan skema kolom 3-Tier (Source ➔ Staging ➔ Target) &amp; evaluasi kepastian status sukses migrasi.</span>
             </div>
             <div>
               <span class="text-xs text-muted">Gunakan tombol <strong class="text-amber">🖨️ BA</strong> untuk mencetak Berita Acara Validasi Hasil Migrasi.</span>
@@ -2746,6 +2746,219 @@
             </button>
           </div>
           <button id="btn-close-pipeline-inspector-footer" class="btn btn-secondary btn-sm">Tutup</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- MODAL: PIPELINE COMPARE (KOMPARASI 3-TIER KOLOM & STATUS SUKSES)-->
+    <!-- ============================================================== -->
+    <div id="modal-pipeline-compare" class="modal-overlay hidden">
+      <div class="modal-box modal-wide modal-inspector-wide" style="max-width: 1450px; width: 97%;">
+        <!-- Modal Header -->
+        <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.85rem;">
+          <div>
+            <div style="display: inline-flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+              <span class="badge badge-primary text-xs" id="compare-modal-cfg-badge">Config #1</span>
+              <span class="badge badge-info text-xs">⚖️ 3-Tier Column &amp; Data Comparator</span>
+              <span class="badge badge-neutral text-xs font-mono" id="compare-modal-run-badge">Run: -</span>
+              <span class="badge badge-neutral text-xs" id="compare-modal-target-badge">Target: -</span>
+            </div>
+            <h3 class="modal-title" id="compare-modal-title">Komparasi Kolom &amp; Validasi Hasil Migrasi</h3>
+            <p class="modal-subtitle" id="compare-modal-desc">Membandingkan skema kolom Source View (SQL Server) ➔ Staging (PostgreSQL) ➔ Target (PostgreSQL) dan evaluasi status sukses migrasi</p>
+          </div>
+          <div class="modal-header-actions" style="display: flex; align-items: center; gap: 0.75rem;">
+            <!-- Sesi Run Selector -->
+            <div id="compare-run-selector-wrapper" style="display: none; align-items: center; gap: 0.4rem;">
+              <span class="text-xs text-muted">Sesi Run:</span>
+              <select id="compare-run-select" class="select-input select-xs" style="min-width: 140px; font-family: var(--font-mono);"></select>
+            </div>
+            <!-- Target Table Switcher if multi-target -->
+            <div id="compare-target-selector-wrapper" style="display: none; align-items: center; gap: 0.5rem;">
+              <span class="text-xs text-muted">Target:</span>
+              <select id="compare-target-select" class="select-input select-xs" style="min-width: 170px;"></select>
+            </div>
+            <button id="btn-refresh-compare" class="btn btn-secondary btn-xs" title="Refresh Data Komparasi">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+              <span>Refresh</span>
+            </button>
+            <button id="btn-close-pipeline-compare" class="modal-close" title="Tutup Dialog">&times;</button>
+          </div>
+        </div>
+
+        <div class="modal-body p-4" style="max-height: calc(88vh - 130px); overflow-y: auto;">
+          <!-- 1. Migration Verdict Banner & Key Metric Indicators -->
+          <div id="compare-verdict-container" class="mb-4">
+            <div class="card p-4 text-center text-muted">Memuat hasil evaluasi dan validasi migrasi...</div>
+          </div>
+
+          <!-- 2. Sub-tab Navigation for Comparator -->
+          <div class="sub-tabs-header mb-4" style="border-bottom: 1px solid var(--border-subtle); display: flex; gap: 0.5rem;">
+            <button class="sub-tab-btn active" id="btn-cmp-tab-matrix" onclick="switchCompareTab('matrix')">
+              <span>📋 1. Matriks Komparasi Kolom 3-Tier</span>
+            </button>
+            <button class="sub-tab-btn" id="btn-cmp-tab-samples" onclick="switchCompareTab('samples')">
+              <span>🔍 2. Side-by-Side Sampel Nilai Data</span>
+            </button>
+            <button class="sub-tab-btn" id="btn-cmp-tab-audit" onclick="switchCompareTab('audit')">
+              <span>🛡️ 3. Audit Checklist &amp; Log Validasi</span>
+            </button>
+          </div>
+
+          <!-- PANE 1: Matriks Kolom 3-Tier -->
+          <div id="cmp-pane-matrix" class="cmp-tab-content">
+            <div class="panel-card mb-3 p-3" style="background: rgba(15, 23, 42, 0.4); border: 1px solid var(--border-subtle);">
+              <div class="flex-between flex-wrap gap-3">
+                <div class="flex-center gap-2">
+                  <span class="text-xs text-muted">Filter Status:</span>
+                  <button class="btn btn-secondary btn-xs active filter-cmp-btn" data-filter="ALL" onclick="filterCompareMatrix('ALL')">Semua Kolom (<span id="cmp-count-all">0</span>)</button>
+                  <button class="btn btn-secondary btn-xs filter-cmp-btn" data-filter="MATCH" onclick="filterCompareMatrix('MATCH')">✓ Match (<span id="cmp-count-match">0</span>)</button>
+                  <button class="btn btn-secondary btn-xs filter-cmp-btn" data-filter="CONVERTED" onclick="filterCompareMatrix('CONVERTED')">🔄 Converted (<span id="cmp-count-conv">0</span>)</button>
+                  <button class="btn btn-secondary btn-xs filter-cmp-btn" data-filter="WARNING" onclick="filterCompareMatrix('WARNING')">⚠️ Warning/Unmapped (<span id="cmp-count-warn">0</span>)</button>
+                </div>
+                <div class="search-box">
+                  <input type="text" id="filter-cmp-col-input" class="input-search text-xs" placeholder="Cari nama kolom..." oninput="handleCompareSearch(this.value)" style="min-width: 200px; padding: 0.3rem 0.6rem;">
+                </div>
+              </div>
+            </div>
+
+            <div class="table-container inspector-grid">
+              <table class="data-table" id="cmp-matrix-table">
+                <thead>
+                  <tr>
+                    <th style="width: 40px; text-align: center;">#</th>
+                    <th style="width: 25%;"><span class="text-cyan">1. Source View Column</span> (SQL Server)</th>
+                    <th style="width: 25%;"><span class="text-amber">2. Staging Column</span> (PG stg_antam)</th>
+                    <th style="width: 25%;"><span class="text-emerald">3. Final Target Column</span> (PG vendor)</th>
+                    <th style="width: 15%;">Aturan Konversi (Rule)</th>
+                    <th style="width: 10%; text-align: center;">Status Kolom</th>
+                  </tr>
+                </thead>
+                <tbody id="cmp-matrix-tbody">
+                  <tr><td colspan="6" class="text-center py-8 text-muted">Memuat perbandingan kolom 3-tahap...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- PANE 2: Side-by-Side Sampel Nilai Data -->
+          <div id="cmp-pane-samples" class="cmp-tab-content" style="display: none;">
+            <div class="panel-card mb-4 p-3" style="background: rgba(15, 23, 42, 0.4); border: 1px solid var(--border-subtle);">
+              <div class="flex-between flex-wrap gap-2">
+                <span class="text-xs text-muted">
+                  💡 Komparasi 5 baris data sampel pertama dari setiap tahapan untuk memverifikasi nilai record yang tersimpan secara faktual.
+                </span>
+                <span class="badge badge-neutral text-xs" id="cmp-sample-info-badge">Menampilkan 5 Rekaman</span>
+              </div>
+            </div>
+
+            <!-- 3 Columns for 3 Tiers of Data Samples -->
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem;" id="cmp-samples-grid">
+              <!-- Source Sample -->
+              <div class="panel-card p-3" style="border-top: 3px solid var(--cyan);">
+                <div class="flex-between mb-2">
+                  <strong class="text-cyan text-sm">1. Source View Data</strong>
+                  <span class="badge badge-info text-xs" id="cmp-sample-src-tag">SQL Server</span>
+                </div>
+                <div class="table-container" style="max-height: 400px; overflow-x: auto;">
+                  <table class="data-table table-condensed text-xs" id="cmp-sample-src-table">
+                    <thead><tr id="cmp-sample-src-thead"><th>Kolom</th></tr></thead>
+                    <tbody id="cmp-sample-src-tbody"><tr><td class="text-muted">Memuat...</td></tr></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- Staging Sample -->
+              <div class="panel-card p-3" style="border-top: 3px solid var(--amber);">
+                <div class="flex-between mb-2">
+                  <strong class="text-amber text-sm">2. Staging Table Data</strong>
+                  <span class="badge badge-warning text-xs" id="cmp-sample-stg-tag">PostgreSQL stg_antam</span>
+                </div>
+                <div class="table-container" style="max-height: 400px; overflow-x: auto;">
+                  <table class="data-table table-condensed text-xs" id="cmp-sample-stg-table">
+                    <thead><tr id="cmp-sample-stg-thead"><th>Kolom</th></tr></thead>
+                    <tbody id="cmp-sample-stg-tbody"><tr><td class="text-muted">Memuat...</td></tr></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- Target Sample -->
+              <div class="panel-card p-3" style="border-top: 3px solid var(--emerald);">
+                <div class="flex-between mb-2">
+                  <strong class="text-emerald text-sm">3. Final Target Data</strong>
+                  <span class="badge badge-success text-xs" id="cmp-sample-tgt-tag">PostgreSQL vendor</span>
+                </div>
+                <div class="table-container" style="max-height: 400px; overflow-x: auto;">
+                  <table class="data-table table-condensed text-xs" id="cmp-sample-tgt-table">
+                    <thead><tr id="cmp-sample-tgt-thead"><th>Kolom</th></tr></thead>
+                    <tbody id="cmp-sample-tgt-tbody"><tr><td class="text-muted">Memuat...</td></tr></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- PANE 3: Audit Checklist & Log Validasi -->
+          <div id="cmp-pane-audit" class="cmp-tab-content" style="display: none;">
+            <div class="panel-card mb-4 p-4">
+              <h4 class="text-sm font-bold mb-3 flex-center gap-2">
+                <span>🛡️</span> Checklist Standar Keberhasilan Migrasi Data
+              </h4>
+              <div id="cmp-audit-checklist-cards" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 0.75rem;">
+                <!-- Rendered dynamically -->
+              </div>
+            </div>
+
+            <div class="grid grid-2 gap-4">
+              <!-- Log Kesalahan Sesi Ini -->
+              <div class="panel-card p-4">
+                <h4 class="text-sm font-bold mb-2 flex-center gap-2 text-rose">
+                  <span>⚠️</span> Log Kesalahan Terkait (migration_error_log)
+                </h4>
+                <div class="table-container" style="max-height: 250px;">
+                  <table class="data-table table-condensed text-xs" id="cmp-error-log-table">
+                    <thead>
+                      <tr><th>Time</th><th>Run ID</th><th>Target Table</th><th>Message</th></tr>
+                    </thead>
+                    <tbody id="cmp-error-log-tbody">
+                      <tr><td colspan="4" class="text-muted text-center py-4">Tidak ada log error.</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- Log Langkah Terakhir -->
+              <div class="panel-card p-4">
+                <h4 class="text-sm font-bold mb-2 flex-center gap-2 text-cyan">
+                  <span>📋</span> Langkah Eksekusi Terakhir (migration_step_log)
+                </h4>
+                <div class="table-container" style="max-height: 250px;">
+                  <table class="data-table table-condensed text-xs" id="cmp-step-log-table">
+                    <thead>
+                      <tr><th>Step</th><th>Before</th><th>After</th><th>Status</th><th>Waktu</th></tr>
+                    </thead>
+                    <tbody id="cmp-step-log-tbody">
+                      <tr><td colspan="5" class="text-muted text-center py-4">Memuat log step...</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modal Footer -->
+        <div class="modal-footer flex-between">
+          <div class="flex-center gap-2">
+            <button id="btn-compare-open-ba" class="btn btn-primary btn-sm">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+              <span>Cetak Berita Acara Validasi</span>
+            </button>
+            <button id="btn-compare-open-inspector" class="btn btn-secondary btn-sm">
+              <span>🔍 Buka Inspector Data Penuh</span>
+            </button>
+          </div>
+          <button id="btn-close-pipeline-compare-footer" class="btn btn-secondary btn-sm">Tutup</button>
         </div>
       </div>
     </div>
