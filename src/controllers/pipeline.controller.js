@@ -53,6 +53,20 @@ class PipelineController {
       return res.status(500).json({ success: false, error: err.message });
     }
   }
+
+  async comparePipelineConfig(req, res) {
+    try {
+      const { configId, targetTable, runId } = req.query;
+      if (!configId) {
+        return res.status(400).json({ success: false, error: 'Parameter "configId" wajib diisi.' });
+      }
+
+      const data = await pipelineService.comparePipelineConfig({ configId, targetTable, runId });
+      return res.json({ success: true, data });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  }
 }
 
 module.exports = new PipelineController();
