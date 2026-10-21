@@ -1461,6 +1461,11 @@ class EtlService {
     if (status) {
       params.push(String(status).trim().toUpperCase());
       whereConditions.push(`s.status = $${params.length}`);
+    } else {
+      // Optimasi Proses Detail (Bug #2): Keluarkan log transisi sesaat START, internal router, dan log progres mikro (Batch/Direct)
+      whereConditions.push(`s.status <> 'START'`);
+      whereConditions.push(`s.step_name NOT IN ('LOOP_CHECK')`);
+      whereConditions.push(`s.message NOT LIKE 'tabel target %: % baris diposting'`);
     }
 
     const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';

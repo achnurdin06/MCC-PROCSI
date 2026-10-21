@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css?v=2.5">
+  <link rel="stylesheet" href="css/flow-canvas.css?v=1.0">
 </head>
 <body>
   <!-- ============================================================== -->
@@ -200,11 +201,11 @@
         </div>
       </button>
 
-      <button class="nav-tab-btn" data-tab="tab-process" id="nav-btn-process">
-        <span class="tab-icon">🚀</span>
+      <button class="nav-tab-btn" data-tab="tab-canvas" id="nav-btn-canvas">
+        <span class="tab-icon">🔲</span>
         <div class="tab-label-group">
-          <span class="tab-title">3. Migration Proses</span>
-          <span class="tab-sub">Runs & execution logs</span>
+          <span class="tab-title">3. Workflow Canvas Studio</span>
+          <span class="tab-sub">Dynamic visual DAG & execution</span>
         </div>
       </button>
 
@@ -221,6 +222,14 @@
         <div class="tab-label-group">
           <span class="tab-title">5. System Administration</span>
           <span class="tab-sub">User, Role &amp; Permission Matrix</span>
+        </div>
+      </button>
+
+      <button class="nav-tab-btn" data-tab="tab-userguide" id="nav-btn-userguide">
+        <span class="tab-icon">📖</span>
+        <div class="tab-label-group">
+          <span class="tab-title">6. Userguide</span>
+          <span class="tab-sub">Tutorial &amp; Panduan Operasional</span>
         </div>
       </button>
     </nav>
@@ -503,10 +512,10 @@
                 <div class="mt-3 text-cyan text-xs font-bold">Buka Modul ➔</div>
               </div>
 
-              <div class="welcome-module-card" onclick="switchMainTab('tab-process')">
-                <div class="welcome-module-icon">🚀</div>
-                <div class="welcome-module-title">3. Migration Proses</div>
-                <div class="welcome-module-desc">Monitor eksekusi batch ETL, catatan runtime per step, dan analisa payload error baris.</div>
+              <div class="welcome-module-card" onclick="switchMainTab('tab-canvas')">
+                <div class="welcome-module-icon">🔲</div>
+                <div class="welcome-module-title">3. Workflow Canvas Studio</div>
+                <div class="welcome-module-desc">Visual DAG orchestrator, pemantauan terminal interaktif, riwayat eksekusi &amp; logs.</div>
                 <div class="mt-3 text-cyan text-xs font-bold">Buka Modul ➔</div>
               </div>
 
@@ -961,233 +970,366 @@
       </section>
 
       <!-- ============================================================== -->
-      <!-- TAB 3: MIGRATION PROSES (RUNS & LOGS MONITORING)               -->
+      <!-- TAB 3: VISUAL WORKFLOW CANVAS STUDIO (DYNAMIC DAG ORCHESTRATOR) -->
       <!-- ============================================================== -->
-      <section id="tab-process" class="tab-pane">
-        <!-- KPI Cards Modul 3 -->
-        <div class="kpi-grid">
-          <div class="kpi-card">
-            <div class="kpi-header">
-              <span class="kpi-label">Total Eksekusi (Runs)</span>
-              <div class="kpi-icon icon-indigo">🚀</div>
-            </div>
-            <div class="kpi-value font-mono" id="kpi-etl-total-runs">-</div>
-            <div class="kpi-foot">Tercatat di migration_run</div>
-          </div>
-
-          <div class="kpi-card">
-            <div class="kpi-header">
-              <span class="kpi-label">Sukses / Berhasil</span>
-              <div class="kpi-icon icon-emerald">✓</div>
-            </div>
-            <div class="kpi-value font-mono value-emerald" id="kpi-etl-success-runs">-</div>
-            <div class="kpi-foot">Status SUCCESS / COMPLETED</div>
-          </div>
-
-          <div class="kpi-card">
-            <div class="kpi-header">
-              <span class="kpi-label">Gagal / Error Runs</span>
-              <div class="kpi-icon icon-rose">⚠️</div>
-            </div>
-            <div class="kpi-value font-mono value-rose" id="kpi-etl-failed-runs">-</div>
-            <div class="kpi-foot">Status FAILED</div>
-          </div>
-
-          <div class="kpi-card">
-            <div class="kpi-header">
-              <span class="kpi-label">Total Log Error</span>
-              <div class="kpi-icon icon-amber">🐞</div>
-            </div>
-            <div class="kpi-value font-mono value-amber" id="kpi-etl-total-errors">-</div>
-            <div class="kpi-foot">Tercatat di migration_error_log</div>
-          </div>
-        </div>
-
-        <!-- Sub Tabs untuk Proses ETL -->
-        <div class="sub-tabs-header">
-          <button class="sub-tab-btn active" data-subtab="subtab-runs">
-            <span>📋 Riwayat Eksekusi (migration_run)</span>
-          </button>
-          <button class="sub-tab-btn" data-subtab="subtab-steplogs">
-            <span>👣 Log Langkah (migration_step_log)</span>
-          </button>
-          <button class="sub-tab-btn" data-subtab="subtab-errorlogs">
-            <span class="text-rose">🐞 Log Error (migration_error_log)</span>
-          </button>
-        </div>
-
-        <!-- Subtab 1: Riwayat Runs -->
-        <div id="subtab-runs" class="subtab-content active">
-          <div class="panel-card">
-            <div class="panel-header flex-between flex-wrap gap-3">
-              <div>
-                <h3 class="panel-title">Riwayat Batch Migrasi (migration_run)</h3>
-                <p class="panel-desc">Riwayat eksekusi pipeline terisolasi untuk Client & Environment aktif di Header. Klik "Lihat Logs" untuk audit step log</p>
+      <section id="tab-canvas" class="tab-pane">
+        <div class="canvas-studio-container">
+          <!-- 1. Toolbar -->
+          <div class="canvas-toolbar">
+            <div class="canvas-toolbar-left">
+              <div class="canvas-title">
+                <span>🔲</span>
+                <span>Visual Canvas Studio</span>
+                <span class="canvas-badge">Dynamic DAG</span>
               </div>
-              <div class="panel-actions">
-                <select id="filter-runs-status" class="select-limit" title="Filter Status">
-                  <option value="">Semua Status</option>
-                  <option value="SUCCESS">SUCCESS</option>
-                  <option value="FAILED">FAILED</option>
-                  <option value="RUNNING">RUNNING</option>
+              <div class="canvas-context-indicator" id="canvas-context-indicator" title="Konteks Client & Environment aktif dari header kontrol utama">
+                <span class="context-pill client-pill" id="canvas-badge-client">
+                  <span class="pill-dot emerald"></span>
+                  <span class="pill-text">Memuat Client...</span>
+                </span>
+                <span class="context-pill env-pill" id="canvas-badge-env">
+                  <span class="pill-dot purple"></span>
+                  <span class="pill-text">Memuat Env...</span>
+                </span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 0.4rem; margin-left: 0.5rem;">
+                <span style="font-size: 0.78rem; color: #94a3b8;">Template Alur:</span>
+                <select id="canvas-select-preset" class="canvas-select-preset">
+                  <!-- Populated dynamically via JS -->
                 </select>
-                <select id="limit-runs-select" class="select-limit" title="Jumlah baris per halaman">
-                  <option value="10">10 / hal</option>
-                  <option value="25">25 / hal</option>
-                  <option value="50" selected>50 / hal</option>
-                  <option value="100">100 / hal</option>
-                </select>
-                <button id="btn-refresh-runs" class="btn btn-secondary btn-sm">Refresh Runs</button>
               </div>
             </div>
-            <div class="table-container full-columns-table">
-              <table class="data-table" id="table-etl-runs">
-                <thead>
-                  <tr>
-                    <th class="sortable col-id" data-run-col="run_id">Run ID <span class="sort-icon">↕</span></th>
-                    <th class="col-schema">Client</th>
-                    <th class="col-schema">Environment</th>
-                    <th class="sortable col-name" data-run-col="run_ts">Run TS <span class="sort-icon">↕</span></th>
-                    <th class="sortable col-name" data-run-col="main_workflow">Workflow <span class="sort-icon">↕</span></th>
-                    <th class="sortable col-id" data-run-col="config_id">Config ID <span class="sort-icon">↕</span></th>
-                    <th class="sortable col-status" data-run-col="status">Status <span class="sort-icon">↕</span></th>
-                    <th class="sortable col-name" data-run-col="start_time">Waktu Mulai <span class="sort-icon">↕</span></th>
-                    <th class="sortable col-order" data-run-col="duration_seconds">Durasi <span class="sort-icon">↕</span></th>
-                    <th>Posting</th>
-                    <th>Rollback</th>
-                    <th>Hop Host</th>
-                    <th>Catatan</th>
-                    <th>Aksi</th>
-                  </tr>
-                </thead>
-                <tbody id="etl-runs-table-body">
-                  <tr><td colspan="14" class="text-center py-8 text-muted">Memuat data migration_run...</td></tr>
-                </tbody>
-              </table>
+
+            <div class="canvas-toolbar-right">
+              <button id="btn-canvas-run-flow" class="btn-canvas-action btn-canvas-run">
+                <span>▶️</span>
+                <span>Eksekusi Alur</span>
+              </button>
+              <button id="btn-canvas-save-layout" class="btn-canvas-action btn-canvas-secondary" title="Simpan tata letak posisi simpul kanvas">
+                <span>💾</span>
+                <span>Simpan Layout</span>
+              </button>
+              <button id="btn-canvas-reset" class="btn-canvas-action btn-canvas-secondary" title="Muat ulang posisi simpul ke posisi awal">
+                <span>🔄</span>
+                <span>Reset Layout</span>
+              </button>
+              <button id="btn-canvas-clear-console" class="btn-canvas-action btn-canvas-secondary" title="Bersihkan riwayat log">
+                <span>🧹</span>
+                <span>Clear Log</span>
+              </button>
             </div>
-            <div class="table-pagination-bar" id="pagination-runs">
-              <div class="pagination-info">
-                <span>Menampilkan <strong id="info-runs-range">0-0</strong> dari <strong id="info-runs-total">0</strong> runs</span>
+          </div>
+
+          <!-- Live Execution Tracker Banner (Muncul otomatis saat eksekusi dimulai) -->
+          <div id="canvas-live-banner" class="canvas-live-banner hidden">
+            <div class="live-banner-left">
+              <span id="live-banner-pulse" class="live-status-pulse"></span>
+              <span id="live-banner-status-badge" class="badge badge-primary">RUNNING</span>
+              <span id="live-banner-title" class="live-banner-title">Memulai eksekusi alur...</span>
+            </div>
+            <div class="live-banner-center">
+              <div class="live-progress-container">
+                <div class="live-progress-text">
+                  <span id="live-banner-step-label">Menunggu inisialisasi...</span>
+                  <span id="live-banner-percent">0%</span>
+                </div>
+                <div class="live-progress-bar-bg">
+                  <div id="live-banner-progress-fill" class="live-progress-bar-fill" style="width: 0%;"></div>
+                </div>
               </div>
-              <div class="pagination-controls">
-                <button class="btn btn-secondary btn-xs" id="btn-runs-prev" disabled>« Sebelumnya</button>
-                <span class="pagination-page-badge" id="badge-runs-page">Hal 1 / 1</span>
-                <button class="btn btn-secondary btn-xs" id="btn-runs-next" disabled>Berikutnya »</button>
+            </div>
+            <div class="live-banner-right">
+              <span id="live-banner-speed" class="font-mono text-cyan font-bold" style="font-size: 0.8rem;">0 r/s</span>
+              <span id="live-banner-timer" class="font-mono" style="font-size: 0.8rem; color: #94a3b8;">00:00</span>
+              <button id="btn-banner-inspect-error" class="btn btn-danger btn-xs hidden" style="font-size: 0.72rem; padding: 3px 8px;">🔍 Rincian Error</button>
+            </div>
+          </div>
+
+          <!-- 2. Workspace Layout -->
+          <div class="canvas-workspace">
+            <!-- Sidebar: Node Catalog (Dihilangkan sesuai permintaan user) -->
+            <div class="canvas-sidebar" style="display: none;">
+              <div class="canvas-sidebar-header">📦 Katalog Modul Simpul</div>
+              <div class="canvas-sidebar-list">
+                <div class="catalog-item" title="Validasi view SQL Server & query precheck">
+                  <span class="catalog-item-icon">🔍</span>
+                  <span>Precheck Source</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Canvas Viewport (Mengambil Luas Penuh) -->
+            <div class="canvas-viewport" id="canvas-workspace" style="width: 100%; flex: 1;">
+              <!-- Container Transform Layer untuk Zoom & Pan yang Mulus -->
+              <div id="canvas-transform-layer" class="canvas-transform-layer">
+                <!-- Subflow Background Layer (Dipastikan Selalu di Belakang Simpul) -->
+                <div id="canvas-subflow-layer" class="canvas-subflow-layer"></div>
+                <!-- SVG Bezier Edges Layer -->
+                <svg id="canvas-svg-layer" class="canvas-graph-svg"></svg>
+                <!-- DOM Nodes Layer -->
+                <div id="canvas-node-layer" class="canvas-node-layer"></div>
+              </div>
+
+              <!-- Floating Canvas View Controls (Zoom In, Zoom Out, Centered) -->
+              <div class="canvas-floating-controls">
+                <button id="btn-float-zoom-in" class="canvas-float-btn" title="Zoom In (Perbesar Kanvas) [Scroll Up]">➕</button>
+                <button id="btn-float-zoom-reset" class="canvas-float-btn canvas-float-zoom-val" title="Klik untuk Reset Zoom (100%)">100%</button>
+                <button id="btn-float-zoom-out" class="canvas-float-btn" title="Zoom Out (Perkecil Kanvas) [Scroll Down]">➖</button>
+                <div class="canvas-float-divider"></div>
+                <button id="btn-float-center" class="canvas-float-btn btn-float-center" title="Pusatkan Seluruh Alur di Layar (Centered)">🎯</button>
+              </div>
+            </div>
+
+            <!-- Sidebar: Inspector Property Panel (Dipindahkan ke Dialog Modal) -->
+            <div class="canvas-inspector" style="display: none;">
+              <div class="canvas-inspector-header">
+                <span class="canvas-inspector-title">⚙️ Properti Simpul</span>
+                <span style="font-size: 0.7rem; color: #94a3b8;">Config</span>
+              </div>
+              <div class="canvas-inspector-content" id="canvas-inspector-body">
+                <!-- Populated dynamically via JS -->
               </div>
             </div>
           </div>
-        </div>
 
-        <!-- Subtab 2: Step Logs -->
-        <div id="subtab-steplogs" class="subtab-content">
-          <div class="panel-card">
-            <div class="panel-header flex-wrap flex-between">
-              <div>
-                <h3 class="panel-title">Log Langkah Migrasi (migration_step_log)</h3>
-                <p class="panel-desc" id="steplogs-filter-desc">Menampilkan seluruh riwayat langkah proses ETL</p>
-              </div>
-              <div class="panel-actions">
-                <select id="filter-steplogs-status" class="select-limit" title="Filter Status Langkah">
-                  <option value="">Semua Status</option>
-                  <option value="SUCCESS">SUCCESS</option>
-                  <option value="FAILED">FAILED</option>
-                  <option value="RUNNING">RUNNING</option>
-                  <option value="SKIPPED">SKIPPED</option>
-                </select>
-                <select id="limit-steplogs-select" class="select-limit" title="Jumlah data per halaman">
-                  <option value="10">10 / hal</option>
-                  <option value="25">25 / hal</option>
-                  <option value="50" selected>50 / hal</option>
-                  <option value="100">100 / hal</option>
-                </select>
-                <button id="btn-clear-step-filter" class="btn btn-secondary btn-sm hidden">Reset Filter Run</button>
-                <button id="btn-refresh-steplogs" class="btn btn-secondary btn-sm">Refresh</button>
-              </div>
+          <!-- 3. Bottom Canvas Panel (Integrated Tabs: Terminal Console, Riwayat Eksekusi, Log Langkah, Log Error) -->
+          <div class="canvas-console" id="canvas-bottom-panel">
+            <!-- Resizer Handle Bar (Geser ke Atas / Bawah) -->
+            <div class="canvas-console-resizer" id="canvas-console-resizer" title="Geser ke atas / bawah untuk mengatur tinggi panel console">
+              <div class="resizer-handle-grip"></div>
             </div>
-            <div class="table-container">
-              <table class="data-table" id="table-steplogs">
-                <thead>
-                  <tr>
-                    <th class="sortable col-id" data-step-col="log_id">Log ID <span class="sort-icon">↕</span></th>
-                    <th class="sortable col-order" data-step-col="run_id">Run ID <span class="sort-icon">↕</span></th>
-                    <th class="sortable col-id" data-step-col="config_id">Config ID <span class="sort-icon">↕</span></th>
-                    <th class="sortable col-name" data-step-col="step_name">Step Name <span class="sort-icon">↕</span></th>
-                    <th class="sortable col-status" data-step-col="status">Status <span class="sort-icon">↕</span></th>
-                    <th class="sortable col-num" data-step-col="rows_src">Rows Src <span class="sort-icon">↕</span></th>
-                    <th class="sortable col-num" data-step-col="rows_stg">Rows Stg <span class="sort-icon">↕</span></th>
-                    <th class="sortable col-num" data-step-col="rows_new">Rows New <span class="sort-icon">↕</span></th>
-                    <th class="sortable col-num" data-step-col="rows_changed">Rows Chg <span class="sort-icon">↕</span></th>
-                    <th class="sortable col-num" data-step-col="rows_deleted">Rows Del <span class="sort-icon">↕</span></th>
-                    <th class="sortable col-order" data-step-col="duration_seconds">Durasi <span class="sort-icon">↕</span></th>
-                    <th>Pesan</th>
-                  </tr>
-                </thead>
-                <tbody id="etl-steps-table-body">
-                  <tr><td colspan="12" class="text-center py-8 text-muted">Memuat data migration_step_log...</td></tr>
-                </tbody>
-              </table>
-            </div>
-            <div class="table-pagination-bar" id="pagination-steplogs">
-              <div class="pagination-info">
-                <span>Menampilkan <strong id="info-steplogs-range">0-0</strong> dari <strong id="info-steplogs-total">0</strong> step logs</span>
-              </div>
-              <div class="pagination-controls">
-                <button class="btn btn-secondary btn-xs" id="btn-steplogs-prev" disabled>« Sebelumnya</button>
-                <span class="pagination-page-badge" id="badge-steplogs-page">Hal 1 / 1</span>
-                <button class="btn btn-secondary btn-xs" id="btn-steplogs-next" disabled>Berikutnya »</button>
-              </div>
-            </div>
-          </div>
-        </div>
 
-        <!-- Subtab 3: Error Logs -->
-        <div id="subtab-errorlogs" class="subtab-content">
-          <div class="panel-card">
-            <div class="panel-header flex-wrap flex-between">
-              <div>
-                <h3 class="panel-title text-rose">Log Error Migrasi (migration_error_log)</h3>
-                <p class="panel-desc" id="errorlogs-filter-desc">Rincian error transformasi dan sampel data baris bermasalah</p>
+            <div class="canvas-console-header" id="canvas-console-header-drag">
+              <!-- Left: Subtabs Navigation Buttons -->
+              <div class="canvas-bottom-tabs" id="canvas-bottom-nav">
+                <button class="canvas-bottom-tab-btn active" data-canvas-tab="canvas-tab-terminal" id="tab-btn-canvas-terminal">
+                  <span class="tab-icon-mini">🖥️</span>
+                  <span>Live Terminal Console</span>
+                </button>
+                <button class="canvas-bottom-tab-btn" data-canvas-tab="canvas-tab-runs" id="tab-btn-canvas-runs">
+                  <span class="tab-icon-mini">📋</span>
+                  <span>Riwayat Eksekusi</span>
+                </button>
+                <button class="canvas-bottom-tab-btn" data-canvas-tab="canvas-tab-steplogs" id="tab-btn-canvas-steplogs">
+                  <span class="tab-icon-mini">👣</span>
+                  <span>Log Langkah</span>
+                </button>
+                <button class="canvas-bottom-tab-btn" data-canvas-tab="canvas-tab-errorlogs" id="tab-btn-canvas-errorlogs">
+                  <span class="tab-icon-mini">🐞</span>
+                  <span style="color: #fb7185;">Log Error</span>
+                </button>
               </div>
-              <div class="panel-actions">
-                <select id="limit-errorlogs-select" class="select-limit" title="Jumlah data per halaman">
-                  <option value="10">10 / hal</option>
-                  <option value="25">25 / hal</option>
-                  <option value="50" selected>50 / hal</option>
-                  <option value="100">100 / hal</option>
-                </select>
-                <button id="btn-clear-error-filter" class="btn btn-secondary btn-sm hidden">Reset Filter Run</button>
-                <button id="btn-refresh-errorlogs" class="btn btn-secondary btn-sm">Refresh</button>
+
+              <!-- Right: Metrics and Toggle Height Button -->
+              <div class="canvas-console-metrics">
+                <div class="console-metric-item">
+                  <span class="metric-dot cyan"></span>
+                  <span>Speed: <strong id="console-metric-speed" style="color: #38bdf8;">0 r/s</strong></span>
+                </div>
+                <div class="console-metric-item">
+                  <span class="metric-dot emerald"></span>
+                  <span>Throughput: <strong id="console-metric-rows" style="color: #34d399;">0/0</strong></span>
+                </div>
+                <div class="console-metric-item">
+                  <span class="metric-dot rose"></span>
+                  <span>Engine: <strong style="color: #cbd5e1;">Native Node.js Stream</strong></span>
+                </div>
+                <button id="btn-toggle-canvas-panel-height" class="canvas-panel-toggle-btn" title="Expand / Collapse Panel Bawah">
+                  <span id="canvas-panel-toggle-icon">↕️</span>
+                </button>
               </div>
             </div>
-            <div class="table-container">
-              <table class="data-table" id="table-errorlogs">
-                <thead>
-                  <tr>
-                    <th class="sortable col-id" data-error-col="error_id">Error ID <span class="sort-icon">↕</span></th>
-                    <th class="sortable col-order" data-error-col="run_id">Run ID <span class="sort-icon">↕</span></th>
-                    <th class="sortable col-id" data-error-col="config_id">Config ID <span class="sort-icon">↕</span></th>
-                    <th class="sortable col-name" data-error-col="step_name">Step Name <span class="sort-icon">↕</span></th>
-                    <th class="sortable" data-error-col="pipeline_name">Pipeline / Transform <span class="sort-icon">↕</span></th>
-                    <th class="sortable col-status" data-error-col="error_code">Error Code <span class="sort-icon">↕</span></th>
-                    <th class="sortable" data-error-col="error_time">Waktu <span class="sort-icon">↕</span></th>
-                    <th>Pesan Error</th>
-                    <th>Field</th>
-                    <th>Row Data (JSON)</th>
-                  </tr>
-                </thead>
-                <tbody id="etl-errors-table-body">
-                  <tr><td colspan="10" class="text-center py-8 text-muted">Memuat data migration_error_log...</td></tr>
-                </tbody>
-              </table>
-            </div>
-            <div class="table-pagination-bar" id="pagination-errorlogs">
-              <div class="pagination-info">
-                <span>Menampilkan <strong id="info-errorlogs-range">0-0</strong> dari <strong id="info-errorlogs-total">0</strong> error logs</span>
+
+            <!-- Panel Content Panes -->
+            <div class="canvas-console-panes">
+              <!-- Pane 1: Terminal Console -->
+              <div id="canvas-tab-terminal" class="canvas-bottom-pane active">
+                <div class="canvas-console-body" id="canvas-console-logs">
+                  <!-- Live event log lines will appear here -->
+                </div>
               </div>
-              <div class="pagination-controls">
-                <button class="btn btn-secondary btn-xs" id="btn-errorlogs-prev" disabled>« Sebelumnya</button>
-                <span class="pagination-page-badge" id="badge-errorlogs-page">Hal 1 / 1</span>
-                <button class="btn btn-secondary btn-xs" id="btn-errorlogs-next" disabled>Berikutnya »</button>
+
+              <!-- Pane 2: Riwayat Eksekusi (migration_run) -->
+              <div id="canvas-tab-runs" class="canvas-bottom-pane">
+                <div class="canvas-pane-inner">
+                  <div class="canvas-pane-toolbar flex-between flex-wrap gap-2">
+                    <div class="flex-center gap-3">
+                      <span class="canvas-pane-title">Riwayat Batch Migrasi (migration_run)</span>
+                      <!-- KPI Mini Badges -->
+                      <div class="canvas-mini-kpis flex-center gap-2">
+                        <span class="kpi-mini-badge" title="Total Eksekusi">Total: <strong id="kpi-etl-total-runs">-</strong></span>
+                        <span class="kpi-mini-badge kpi-mini-success" title="Sukses">Sukses: <strong id="kpi-etl-success-runs">-</strong></span>
+                        <span class="kpi-mini-badge kpi-mini-failed" title="Gagal">Gagal: <strong id="kpi-etl-failed-runs">-</strong></span>
+                        <span class="kpi-mini-badge kpi-mini-error" title="Total Error">Error: <strong id="kpi-etl-total-errors">-</strong></span>
+                      </div>
+                    </div>
+                    <div class="panel-actions flex-center gap-2">
+                      <select id="filter-runs-status" class="select-limit" title="Filter Status">
+                        <option value="">Semua Status</option>
+                        <option value="SUCCESS">SUCCESS</option>
+                        <option value="FAILED">FAILED</option>
+                        <option value="RUNNING">RUNNING</option>
+                      </select>
+                      <select id="limit-runs-select" class="select-limit" title="Jumlah baris per halaman">
+                        <option value="10">10 / hal</option>
+                        <option value="25">25 / hal</option>
+                        <option value="50" selected>50 / hal</option>
+                        <option value="100">100 / hal</option>
+                      </select>
+                      <button id="btn-refresh-runs" class="btn btn-secondary btn-xs">Refresh Runs</button>
+                    </div>
+                  </div>
+                  <div class="table-container canvas-table-container">
+                    <table class="data-table" id="table-etl-runs">
+                      <thead>
+                        <tr>
+                          <th class="sortable col-id" data-run-col="run_id">Run ID <span class="sort-icon">↕</span></th>
+                          <th class="col-schema">Client</th>
+                          <th class="col-schema">Environment</th>
+                          <th class="sortable col-name" data-run-col="run_ts">Run TS <span class="sort-icon">↕</span></th>
+                          <th class="sortable col-name" data-run-col="main_workflow">Workflow <span class="sort-icon">↕</span></th>
+                          <th class="sortable col-id" data-run-col="config_id">Config ID <span class="sort-icon">↕</span></th>
+                          <th class="sortable col-status" data-run-col="status">Status <span class="sort-icon">↕</span></th>
+                          <th class="sortable col-name" data-run-col="start_time">Waktu Mulai <span class="sort-icon">↕</span></th>
+                          <th class="sortable col-order" data-run-col="duration_seconds">Durasi <span class="sort-icon">↕</span></th>
+                          <th>Posting</th>
+                          <th>Rollback</th>
+                          <th>Hop Host</th>
+                          <th>Catatan</th>
+                          <th>Aksi</th>
+                        </tr>
+                      </thead>
+                      <tbody id="etl-runs-table-body">
+                        <tr><td colspan="14" class="text-center py-8 text-muted">Memuat data migration_run...</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div class="table-pagination-bar" id="pagination-runs">
+                    <div class="pagination-info">
+                      <span>Menampilkan <strong id="info-runs-range">0-0</strong> dari <strong id="info-runs-total">0</strong> runs</span>
+                    </div>
+                    <div class="pagination-controls">
+                      <button class="btn btn-secondary btn-xs" id="btn-runs-prev" disabled>« Sebelumnya</button>
+                      <span class="pagination-page-badge" id="badge-runs-page">Hal 1 / 1</span>
+                      <button class="btn btn-secondary btn-xs" id="btn-runs-next" disabled>Berikutnya »</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Pane 3: Log Langkah (migration_step_log) -->
+              <div id="canvas-tab-steplogs" class="canvas-bottom-pane">
+                <div class="canvas-pane-inner">
+                  <div class="canvas-pane-toolbar flex-between flex-wrap gap-2">
+                    <div class="flex-center gap-2">
+                      <span class="canvas-pane-title">Log Langkah Migrasi (migration_step_log)</span>
+                      <span class="text-xs text-muted" id="steplogs-filter-desc">Menampilkan seluruh riwayat langkah proses ETL</span>
+                    </div>
+                    <div class="panel-actions flex-center gap-2">
+                      <select id="filter-steplogs-status" class="select-limit" title="Filter Status Langkah">
+                        <option value="">Semua Status</option>
+                        <option value="SUCCESS">SUCCESS</option>
+                        <option value="FAILED">FAILED</option>
+                        <option value="RUNNING">RUNNING</option>
+                        <option value="SKIPPED">SKIPPED</option>
+                      </select>
+                      <select id="limit-steplogs-select" class="select-limit" title="Jumlah data per halaman">
+                        <option value="10">10 / hal</option>
+                        <option value="25">25 / hal</option>
+                        <option value="50" selected>50 / hal</option>
+                        <option value="100">100 / hal</option>
+                      </select>
+                      <button id="btn-clear-step-filter" class="btn btn-secondary btn-xs hidden">Reset Filter Run</button>
+                      <button id="btn-refresh-steplogs" class="btn btn-secondary btn-xs">Refresh</button>
+                    </div>
+                  </div>
+                  <div class="table-container canvas-table-container">
+                    <table class="data-table" id="table-steplogs">
+                      <thead>
+                        <tr>
+                          <th class="sortable col-id" data-step-col="log_id">Log ID <span class="sort-icon">↕</span></th>
+                          <th class="sortable col-order" data-step-col="run_id">Run ID <span class="sort-icon">↕</span></th>
+                          <th class="sortable col-id" data-step-col="config_id">Config ID <span class="sort-icon">↕</span></th>
+                          <th class="sortable col-name" data-step-col="step_name">Step Name <span class="sort-icon">↕</span></th>
+                          <th class="sortable col-status" data-step-col="status">Status <span class="sort-icon">↕</span></th>
+                          <th class="sortable col-num" data-step-col="rows_src">Rows Src <span class="sort-icon">↕</span></th>
+                          <th class="sortable col-num" data-step-col="rows_stg">Rows Stg <span class="sort-icon">↕</span></th>
+                          <th class="sortable col-num" data-step-col="rows_new">Rows New <span class="sort-icon">↕</span></th>
+                          <th class="sortable col-num" data-step-col="rows_changed">Rows Chg <span class="sort-icon">↕</span></th>
+                          <th class="sortable col-num" data-step-col="rows_deleted">Rows Del <span class="sort-icon">↕</span></th>
+                          <th class="sortable col-order" data-step-col="duration_seconds">Durasi <span class="sort-icon">↕</span></th>
+                          <th>Pesan</th>
+                        </tr>
+                      </thead>
+                      <tbody id="etl-steps-table-body">
+                        <tr><td colspan="12" class="text-center py-8 text-muted">Memuat data migration_step_log...</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div class="table-pagination-bar" id="pagination-steplogs">
+                    <div class="pagination-info">
+                      <span>Menampilkan <strong id="info-steplogs-range">0-0</strong> dari <strong id="info-steplogs-total">0</strong> step logs</span>
+                    </div>
+                    <div class="pagination-controls">
+                      <button class="btn btn-secondary btn-xs" id="btn-steplogs-prev" disabled>« Sebelumnya</button>
+                      <span class="pagination-page-badge" id="badge-steplogs-page">Hal 1 / 1</span>
+                      <button class="btn btn-secondary btn-xs" id="btn-steplogs-next" disabled>Berikutnya »</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Pane 4: Log Error (migration_error_log) -->
+              <div id="canvas-tab-errorlogs" class="canvas-bottom-pane">
+                <div class="canvas-pane-inner">
+                  <div class="canvas-pane-toolbar flex-between flex-wrap gap-2">
+                    <div class="flex-center gap-2">
+                      <span class="canvas-pane-title text-rose">Log Error Migrasi (migration_error_log)</span>
+                      <span class="text-xs text-muted" id="errorlogs-filter-desc">Rincian error transformasi dan sampel data baris bermasalah</span>
+                    </div>
+                    <div class="panel-actions flex-center gap-2">
+                      <select id="limit-errorlogs-select" class="select-limit" title="Jumlah data per halaman">
+                        <option value="10">10 / hal</option>
+                        <option value="25">25 / hal</option>
+                        <option value="50" selected>50 / hal</option>
+                        <option value="100">100 / hal</option>
+                      </select>
+                      <button id="btn-clear-error-filter" class="btn btn-secondary btn-xs hidden">Reset Filter Run</button>
+                      <button id="btn-refresh-errorlogs" class="btn btn-secondary btn-xs">Refresh</button>
+                    </div>
+                  </div>
+                  <div class="table-container canvas-table-container">
+                    <table class="data-table" id="table-errorlogs">
+                      <thead>
+                        <tr>
+                          <th class="sortable col-id" data-error-col="error_id">Error ID <span class="sort-icon">↕</span></th>
+                          <th class="sortable col-order" data-error-col="run_id">Run ID <span class="sort-icon">↕</span></th>
+                          <th class="sortable col-id" data-error-col="config_id">Config ID <span class="sort-icon">↕</span></th>
+                          <th class="sortable col-name" data-error-col="step_name">Step Name <span class="sort-icon">↕</span></th>
+                          <th class="sortable" data-error-col="pipeline_name">Pipeline / Transform <span class="sort-icon">↕</span></th>
+                          <th class="sortable col-status" data-error-col="error_code">Error Code <span class="sort-icon">↕</span></th>
+                          <th class="sortable" data-error-col="error_time">Waktu <span class="sort-icon">↕</span></th>
+                          <th>Pesan Error</th>
+                          <th>Field</th>
+                          <th>Row Data (JSON)</th>
+                        </tr>
+                      </thead>
+                      <tbody id="etl-errors-table-body">
+                        <tr><td colspan="10" class="text-center py-8 text-muted">Memuat data migration_error_log...</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div class="table-pagination-bar" id="pagination-errorlogs">
+                    <div class="pagination-info">
+                      <span>Menampilkan <strong id="info-errorlogs-range">0-0</strong> dari <strong id="info-errorlogs-total">0</strong> error logs</span>
+                    </div>
+                    <div class="pagination-controls">
+                      <button class="btn btn-secondary btn-xs" id="btn-errorlogs-prev" disabled>« Sebelumnya</button>
+                      <span class="pagination-page-badge" id="badge-errorlogs-page">Hal 1 / 1</span>
+                      <button class="btn btn-secondary btn-xs" id="btn-errorlogs-next" disabled>Berikutnya »</button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -1195,7 +1337,7 @@
       </section>
 
       <!-- ============================================================== -->
-      <!-- TAB 4: HASIL MIGRASI (PIPELINE 3-TIER RECONCILIATION)           -->
+      <!-- TAB 5: HASIL MIGRASI (PIPELINE 3-TIER RECONCILIATION)           -->
       <!-- ============================================================== -->
       <section id="tab-pipeline" class="tab-pane">
         <!-- Section A: Master Table List migration_config -->
@@ -1433,6 +1575,573 @@
                   </tbody>
                 </table>
               </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================== -->
+      <!-- TAB 6: PANDUAN PENGGUNA (USERGUIDE & TUTORIAL OPERASIONAL)      -->
+      <!-- ============================================================== -->
+      <section id="tab-userguide" class="tab-pane">
+        <div class="userguide-container">
+          <!-- Header Banner Userguide -->
+          <div class="userguide-header-card panel-card mb-4">
+            <div class="flex-between flex-wrap gap-4 items-center">
+              <div>
+                <div class="flex-center gap-2 mb-1" style="justify-content: flex-start;">
+                  <span class="userguide-hero-icon">📖</span>
+                  <h1 class="userguide-title text-xl font-bold text-white">Userguide &amp; Tutorial Operasional Aplikasi</h1>
+                  <span class="badge badge-info text-xs">Versi 2.0 (Dual-Guard)</span>
+                </div>
+                <p class="userguide-desc text-sm text-slate-400">Panduan lengkap langkah-demi-langkah pengoperasian sistem ETL Migration Command Center (SQL Server ➔ PostgreSQL) untuk Operator, Data Engineer, dan Administrator.</p>
+              </div>
+              <div class="userguide-header-actions flex gap-2">
+                <button type="button" class="btn btn-secondary btn-sm" onclick="window.printUserguide()" title="Cetak panduan ini">
+                  <span>🖨️</span> Cetak Panduan
+                </button>
+                <button type="button" class="btn btn-primary btn-sm" onclick="switchTab('tab-canvas')" title="Buka Workflow Canvas Studio">
+                  <span>▶️</span> Buka Canvas Studio
+                </button>
+              </div>
+            </div>
+
+            <!-- Search Bar & Category Filter Chips -->
+            <div class="userguide-search-wrapper mt-4 pt-3 border-t border-slate-700/50">
+              <div class="flex flex-wrap gap-3 items-center">
+                <div class="userguide-search-box flex-1 min-w-[280px]">
+                  <span class="userguide-search-icon">🔍</span>
+                  <input type="text" id="userguide-search-input" class="userguide-input" placeholder="Cari topik tutorial (e.g. Flow 2, Rollback, Lookup, Purge, Berita Acara, SSH Tunnel)..." autocomplete="off">
+                </div>
+                <div class="userguide-filter-chips flex gap-2 flex-wrap">
+                  <button type="button" class="guide-chip active" data-filter="all">Semua Bab</button>
+                  <button type="button" class="guide-chip" data-filter="flows">4 Alur Utama</button>
+                  <button type="button" class="guide-chip" data-filter="config">Konfigurasi</button>
+                  <button type="button" class="guide-chip" data-filter="reconcile">Rekonsiliasi &amp; BA</button>
+                  <button type="button" class="guide-chip" data-filter="faq">FAQ &amp; Solusi Galat</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Layout 2-Kolom: Sidebar Navigasi Cepat + Konten Tutorial -->
+          <div class="userguide-grid">
+            <!-- Sidebar Navigasi Bab (Sticky) -->
+            <aside class="userguide-sidebar">
+              <div class="panel-card userguide-sidebar-inner">
+                <div class="sidebar-heading text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
+                  <span>📑</span> Daftar Topik Tutorial
+                </div>
+                <nav class="userguide-nav-links" id="userguide-sidebar-nav">
+                  <a href="#guide-intro" class="guide-nav-item active" data-target="guide-intro">
+                    <span class="guide-nav-num">1</span>
+                    <span class="guide-nav-text">Pengenalan &amp; Arsitektur 3-Tier</span>
+                  </a>
+                  <a href="#guide-source" class="guide-nav-item" data-target="guide-source">
+                    <span class="guide-nav-num">2</span>
+                    <span class="guide-nav-text">Modul 1: Eksplorasi Source Data</span>
+                  </a>
+                  <a href="#guide-config" class="guide-nav-item" data-target="guide-config">
+                    <span class="guide-nav-num">3</span>
+                    <span class="guide-nav-text">Modul 2: Migration Config &amp; Rules</span>
+                  </a>
+                  <a href="#guide-canvas" class="guide-nav-item" data-target="guide-canvas">
+                    <span class="guide-nav-num">4</span>
+                    <span class="guide-nav-text">Modul 3: Visual Canvas Studio</span>
+                  </a>
+                  <a href="#guide-flows" class="guide-nav-item" data-target="guide-flows">
+                    <span class="guide-nav-num">5</span>
+                    <span class="guide-nav-text">Panduan Lengkap 4 Alur Utama</span>
+                  </a>
+                  <a href="#guide-reconcile" class="guide-nav-item" data-target="guide-reconcile">
+                    <span class="guide-nav-num">6</span>
+                    <span class="guide-nav-text">Modul 4: Hasil Rekonsiliasi &amp; BA</span>
+                  </a>
+                  <a href="#guide-compare" class="guide-nav-item" data-target="guide-compare">
+                    <span class="guide-nav-num">7</span>
+                    <span class="guide-nav-text">Komparasi Kolom 3-Tier (Compare)</span>
+                  </a>
+                  <a href="#guide-system" class="guide-nav-item" data-target="guide-system">
+                    <span class="guide-nav-num">8</span>
+                    <span class="guide-nav-text">Modul 5: User &amp; Hak Akses</span>
+                  </a>
+                  <a href="#guide-troubleshoot" class="guide-nav-item" data-target="guide-troubleshoot">
+                    <span class="guide-nav-num">9</span>
+                    <span class="guide-nav-text">Troubleshooting &amp; FAQ</span>
+                  </a>
+                </nav>
+
+                <div class="userguide-sidebar-footer mt-4 pt-3 border-t border-slate-700/50">
+                  <div class="quick-summary-box">
+                    <div class="text-xs font-semibold text-sky-400 mb-1">💡 Tips Cepat Operator</div>
+                    <p class="text-xs text-slate-400 leading-relaxed">Selalu mulai dari <strong>Flow 1 (Staging)</strong> sebelum menjalankan <strong>Flow 2 (Post)</strong> untuk menjamin integritas data target.</p>
+                  </div>
+                </div>
+              </div>
+            </aside>
+
+            <!-- Area Konten Tutorial Lengkap -->
+            <div class="userguide-content-area" id="userguide-sections-container">
+
+              <!-- ============================================================== -->
+              <!-- BAB 1: PENGENALAN & ARSITEKTUR 3-TIER                         -->
+              <!-- ============================================================== -->
+              <section id="guide-intro" class="userguide-card panel-card mb-4" data-category="intro config">
+                <div class="guide-card-header">
+                  <div class="flex items-center gap-2">
+                    <span class="guide-badge-num">BAB 1</span>
+                    <h2 class="guide-section-title">Pengenalan &amp; Arsitektur 3-Tier ETL Antam</h2>
+                  </div>
+                  <span class="badge badge-success text-xs">Arsitektur Inti</span>
+                </div>
+                <div class="guide-card-body">
+                  <p class="guide-paragraph">
+                    Aplikasi <strong>ETL Migration Command Center</strong> dibangun untuk mengorkestrasi pemindahan data skala besar dari sistem warisan <strong>SQL Server (antam_scm)</strong> ke sistem modern <strong>PostgreSQL (db_procsi)</strong> secara aman, terverifikasi, dan dapat dibatalkan (*reversible*) kapan saja tanpa merusak data produksi asli.
+                  </p>
+
+                  <!-- Diagram visual 3-Tier -->
+                  <div class="tier-diagram-box my-4">
+                    <div class="tier-step tier-source">
+                      <div class="tier-badge">Tier 1: Source Database</div>
+                      <div class="tier-title font-bold text-sky-400">SQL Server (antam_scm)</div>
+                      <div class="tier-desc">View: <code>dbo.v_migration_*</code></div>
+                      <div class="tier-tag">Koneksi SSH Tunnel Port 11433</div>
+                    </div>
+                    <div class="tier-arrow">➔ <span>Flow 1</span> ➔</div>
+                    <div class="tier-step tier-staging">
+                      <div class="tier-badge">Tier 2: Staging Area</div>
+                      <div class="tier-title font-bold text-amber-400">PostgreSQL (stg_antam)</div>
+                      <div class="tier-desc">Tabel: <code>stg_*_src</code></div>
+                      <div class="tier-tag">Pembersihan &amp; Transformasi Kode</div>
+                    </div>
+                    <div class="tier-arrow">➔ <span>Flow 2</span> ➔</div>
+                    <div class="tier-step tier-target">
+                      <div class="tier-badge">Tier 3: Final Production</div>
+                      <div class="tier-title font-bold text-emerald-400">PostgreSQL (Target Schema)</div>
+                      <div class="tier-desc">Tabel: <code>vendor.*</code>, <code>contract.*</code></div>
+                      <div class="tier-tag">Flag migration='1' + Sequence Sync</div>
+                    </div>
+                  </div>
+
+                  <div class="callout-box callout-info mt-3">
+                    <div class="callout-title">🛡️ Prinsip Keamanan Data: Dual-Guard Protection</div>
+                    <p class="callout-desc">Setiap record yang diposting ke tabel target selalu dibubuhi penanda <code>migration = '1'</code> dan <code>migration_run_id</code>. Operasi pembersihan (Purge) atau pembatalan (Rollback) hanya akan menghapus record ber-flag migrasi tersebut, sehingga data operasional asli perusahaan yang dibuat secara manual tidak akan pernah terhapus.</p>
+                  </div>
+                </div>
+              </section>
+
+              <!-- ============================================================== -->
+              <!-- BAB 2: MODUL 1 - SOURCE DATA                                   -->
+              <!-- ============================================================== -->
+              <section id="guide-source" class="userguide-card panel-card mb-4" data-category="source">
+                <div class="guide-card-header">
+                  <div class="flex items-center gap-2">
+                    <span class="guide-badge-num">BAB 2</span>
+                    <h2 class="guide-section-title">Modul 1: Eksplorasi Source Data (SQL Server Views)</h2>
+                  </div>
+                  <button type="button" class="btn btn-secondary btn-xs" onclick="switchTab('tab-source')">Buka Modul Source ➔</button>
+                </div>
+                <div class="guide-card-body">
+                  <p class="guide-paragraph">Modul ini digunakan untuk memeriksa data awal yang tersedia di database SQL Server sebelum proses migrasi dijalankan.</p>
+
+                  <div class="walkthrough-steps mt-3">
+                    <div class="walkthrough-step">
+                      <div class="step-num">1</div>
+                      <div class="step-content">
+                        <strong class="text-white">Pilih Client &amp; Environment Target</strong>
+                        <p class="text-xs text-slate-400 mt-1">Gunakan pemilih dropdown di header utama atas untuk menentukan koneksi aktif (e.g. Client: <code>ANTAM</code>, Environment: <code>DEV</code>).</p>
+                      </div>
+                    </div>
+                    <div class="walkthrough-step">
+                      <div class="step-num">2</div>
+                      <div class="step-content">
+                        <strong class="text-white">Filter Status View Migrasi</strong>
+                        <p class="text-xs text-slate-400 mt-1">Gunakan tombol filter cepat di atas tabel untuk melihat <em>All Views</em>, view yang sudah terdaftar di <code>migration_config</code>, atau view yang belum terdaftar.</p>
+                      </div>
+                    </div>
+                    <div class="walkthrough-step">
+                      <div class="step-num">3</div>
+                      <div class="step-content">
+                        <strong class="text-white">Pratinjau Sampel Data &amp; Metadata Kolom</strong>
+                        <p class="text-xs text-slate-400 mt-1">Klik tombol <strong>Pratinjau Data</strong> pada salah satu view untuk melihat sampel baris record asli, nama kolom, dan tipe data sumber dari SQL Server.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <!-- ============================================================== -->
+              <!-- BAB 3: MODUL 2 - MIGRATION CONFIG                              -->
+              <!-- ============================================================== -->
+              <section id="guide-config" class="userguide-card panel-card mb-4" data-category="config">
+                <div class="guide-card-header">
+                  <div class="flex items-center gap-2">
+                    <span class="guide-badge-num">BAB 3</span>
+                    <h2 class="guide-section-title">Modul 2: Konfigurasi Migrasi (Mapping, Rules &amp; Lookup)</h2>
+                  </div>
+                  <button type="button" class="btn btn-secondary btn-xs" onclick="switchTab('tab-config')">Buka Migration Config ➔</button>
+                </div>
+                <div class="guide-card-body">
+                  <p class="guide-paragraph">Modul konfigurasi adalah otak dari mesin migrasi. Terdapat 4 subtab tabel master yang saling terhubung:</p>
+
+                  <div class="grid grid-2 gap-3 my-3">
+                    <div class="p-3 rounded border border-slate-700 bg-slate-800/40">
+                      <div class="font-bold text-sky-400 text-sm mb-1">1. migration_config</div>
+                      <p class="text-xs text-slate-400">Peta utama yang menghubungkan view sumber (<code>src_view</code>), tabel staging (<code>stg_table</code>), dan tabel target (<code>tgt_table</code>), urutan eksekusi (<code>exec_order</code>), serta kolom primary key.</p>
+                    </div>
+                    <div class="p-3 rounded border border-slate-700 bg-slate-800/40">
+                      <div class="font-bold text-amber-400 text-sm mb-1">2. migration_convert_rule</div>
+                      <p class="text-xs text-slate-400">Aturan pembersihan dan transformasi nilai kolom, seperti pemetaan nilai kategori (Lookup ID), pemformatan tanggal, dan pengisian nilai default jika NULL.</p>
+                    </div>
+                    <div class="p-3 rounded border border-slate-700 bg-slate-800/40">
+                      <div class="font-bold text-emerald-400 text-sm mb-1">3. migration_target_config</div>
+                      <p class="text-xs text-slate-400">Mendukung arsitektur <em>1 Source View ➔ Multi-Target Tables</em>. Digunakan jika satu sumber harus dipisah menjadi beberapa tabel relasional di PostgreSQL.</p>
+                    </div>
+                    <div class="p-3 rounded border border-slate-700 bg-slate-800/40">
+                      <div class="font-bold text-rose-400 text-sm mb-1">4. migration_lookup</div>
+                      <p class="text-xs text-slate-400">Tabel kamus acuan konversi kode lama ke ID baru (e.g. kode bank <code>BCA</code> ➔ ID <code>102</code> di master bank target).</p>
+                    </div>
+                  </div>
+
+                  <div class="callout-box callout-warning">
+                    <div class="callout-title">⚠️ Aturan Penentuan exec_order (Urutan Eksekusi)</div>
+                    <p class="callout-desc">Pastikan tabel induk (*Parent Table*) memiliki nilai <code>exec_order</code> lebih kecil daripada tabel anak (*Child Table*). Contoh: Konfigurasi Vendor (Order 1) harus dieksekusi sebelum Kontak Vendor (Order 2) atau Rekening Bank Vendor (Order 3) agar tidak terjadi galat Foreign Key.</p>
+                  </div>
+                </div>
+              </section>
+
+              <!-- ============================================================== -->
+              <!-- BAB 4: MODUL 3 - VISUAL CANVAS STUDIO                          -->
+              <!-- ============================================================== -->
+              <section id="guide-canvas" class="userguide-card panel-card mb-4" data-category="canvas">
+                <div class="guide-card-header">
+                  <div class="flex items-center gap-2">
+                    <span class="guide-badge-num">BAB 4</span>
+                    <h2 class="guide-section-title">Modul 3: Workflow Canvas Studio (Dynamic Orchestrator)</h2>
+                  </div>
+                  <button type="button" class="btn btn-secondary btn-xs" onclick="switchTab('tab-canvas')">Buka Canvas Studio ➔</button>
+                </div>
+                <div class="guide-card-body">
+                  <p class="guide-paragraph">Visual Canvas Studio menyediakan kanvas grafis interaktif untuk memonitor, mendesain alur kerja migrasi (DAG), dan mengeksekusi pipeline secara visual.</p>
+
+                  <div class="walkthrough-steps mt-3">
+                    <div class="walkthrough-step">
+                      <div class="step-num">1</div>
+                      <div class="step-content">
+                        <strong class="text-white">Pilih Template Alur (Preset Workflow)</strong>
+                        <p class="text-xs text-slate-400 mt-1">Gunakan dropdown template di toolbar canvas untuk memilih alur kerja: <em>Flow 1 (Staging), Flow 2 (Post), Flow 3 (Rollback), atau Flow 4 (Purge)</em>.</p>
+                      </div>
+                    </div>
+                    <div class="walkthrough-step">
+                      <div class="step-num">2</div>
+                      <div class="step-content">
+                        <strong class="text-white">Manipulasi Kanvas &amp; Save Layout</strong>
+                        <p class="text-xs text-slate-400 mt-1">Anda dapat menggeser posisi simpul (drag &amp; drop), zoom in/out, fit to screen, serta menyimpan tata letak posisi simpul dengan tombol <strong>💾 Simpan Layout</strong>.</p>
+                      </div>
+                    </div>
+                    <div class="walkthrough-step">
+                      <div class="step-num">3</div>
+                      <div class="step-content">
+                        <strong class="text-white">Panel Konsol Resizable (Bisa Digeser Naik-Turun)</strong>
+                        <p class="text-xs text-slate-400 mt-1">Bilah pembatas di atas header panel konsol dapat ditarik (*drag vertical*) ke atas atau ke bawah untuk menyesuaikan tinggi area log eksekusi secara leluasa.</p>
+                      </div>
+                    </div>
+                    <div class="walkthrough-step">
+                      <div class="step-num">4</div>
+                      <div class="step-content">
+                        <strong class="text-white">Live Monitoring: Terminal Console, Riwayat &amp; Log Galat</strong>
+                        <p class="text-xs text-slate-400 mt-1">Saat alur berjalan, simpul aktif akan menyala hijau dan terminal konsol menampilkan proses transmisi data secara live via Server-Sent Events (SSE). Tab riwayat menyediakan inspeksi detail per langkah dan diagnostik error.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <!-- ============================================================== -->
+              <!-- BAB 5: PANDUAN LENGKAP 4 ALUR UTAMA (THE 4 FLOWS)             -->
+              <!-- ============================================================== -->
+              <section id="guide-flows" class="userguide-card panel-card mb-4" data-category="flows">
+                <div class="guide-card-header">
+                  <div class="flex items-center gap-2">
+                    <span class="guide-badge-num">BAB 5</span>
+                    <h2 class="guide-section-title">Panduan Lengkap Eksekusi 4 Alur Utama (The 4 Flows)</h2>
+                  </div>
+                  <span class="badge badge-primary text-xs">Paling Penting</span>
+                </div>
+                <div class="guide-card-body">
+                  <p class="guide-paragraph">Berikut adalah panduan mendalam untuk mengeksekusi keempat alur migrasi data dengan benar dan aman:</p>
+
+                  <!-- Flow 1 -->
+                  <div class="flow-guide-box mb-4 p-4 rounded border border-sky-500/30 bg-sky-950/20">
+                    <div class="flex-between items-center mb-2">
+                      <div class="font-bold text-sky-400 text-base flex items-center gap-2">
+                        <span>📥</span> Flow 1: Staging Landing &amp; Convert Lookup Engine
+                      </div>
+                      <span class="badge text-xs" style="background: rgba(56,189,248,0.2); color: #38bdf8;">TAHAP 1: EKSTRAKSI &amp; KONVERSI</span>
+                    </div>
+                    <p class="text-xs text-slate-300 leading-relaxed mb-3">
+                      Menarik data mentah dari view SQL Server ke tabel penampungan sementara PostgreSQL (<code>stg_antam</code>), memeriksa delta baris baru, serta mengeksekusi prosedur konversi kode PL/pgSQL.
+                    </p>
+                    <div class="bg-slate-900/60 p-3 rounded border border-slate-700/60 text-xs mb-2">
+                      <div class="font-semibold text-slate-200 mb-1">Langkah Menjalankan:</div>
+                      <ol class="list-decimal pl-5 text-slate-400 space-y-1">
+                        <li>Pilih template <strong>Flow 1: Staging Landing &amp; Convert</strong> pada Canvas Studio.</li>
+                        <li>Klik tombol hijau <strong>▶️ Jalankan Alur</strong> di toolbar canvas.</li>
+                        <li>Pada dialog parameter, pilih satu atau beberapa <strong>Target Konfigurasi (Multi-Select)</strong> yang ingin ditarik.</li>
+                        <li>Pastikan Client Code (<code>ANTAM</code>) dan Environment (<code>DEV</code>) sudah terisi dengan benar.</li>
+                        <li>Klik <strong>Mulai Eksekusi Alur</strong> dan pantau progress baris data di Live Terminal Console.</li>
+                      </ol>
+                    </div>
+                    <div class="text-xs text-slate-400">✓ <em>Output:</em> Data tersimpan di staging dengan status Run ID berstatus <code>SUCCESS</code>.</div>
+                  </div>
+
+                  <!-- Flow 2 -->
+                  <div class="flow-guide-box mb-4 p-4 rounded border border-emerald-500/30 bg-emerald-950/20">
+                    <div class="flex-between items-center mb-2">
+                      <div class="font-bold text-emerald-400 text-base flex items-center gap-2">
+                        <span>🚀</span> Flow 2: Multi-Target Post Engine (Batch Chunking)
+                      </div>
+                      <span class="badge text-xs" style="background: rgba(16,185,129,0.2); color: #34d399;">TAHAP 2: POSTING KE TARGET</span>
+                    </div>
+                    <p class="text-xs text-slate-300 leading-relaxed mb-3">
+                      Mengeposkan data yang telah tervalidasi bersih dari staging area ke tabel target produksi PostgreSQL. Dilengkapi opsi pemotongan data (*Chunking Batch*) untuk mencegah kehabisan memori (OOM) dan penguncian tabel (*lock timeout*).
+                    </p>
+                    <div class="bg-slate-900/60 p-3 rounded border border-slate-700/60 text-xs mb-2">
+                      <div class="font-semibold text-slate-200 mb-1">Langkah Menjalankan:</div>
+                      <ol class="list-decimal pl-5 text-slate-400 space-y-1">
+                        <li>Pastikan Flow 1 telah selesai sukses (berstatus <code>SUCCESS</code>).</li>
+                        <li>Pilih template <strong>Flow 2: Multi-Target Post Engine</strong> pada Canvas Studio.</li>
+                        <li>Klik tombol <strong>▶️ Jalankan Alur</strong>. Dialog parameter secara cerdas hanya menampilkan sesi staging aktif terbaru (belum kadaluarsa).</li>
+                        <li>Pilih satu atau beberapa <strong>Run ID</strong> yang ingin diposting (mendukung multi-run looping).</li>
+                        <li>Pilih mode <strong>BATCH</strong> (disarankan) dengan ukuran <code>1000</code> baris per iterasi.</li>
+                        <li>Klik <strong>Mulai Eksekusi Alur</strong>. Sistem akan memposting data dan menyinkronkan sequence auto-increment target.</li>
+                      </ol>
+                    </div>
+                    <div class="text-xs text-slate-400">✓ <em>Output:</em> Data resmi masuk ke tabel target dengan flag <code>migration = '1'</code> dan status sesi menjadi <code>is_posted = true</code>.</div>
+                  </div>
+
+                  <!-- Flow 3 -->
+                  <div class="flow-guide-box mb-4 p-4 rounded border border-amber-500/30 bg-amber-950/20">
+                    <div class="flex-between items-center mb-2">
+                      <div class="font-bold text-amber-400 text-base flex items-center gap-2">
+                        <span>↩️</span> Flow 3: Safe Rollback Engine (Transactional Undo)
+                      </div>
+                      <span class="badge text-xs" style="background: rgba(245,158,11,0.2); color: #fbbf24;">TAHAP PEMBATALAN AMAN</span>
+                    </div>
+                    <p class="text-xs text-slate-300 leading-relaxed mb-3">
+                      Membatalkan sesi posting tertentu jika ditemukan ketidaksesuaian data pada tabel target. Data dihapus secara terbalik (*Order DESC*) untuk mencegah error Foreign Key, dan sequence primary key diselaraskan kembali.
+                    </p>
+                    <div class="bg-slate-900/60 p-3 rounded border border-slate-700/60 text-xs mb-2">
+                      <div class="font-semibold text-slate-200 mb-1">Langkah Menjalankan:</div>
+                      <ol class="list-decimal pl-5 text-slate-400 space-y-1">
+                        <li>Pilih template <strong>Flow 3: Safe Rollback Engine</strong> pada Canvas Studio.</li>
+                        <li>Klik tombol <strong>▶️ Jalankan Alur</strong>. Dialog parameter hanya menampilkan sesi yang sudah pernah diposting (<code>is_posted = true</code>).</li>
+                        <li>Pilih satu atau beberapa <strong>Run ID</strong> yang akan dibatalkan.</li>
+                        <li>Centang kotak konfirmasi persetujuan rollback.</li>
+                        <li>Klik <strong>Mulai Eksekusi Alur</strong>. Sistem menghapus data target terkait dan mencatat audit trail pembatalan.</li>
+                      </ol>
+                    </div>
+                    <div class="text-xs text-slate-400">✓ <em>Output:</em> Data target terhapus bersih, data operasional asli tetap aman, dan status sesi diperbarui menjadi <code>is_rolled_back = true</code>.</div>
+                  </div>
+
+                  <!-- Flow 4 -->
+                  <div class="flow-guide-box mb-3 p-4 rounded border border-rose-500/30 bg-rose-950/20">
+                    <div class="flex-between items-center mb-2">
+                      <div class="font-bold text-rose-400 text-base flex items-center gap-2">
+                        <span>🗑️</span> Flow 4: Target Purge Engine (Dual-Guard &amp; Looping)
+                      </div>
+                      <span class="badge text-xs" style="background: rgba(244,63,94,0.2); color: #fb7185;">PEMBERSIHAN DATA TARGET</span>
+                    </div>
+                    <p class="text-xs text-slate-300 leading-relaxed mb-3">
+                      Membersihkan data migrasi pada tabel target secara mandiri dengan perlindungan ganda (Dual-Guard: memastikan record ber-flag migrasi dan ada di staging). Mendukung looping multi-select target config dengan isolasi galat (*bulkhead error handling*).
+                    </p>
+                    <div class="bg-slate-900/60 p-3 rounded border border-slate-700/60 text-xs mb-2">
+                      <div class="font-semibold text-slate-200 mb-1">Langkah Menjalankan:</div>
+                      <ol class="list-decimal pl-5 text-slate-400 space-y-1">
+                        <li>Pilih template <strong>Flow 4: Target Purge Engine</strong> pada Canvas Studio.</li>
+                        <li>Klik tombol <strong>▶️ Jalankan Alur</strong>.</li>
+                        <li>Pilih konfigurasi tabel target via <strong>Multi-Select Dropdown</strong> (bisa gunakan fitur pencarian atau klik <em>✓ Pilih Semua</em>).</li>
+                        <li>(Opsional) Isi kolom <code>DELETE_IDS</code> jika hanya ingin menghapus nomor ID spesifik. Biarkan kosong untuk membersihkan seluruh data migrasi tabel tersebut.</li>
+                        <li>Klik <strong>Mulai Eksekusi Alur</strong>. Sistem mengeksekusi sub-workflow looping per tabel, mengisolasi galat per item, dan meresinkronisasi sequence PostgreSQL.</li>
+                      </ol>
+                    </div>
+                    <div class="text-xs text-slate-400">✓ <em>Output:</em> Data migrasi lama terhapus tuntas dan tabel target siap digunakan untuk pengujian alur baru.</div>
+                  </div>
+                </div>
+              </section>
+
+              <!-- ============================================================== -->
+              <!-- BAB 6: MODUL 4 - HASIL MIGRASI & BERITA ACARA                  -->
+              <!-- ============================================================== -->
+              <section id="guide-reconcile" class="userguide-card panel-card mb-4" data-category="reconcile">
+                <div class="guide-card-header">
+                  <div class="flex items-center gap-2">
+                    <span class="guide-badge-num">BAB 6</span>
+                    <h2 class="guide-section-title">Modul 4: Hasil Migrasi, Rekonsiliasi &amp; Berita Acara</h2>
+                  </div>
+                  <button type="button" class="btn btn-secondary btn-xs" onclick="switchTab('tab-pipeline')">Buka Hasil Migrasi ➔</button>
+                </div>
+                <div class="guide-card-body">
+                  <p class="guide-paragraph">Modul Hasil Migrasi menampilkan tabel rekonsiliasi 3-Tahap berkecepatan tinggi yang membandingkan volume data di setiap tahapan migrasi.</p>
+
+                  <div class="walkthrough-steps mt-3">
+                    <div class="walkthrough-step">
+                      <div class="step-num">1</div>
+                      <div class="step-content">
+                        <strong class="text-white">Membaca Indikator Status Rekonsiliasi</strong>
+                        <p class="text-xs text-slate-400 mt-1">
+                          - <span class="text-emerald font-bold">✓ 100% Match</span>: Jumlah baris data di staging sama persis dengan sumber SQL Server.<br>
+                          - <span class="text-amber font-bold">⏳ Selisih</span>: Terjadi perbedaan jumlah baris data (misal ada baris duplikat yang difilter atau baris yang ditolak validasi).
+                        </p>
+                      </div>
+                    </div>
+                    <div class="walkthrough-step">
+                      <div class="step-num">2</div>
+                      <div class="step-content">
+                        <strong class="text-white">Membaca Status Action (Posting Status)</strong>
+                        <p class="text-xs text-slate-400 mt-1">
+                          - <span class="text-sky-400 font-bold">🚀 Posted</span>: Data sudah berada di tabel produksi target PostgreSQL.<br>
+                          - <span class="text-amber-400 font-bold">📦 Staging</span>: Data baru sampai di tahap penampungan staging (belum diposting).<br>
+                          - <span class="text-rose-400 font-bold">↩️ Rolled Back</span>: Data sebelumnya pernah diposting lalu berhasil dibatalkan.
+                        </p>
+                      </div>
+                    </div>
+                    <div class="walkthrough-step">
+                      <div class="step-num">3</div>
+                      <div class="step-content">
+                        <strong class="text-white">Mencetak Berita Acara (BA) Validasi</strong>
+                        <p class="text-xs text-slate-400 mt-1">Klik tombol <strong>Cetak Berita Acara</strong> di kanan atas tabel. Dialog cetak akan menampilkan ringkasan formal validasi migrasi per tabel, metrik baris, serta tanda tangan pengesahan teknis yang siap dicetak ke PDF atau printer fisik.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <!-- ============================================================== -->
+              <!-- BAB 7: KOMPARASI KOLOM 3-TIER (COMPARE MODAL)                 -->
+              <!-- ============================================================== -->
+              <section id="guide-compare" class="userguide-card panel-card mb-4" data-category="reconcile">
+                <div class="guide-card-header">
+                  <div class="flex items-center gap-2">
+                    <span class="guide-badge-num">BAB 7</span>
+                    <h2 class="guide-section-title">Fitur Komparasi Data Kolom 3-Tier (⚖️ Compare)</h2>
+                  </div>
+                </div>
+                <div class="guide-card-body">
+                  <p class="guide-paragraph">Fitur Compare memungkinkan peninjauan nilai kolom baris-demi-baris secara mendalam dari Source ➔ Staging ➔ Target.</p>
+
+                  <div class="walkthrough-steps mt-3">
+                    <div class="walkthrough-step">
+                      <div class="step-num">1</div>
+                      <div class="step-content">
+                        <strong class="text-white">Membuka Dialog Komparasi</strong>
+                        <p class="text-xs text-slate-400 mt-1">Pada tabel Hasil Migrasi, klik tombol <strong>⚖️ Compare</strong> pada baris konfigurasi yang ingin ditinjau.</p>
+                      </div>
+                    </div>
+                    <div class="walkthrough-step">
+                      <div class="step-num">2</div>
+                      <div class="step-content">
+                        <strong class="text-white">Meneliti Baris Berdampingan (Side-by-Side)</strong>
+                        <p class="text-xs text-slate-400 mt-1">Tabel dialog menampilkan kolom dari sumber SQL Server di sebelah kiri dan kolom hasil transformasi PostgreSQL di sebelah kanan. Kolom yang mengalami konversi nilai akan ditandai dengan badge khusus.</p>
+                      </div>
+                    </div>
+                    <div class="walkthrough-step">
+                      <div class="step-num">3</div>
+                      <div class="step-content">
+                        <strong class="text-white">Audit Kesesuaian Nilai</strong>
+                        <p class="text-xs text-slate-400 mt-1">Gunakan fitur ini untuk memastikan tidak ada pemotongan string (*data truncation*), kehilangan presisi angka, atau pergeseran zona waktu tanggal.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <!-- ============================================================== -->
+              <!-- BAB 8: MODUL 5 - USER & HAK AKSES                             -->
+              <!-- ============================================================== -->
+              <section id="guide-system" class="userguide-card panel-card mb-4" data-category="system">
+                <div class="guide-card-header">
+                  <div class="flex items-center gap-2">
+                    <span class="guide-badge-num">BAB 8</span>
+                    <h2 class="guide-section-title">Modul 5: Manajemen Pengguna &amp; Matriks Hak Akses</h2>
+                  </div>
+                  <button type="button" class="btn btn-secondary btn-xs" onclick="switchTab('tab-system')">Buka System Admin ➔</button>
+                </div>
+                <div class="guide-card-body">
+                  <p class="guide-paragraph">Sistem mengimplementasikan otorisasi berbasis peran (*Role-Based Access Control / RBAC*) dengan 4 tingkatan peran standar:</p>
+
+                  <div class="table-container my-3">
+                    <table class="data-table">
+                      <thead>
+                        <tr>
+                          <th>Peran (Role)</th>
+                          <th>Tingkat Akses</th>
+                          <th>Hak Operasional</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td><span class="badge badge-primary font-bold">SUPERADMIN</span></td>
+                          <td>Akses Penuh (Full Control)</td>
+                          <td>Dapat mengelola pengguna, role, konfigurasi sistem, multi-koneksi DB, dan menjalankan seluruh alur migrasi.</td>
+                        </tr>
+                        <tr>
+                          <td><span class="badge badge-info font-bold">ADMIN</span></td>
+                          <td>Administrator Migrasi</td>
+                          <td>Mengelola konfigurasi pemetaan tabel, aturan konversi, dan mengeksekusi Flow 1, 2, 3, dan 4.</td>
+                        </tr>
+                        <tr>
+                          <td><span class="badge badge-warning font-bold">OPERATOR</span></td>
+                          <td>Operator Eksekusi</td>
+                          <td>Dapat mengeksekusi alur migrasi yang sudah dikonfigurasi dan memantau live console terminal.</td>
+                        </tr>
+                        <tr>
+                          <td><span class="badge badge-neutral font-bold">AUDITOR</span></td>
+                          <td>Hanya Lihat (Read-Only)</td>
+                          <td>Hanya dapat melihat hasil rekonsiliasi, menginspeksi log audit, dan mencetak Berita Acara resmi.</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </section>
+
+              <!-- ============================================================== -->
+              <!-- BAB 9: TROUBLESHOOTING & FAQ                                  -->
+              <!-- ============================================================== -->
+              <section id="guide-troubleshoot" class="userguide-card panel-card mb-4" data-category="faq">
+                <div class="guide-card-header">
+                  <div class="flex items-center gap-2">
+                    <span class="guide-badge-num">BAB 9</span>
+                    <h2 class="guide-section-title">Pertanyaan Sering Diajukan (FAQ) &amp; Solusi Galat</h2>
+                  </div>
+                  <span class="badge badge-danger text-xs">Penyelesaian Kendala</span>
+                </div>
+                <div class="guide-card-body">
+                  <div class="faq-list space-y-3">
+                    <div class="faq-item p-3 rounded border border-slate-700 bg-slate-800/40">
+                      <div class="font-bold text-white text-sm mb-1">❓ Mengapa Flow 2 menolak Run ID tertentu dengan pesan "Run ID belum berstatus SUCCESS"?</div>
+                      <p class="text-xs text-slate-300 leading-relaxed">Flow 2 memiliki perlindungan ketat: hanya sesi Flow 1 yang selesai 100% tanpa kesalahan (*status = SUCCESS*) yang diizinkan diposting ke tabel produksi target. Jika Flow 1 sebelumnya berstatus <em>FAILED</em> atau <em>PARTIAL</em>, periksa error log dan jalankan ulang Flow 1 terlebih dahulu.</p>
+                    </div>
+
+                    <div class="faq-item p-3 rounded border border-slate-700 bg-slate-800/40">
+                      <div class="font-bold text-white text-sm mb-1">❓ Apa yang dimaksud dengan status sesi "⚠️ KADALUARSA (SUPERSEDED)"?</div>
+                      <p class="text-xs text-slate-300 leading-relaxed">Ketika Anda menjalankan Flow 1 baru untuk konfigurasi tabel yang sama, isi tabel staging akan ditimpa (*overwritten*) oleh data baru. Oleh karena itu, sesi lama secara otomatis ditandai sebagai kadaluarsa (*superseded*) agar Anda tidak memposting data staging yang sudah usang.</p>
+                    </div>
+
+                    <div class="faq-item p-3 rounded border border-slate-700 bg-slate-800/40">
+                      <div class="font-bold text-white text-sm mb-1">❓ Terjadi galat "Foreign Key Constraint Violation" saat menjalankan Flow 2. Bagaimana solusinya?</div>
+                      <p class="text-xs text-slate-300 leading-relaxed">Periksa nilai <code>exec_order</code> pada menu <strong>Migration Config</strong>. Pastikan tabel master referensi diposting terlebih dahulu sebelum tabel transaksi (contoh: Master Vendor harus diposting sebelum Kontrak Vendor).</p>
+                    </div>
+
+                    <div class="faq-item p-3 rounded border border-slate-700 bg-slate-800/40">
+                      <div class="font-bold text-white text-sm mb-1">❓ Bagaimana jika koneksi SSH Tunnel SQL Server terputus saat bekerja?</div>
+                      <p class="text-xs text-slate-300 leading-relaxed">Sistem backend telah dilengkapi modul <em>Auto-Healing SSH Tunnel</em> yang secara otomatis mendeteksi keepalive timeout dan membangun kembali terowongan port-forwarding ke <code>HOST_REDACTED:22</code> tanpa perlu me-restart server aplikasi.</p>
+                    </div>
+                  </div>
+                </div>
+              </section>
+
             </div>
           </div>
         </div>
@@ -1948,6 +2657,296 @@
         </div>
         <div class="modal-footer">
           <button class="btn btn-secondary" onclick="document.getElementById('modal-json').classList.add('hidden')">Tutup</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- MODAL: KONFIGURASI PARAMETER EKSEKUSI ALUR CANVAS               -->
+    <!-- ============================================================== -->
+    <div id="modal-flow-execute-params" class="modal-overlay hidden">
+      <div class="modal-box modal-md">
+        <div class="modal-header">
+          <div>
+            <h3 class="modal-title flex-center gap-2">
+              <span>⚙️</span>
+              <span>Parameter Eksekusi Alur</span>
+            </h3>
+            <p class="modal-subtitle" id="modal-flow-params-subtitle">Lengkapi parameter wajib berikut sebelum memulai alur orkestrasi</p>
+          </div>
+          <button id="btn-close-flow-params" class="modal-close">&times;</button>
+        </div>
+
+        <form id="form-flow-execute-params">
+          <div class="modal-body" id="modal-flow-params-body">
+            <!-- Dynamic fields generated by flow-canvas.js -->
+          </div>
+
+          <div class="modal-footer flex-between">
+            <button type="button" id="btn-cancel-flow-params" class="btn btn-secondary btn-sm">Batal</button>
+            <button type="submit" id="btn-submit-flow-params" class="btn btn-primary btn-sm flex-center gap-2">
+              <span>▶️</span>
+              <span>Mulai Eksekusi Alur</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- MODAL: DIAGNOSTIK KESALAHAN EKSEKUSI SIMPUL                     -->
+    <!-- ============================================================== -->
+    <div id="modal-node-error-diagnostic" class="modal-overlay hidden">
+      <div class="modal-box modal-lg modal-error-diagnostic-box">
+        <div class="modal-header" style="border-bottom-color: rgba(244, 63, 94, 0.2);">
+          <div>
+            <h3 class="modal-title flex-center gap-2 text-rose-400">
+              <span>🐞</span>
+              <span>Diagnostik Kesalahan Eksekusi Simpul</span>
+            </h3>
+            <p class="modal-subtitle text-slate-400">Rincian teknis kegagalan simpul, error database, dan sampel baris bermasalah</p>
+          </div>
+          <button id="btn-close-error-diagnostic" class="modal-close">&times;</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="diagnostic-summary-grid">
+            <div class="diagnostic-card">
+              <div class="diagnostic-card-title">Simpul Yang Gagal</div>
+              <div class="diagnostic-card-val text-amber" id="diag-node-name">-</div>
+            </div>
+            <div class="diagnostic-card">
+              <div class="diagnostic-card-title">Fungsi / Query Database</div>
+              <div class="diagnostic-card-val text-cyan" id="diag-db-func">-</div>
+            </div>
+            <div class="diagnostic-card">
+              <div class="diagnostic-card-title">Kode Kesalahan</div>
+              <div class="diagnostic-card-val error-rose" id="diag-error-code">-</div>
+            </div>
+            <div class="diagnostic-card">
+              <div class="diagnostic-card-title">Tahapan Audit (Step)</div>
+              <div class="diagnostic-card-val" id="diag-step-name">-</div>
+            </div>
+          </div>
+
+          <div style="font-size: 0.72rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; margin-bottom: 0.35rem;">
+            Pesan Kesalahan Teknis Basis Data:
+          </div>
+          <div class="diagnostic-code-box" id="diag-error-message">
+            Memuat detail pesan error...
+          </div>
+
+          <div id="diag-samples-section">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+              <span style="font-size: 0.72rem; font-weight: 700; color: #94a3b8; text-transform: uppercase;">
+                Sampel Baris Bermasalah (dari migration_error_log):
+              </span>
+              <span id="diag-samples-count" class="badge badge-danger text-xs">0 baris</span>
+            </div>
+            <div class="diagnostic-error-table-wrapper">
+              <table class="diagnostic-error-table" id="diag-table-samples">
+                <thead>
+                  <tr>
+                    <th>Waktu</th>
+                    <th>Kode Error</th>
+                    <th>Pesan / Kolom</th>
+                    <th>Data Baris Mentah</th>
+                  </tr>
+                </thead>
+                <tbody id="diag-tbody-samples">
+                  <tr><td colspan="4" style="text-align: center; color: #64748b; padding: 1rem;">Tidak ada baris data error tercatat.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer flex-between" style="border-top-color: rgba(244, 63, 94, 0.2);">
+          <div style="display: flex; gap: 0.5rem;">
+            <button id="btn-diag-retry" class="btn btn-primary btn-sm flex-center gap-1">
+              <span>🔄</span>
+              <span>Coba Ulang Alur</span>
+            </button>
+            <button id="btn-diag-rollback" class="btn btn-warning btn-sm flex-center gap-1">
+              <span>↩️</span>
+              <span>Rollback Target</span>
+            </button>
+          </div>
+          <button id="btn-diag-close" class="btn btn-secondary btn-sm">Tutup</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================================== -->
+    <!-- MODAL: PROPERTI SIMPUL LENGKAP (INPUT, OUTPUT & DATABASE TRACING) -->
+    <!-- ============================================================== -->
+    <div id="modal-node-properties" class="modal-overlay hidden">
+      <div class="modal-box modal-lg" style="max-width: 860px; width: 92%;">
+        <div class="modal-header" style="background: linear-gradient(135deg, #0f172a, #1e293b); color: #ffffff; border-bottom: 2px solid #38bdf8; border-radius: 12px 12px 0 0;">
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="font-size: 1.8rem; line-height: 1;" id="node-prop-icon">⚙️</div>
+            <div>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <h3 class="modal-title" id="node-prop-title" style="color: #ffffff; font-size: 1.1rem; font-weight: 700; margin: 0;">Properti Simpul</h3>
+                <span class="badge" id="node-prop-type-badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.4); font-size: 10px; font-weight: 700;">TYPE</span>
+                <span class="badge" id="node-prop-state-badge" style="background: rgba(148, 163, 184, 0.2); color: #94a3b8; font-size: 10px; font-weight: 700;">IDLE</span>
+              </div>
+              <p class="modal-subtitle" id="node-prop-subtitle" style="color: #94a3b8; font-size: 0.78rem; margin: 3px 0 0 0;">ID: node_sample | Orkestrasi alur migrasi data</p>
+              <div id="node-prop-env-badge" style="display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap;"></div>
+            </div>
+          </div>
+          <button id="btn-close-node-properties" class="modal-close" style="color: #cbd5e1; font-size: 1.5rem;">&times;</button>
+        </div>
+
+        <div class="modal-body" style="padding: 1.25rem; background: #ffffff; color: #1e293b; max-height: calc(85vh - 130px); overflow-y: auto;">
+          <!-- 1. Runtime State Card -->
+          <div id="node-prop-runtime-box" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; margin-bottom: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; margin-bottom: 8px;">
+              <span style="font-size: 0.75rem; font-weight: 800; color: #0f172a; text-transform: uppercase; letter-spacing: 0.5px;">
+                ⚡ Status Runtime & Performa Terakhir
+              </span>
+              <span id="node-prop-exec-status" style="font-size: 0.72rem; font-weight: 700; color: #64748b;">Belum Dieksekusi</span>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; font-size: 0.8rem;">
+              <div>
+                <span style="color: #64748b; font-size: 0.72rem;">Durasi Eksekusi:</span>
+                <div id="node-prop-duration" style="font-weight: 700; color: #0f172a;">-</div>
+              </div>
+              <div>
+                <span style="color: #64748b; font-size: 0.72rem;">Throughput Streaming:</span>
+                <div id="node-prop-throughput" style="font-weight: 700; color: #0284c7;">-</div>
+              </div>
+              <div>
+                <span style="color: #64748b; font-size: 0.72rem;">Tahapan Step Audit:</span>
+                <div id="node-prop-audit-step" style="font-weight: 700; color: #0f172a;">-</div>
+              </div>
+            </div>
+            <div id="node-prop-error-row" style="display: none; margin-top: 8px; padding: 8px; background: #fff1f2; border: 1px solid #fecdd3; border-radius: 6px; color: #e11d48; font-size: 0.78rem;">
+              <strong>Pesan Error:</strong> <span id="node-prop-error-text">-</span>
+            </div>
+          </div>
+
+          <!-- 2. Grid Dua Kolom: INPUT & OUTPUT Spesifikasi Simpul -->
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px;">
+            <!-- KOLOM INPUT -->
+            <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 12px;">
+              <div style="display: flex; align-items: center; gap: 6px; font-weight: 800; font-size: 0.84rem; color: #166534; border-bottom: 1px solid #bbf7d0; padding-bottom: 6px; margin-bottom: 8px;">
+                <span>📥</span>
+                <span>SPESIFIKASI INPUT MODUL</span>
+              </div>
+              
+              <div style="margin-bottom: 10px;">
+                <span style="font-size: 0.72rem; font-weight: 700; color: #15803d; text-transform: uppercase;">1. Parameter Input:</span>
+                <div id="node-prop-input-params" style="font-size: 0.78rem; color: #1e293b; margin-top: 3px;">
+                  <!-- Filled via JS -->
+                </div>
+              </div>
+
+              <div style="margin-bottom: 10px;">
+                <span style="font-size: 0.72rem; font-weight: 700; color: #15803d; text-transform: uppercase;">2. Sumber Data & Objek:</span>
+                <div id="node-prop-input-sources" style="font-size: 0.78rem; color: #1e293b; margin-top: 3px;">
+                  <!-- Filled via JS -->
+                </div>
+              </div>
+
+              <div>
+                <span style="font-size: 0.72rem; font-weight: 700; color: #15803d; text-transform: uppercase;">3. Kondisi Prasyarat (Pre-Condition):</span>
+                <div id="node-prop-input-prereq" style="font-size: 0.76rem; color: #475569; margin-top: 3px; font-style: italic;">
+                  <!-- Filled via JS -->
+                </div>
+              </div>
+            </div>
+
+            <!-- KOLOM OUTPUT -->
+            <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 12px;">
+              <div style="display: flex; align-items: center; gap: 6px; font-weight: 800; font-size: 0.84rem; color: #1e40af; border-bottom: 1px solid #bfdbfe; padding-bottom: 6px; margin-bottom: 8px;">
+                <span>📤</span>
+                <span>SPESIFIKASI OUTPUT MODUL</span>
+              </div>
+
+              <div style="margin-bottom: 10px;">
+                <span style="font-size: 0.72rem; font-weight: 700; color: #1d4ed8; text-transform: uppercase;">1. Hasil Keluaran / Target:</span>
+                <div id="node-prop-output-results" style="font-size: 0.78rem; color: #1e293b; margin-top: 3px;">
+                  <!-- Filled via JS -->
+                </div>
+              </div>
+
+              <div style="margin-bottom: 10px;">
+                <span style="font-size: 0.72rem; font-weight: 700; color: #1d4ed8; text-transform: uppercase;">2. Status & Kembalian:</span>
+                <div id="node-prop-output-status" style="font-size: 0.78rem; color: #1e293b; margin-top: 3px;">
+                  <!-- Filled via JS -->
+                </div>
+              </div>
+
+              <div>
+                <span style="font-size: 0.72rem; font-weight: 700; color: #1d4ed8; text-transform: uppercase;">3. Context Diteruskan (Downstream):</span>
+                <div id="node-prop-output-context" style="font-size: 0.76rem; color: #475569; margin-top: 3px; font-style: italic;">
+                  <!-- Filled via JS -->
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 3. Rincian Database & Prosedur Teknis -->
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 16px;">
+            <div style="font-weight: 800; font-size: 0.8rem; color: #0f172a; text-transform: uppercase; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; margin-bottom: 8px;">
+              🔍 Logika Database & Tracing PL/pgSQL
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 0.78rem;">
+              <div>
+                <span style="color: #64748b;">Fungsi / Stored Procedure:</span>
+                <div id="node-prop-db-func" style="font-family: monospace; font-weight: 600; color: #0284c7;">-</div>
+              </div>
+              <div>
+                <span style="color: #64748b;">Tipe Eksekusi:</span>
+                <div id="node-prop-db-type" style="font-weight: 600; color: #0f172a;">-</div>
+              </div>
+              <div>
+                <span style="color: #64748b;">Signature / Parameter Binding:</span>
+                <div id="node-prop-signature" style="font-family: monospace; color: #475569;">-</div>
+              </div>
+              <div>
+                <span style="color: #64748b;">Tabel Terkait:</span>
+                <div id="node-prop-tables" style="font-weight: 600; color: #0f172a;">-</div>
+              </div>
+            </div>
+            <div style="margin-top: 8px; padding-top: 6px; border-top: 1px dashed #e2e8f0;">
+              <span style="color: #64748b; font-size: 0.72rem;">Deskripsi Modul:</span>
+              <p id="node-prop-desc" style="margin: 2px 0 0 0; font-size: 0.78rem; color: #334155; line-height: 1.4;">-</p>
+            </div>
+          </div>
+
+          <!-- 4. Form Konfigurasi Simpul (Editable) -->
+          <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px;">
+            <div style="font-weight: 800; font-size: 0.8rem; color: #0f172a; text-transform: uppercase; margin-bottom: 8px;">
+              ⚙️ Penyesuaian Konfigurasi Simpul
+            </div>
+            <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px;">
+              <div>
+                <label style="font-size: 0.72rem; font-weight: 600; color: #475569; display: block; margin-bottom: 3px;">Label Simpul:</label>
+                <input type="text" id="node-prop-input-label" class="form-control" style="font-size: 0.8rem; padding: 5px 8px; border: 1px solid #cbd5e1; border-radius: 4px; width: 100%;">
+              </div>
+              <div>
+                <label style="font-size: 0.72rem; font-weight: 600; color: #475569; display: block; margin-bottom: 3px;">Kondisi Error:</label>
+                <select id="node-prop-input-onerror" class="form-control" style="font-size: 0.8rem; padding: 5px 8px; border: 1px solid #cbd5e1; border-radius: 4px; width: 100%;">
+                  <option value="ABORT">Hentikan Alur (ABORT)</option>
+                  <option value="ROLLBACK">Trigger Rollback</option>
+                </select>
+              </div>
+              <div>
+                <label style="font-size: 0.72rem; font-weight: 600; color: #475569; display: block; margin-bottom: 3px;">Ukuran Batch:</label>
+                <input type="number" id="node-prop-input-batch" class="form-control" style="font-size: 0.8rem; padding: 5px 8px; border: 1px solid #cbd5e1; border-radius: 4px; width: 100%;" min="100" max="10000" step="100" value="1000">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer flex-between" style="background: #f8fafc; border-top: 1px solid #e2e8f0; border-radius: 0 0 12px 12px; padding: 10px 16px;">
+          <button type="button" id="btn-close-node-prop-footer" class="btn btn-secondary btn-sm">Tutup Dialog</button>
+          <button type="button" id="btn-save-node-prop-dialog" class="btn btn-primary btn-sm flex-center gap-1" style="background: #0f172a; color: #ffffff; border: 1px solid #0f172a;">
+            <span>💾</span>
+            <span>Simpan Perubahan Simpul</span>
+          </button>
         </div>
       </div>
     </div>
@@ -3147,5 +4146,6 @@
   </div>
 
   <script src="js/app.js?v=2.5"></script>
+  <script src="js/flow-canvas.js?v=1.0"></script>
 </body>
 </html>
