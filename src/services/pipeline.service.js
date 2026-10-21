@@ -8,13 +8,30 @@ function sanitizeIdentifier(name) {
 }
 
 class PipelineService {
+  // In-memory cache map untuk mempercepat display data secara drastis
+  static _pipelineCache = new Map();
+
+  invalidatePipelineCache() {
+    PipelineService._pipelineCache.clear();
+  }
+
   /**
    * Mengambil seluruh list konfigurasi migration_config beserta rekonsiliasi 3-Tahap
+   * Dioptimasi dengan Paralel Query Concurrency, Single-Pass Grouping, & In-Memory TTL Cache
    */
   async getPipelineSummary(filters = {}) {
-    const { clientId, envId } = filters;
+    const { clientId, envId, force = false } = filters;
     const cid = clientId ? parseInt(clientId, 10) : null;
     const eid = envId ? parseInt(envId, 10) : null;
+    const cacheKey = `summary_${cid || 'all'}_${eid || 'all'}`;
+
+    const now = Date.now();
+    if (!force && PipelineService._pipelineCache.has(cacheKey)) {
+      const cached = PipelineService._pipelineCache.get(cacheKey);
+      if (now - cached.timestamp < 30000) { // TTL 30 detik
+        return cached.data;
+      }
+    }
 
     let cfgWhere = '';
     const cfgParams = [];
@@ -29,109 +46,116 @@ class PipelineService {
       cfgParams.push(eid);
     }
 
-    // 1. Ambil seluruh konfigurasi dari etl_antam.migration_config
-    const configsRes = await queryPostgres(`
-      SELECT 
-        config_id,
-        name_config,
-        exec_order,
-        src_schema,
-        src_view,
-        tgt_schema,
-        tgt_table,
-        stg_table,
-        pk_columns,
-        compare_columns,
-        id_column,
-        id_width,
-        id_seed,
-        src_precheck_sql,
-        is_active
-      FROM etl_antam.migration_config
-      ${cfgWhere}
-      ORDER BY exec_order, config_id
-    `, cfgParams);
+    // 1. Ambil seluruh konfigurasi dan data pendukung PostgreSQL secara PARALEL
+    const [
+      configsRes,
+      targetConfigsRes,
+      postStepLogsRes,
+      latestRunsRes,
+      errorCountsRes,
+      lastStepLogsRes
+    ] = await Promise.all([
+      queryPostgres(`
+        SELECT 
+          config_id, name_config, exec_order, src_schema, src_view,
+          tgt_schema, tgt_table, stg_table, pk_columns, compare_columns,
+          id_column, id_width, id_seed, src_precheck_sql, is_active
+        FROM etl_antam.migration_config
+        ${cfgWhere}
+        ORDER BY exec_order, config_id
+      `, cfgParams),
+      queryPostgres(`
+        SELECT target_config_id, config_id, exec_order, tgt_schema, tgt_table, pk_columns, is_active
+        FROM etl_antam.migration_target_config
+        WHERE is_active = true
+        ORDER BY config_id, exec_order, target_config_id
+      `),
+      queryPostgres(`
+        SELECT log_id, run_id, config_id, step_name, rows_before, rows_after, message, start_time
+        FROM etl_antam.migration_step_log
+        WHERE step_name = 'POST_TARGET'
+        ORDER BY log_id DESC
+      `),
+      queryPostgres(`
+        SELECT 
+          run_id, run_ts, start_time, end_time, status, hop_host, note, main_workflow, config_id,
+          is_posted, posted_at, post_type, is_rolled_back, rolled_back_at,
+          ROUND(EXTRACT(EPOCH FROM (end_time - start_time))::numeric, 2) AS duration_seconds
+        FROM etl_antam.migration_run
+        ${cfgWhere}
+        ORDER BY run_id DESC
+      `, cfgParams),
+      queryPostgres(`
+        SELECT config_id, run_id, COUNT(*)::int AS total
+        FROM etl_antam.migration_error_log
+        GROUP BY config_id, run_id
+      `),
+      queryPostgres(`
+        SELECT DISTINCT ON (config_id) *
+        FROM etl_antam.migration_step_log
+        ORDER BY config_id, log_id DESC
+      `)
+    ]);
 
     const configs = configsRes.rows;
-    const pipelineResults = [];
-
-    // Ambil seluruh target config untuk pemetaan multi-target
-    const targetConfigsRes = await queryPostgres(`
-      SELECT 
-        target_config_id,
-        config_id,
-        exec_order,
-        tgt_schema,
-        tgt_table,
-        pk_columns,
-        is_active
-      FROM etl_antam.migration_target_config
-      WHERE is_active = true
-      ORDER BY config_id, exec_order, target_config_id
-    `);
     const allTargetConfigs = targetConfigsRes.rows;
-
-    // Ambil log POST_TARGET terbaru untuk detail rows_before dan rows_after
-    const postStepLogsRes = await queryPostgres(`
-      SELECT log_id, run_id, config_id, step_name, rows_before, rows_after, message, start_time
-      FROM etl_antam.migration_step_log
-      WHERE step_name = 'POST_TARGET'
-      ORDER BY log_id DESC
-    `);
     const allPostStepLogs = postStepLogsRes.rows;
-
-    // Ambil info migration_run secara umum dan per config (terfilter client & env)
-    const latestRunsRes = await queryPostgres(`
-      SELECT 
-        run_id, run_ts, start_time, end_time, status, hop_host, note, main_workflow, config_id,
-        is_posted, posted_at, post_type, is_rolled_back, rolled_back_at,
-        ROUND(EXTRACT(EPOCH FROM (end_time - start_time))::numeric, 2) AS duration_seconds
-      FROM etl_antam.migration_run
-      ${cfgWhere}
-      ORDER BY run_id DESC
-    `, cfgParams);
     const allRuns = latestRunsRes.rows;
 
-    for (const cfg of configs) {
-      let srcRows = null;
-      let stgRows = null;
-      let tgtRows = null;
-      let srcError = null;
-      let stgError = null;
-      let tgtError = null;
+    // Buat O(1) Fast Lookup Maps
+    const errorMap = new Map();
+    for (const er of errorCountsRes.rows) {
+      errorMap.set(`${er.config_id}_${er.run_id}`, er.total);
+    }
 
+    const lastStepMap = new Map();
+    for (const ls of lastStepLogsRes.rows) {
+      lastStepMap.set(ls.config_id, ls);
+    }
+
+    // 2. Paralelisasi Perhitungan Staging & Source Rows
+    // Eksekusi seluruh query SQL Server dan Postgres Staging secara bersamaan
+    const srcPromises = configs.map(async (cfg) => {
       const cleanSrcSchema = sanitizeIdentifier(cfg.src_schema) || 'dbo';
       const cleanSrcView = sanitizeIdentifier(cfg.src_view);
+      if (!cleanSrcView) return { configId: cfg.config_id, rows: null, error: null };
+      try {
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Timeout SQL Server view')), 4000)
+        );
+        const queryPromise = querySqlServer(`SELECT COUNT_BIG(1) AS total FROM [${cleanSrcSchema}].[${cleanSrcView}]`);
+        const res = await Promise.race([queryPromise, timeoutPromise]);
+        return { configId: cfg.config_id, rows: parseInt(res.recordset[0]?.total, 10) || 0, error: null };
+      } catch (e) {
+        return { configId: cfg.config_id, rows: null, error: e.message };
+      }
+    });
+
+    const stgPromises = configs.map(async (cfg) => {
       const cleanStgSchema = 'stg_antam';
       const cleanStgTable = sanitizeIdentifier(cfg.stg_table);
-      const cleanTgtSchema = sanitizeIdentifier(cfg.tgt_schema) || 'vendor';
-      const cleanTgtTable = sanitizeIdentifier(cfg.tgt_table);
-
-      // 1. Hitung Baris Source (SQL Server)
-      if (cleanSrcView) {
-        try {
-          const res = await querySqlServer(
-            `SELECT COUNT_BIG(1) AS total FROM [${cleanSrcSchema}].[${cleanSrcView}]`
-          );
-          srcRows = parseInt(res.recordset[0]?.total, 10) || 0;
-        } catch (e) {
-          srcError = e.message;
-        }
+      if (!cleanStgTable) return { configId: cfg.config_id, rows: null, error: null };
+      try {
+        const res = await queryPostgres(`SELECT COUNT(*) AS total FROM "${cleanStgSchema}"."${cleanStgTable}"`);
+        return { configId: cfg.config_id, rows: parseInt(res.rows[0]?.total, 10) || 0, error: null };
+      } catch (e) {
+        return { configId: cfg.config_id, rows: null, error: e.message };
       }
+    });
 
-      // 2. Hitung Baris Staging (PostgreSQL - stg_antam)
-      if (cleanStgTable) {
-        try {
-          const res = await queryPostgres(
-            `SELECT COUNT(*) AS total FROM "${cleanStgSchema}"."${cleanStgTable}"`
-          );
-          stgRows = parseInt(res.rows[0]?.total, 10) || 0;
-        } catch (e) {
-          stgError = e.message;
-        }
-      }
+    const [srcResults, stgResults] = await Promise.all([
+      Promise.all(srcPromises),
+      Promise.all(stgPromises)
+    ]);
 
-      // Cari run yang relevan dengan config ini (exact token match)
+    const srcMap = new Map(srcResults.map(r => [r.configId, r]));
+    const stgMap = new Map(stgResults.map(r => [r.configId, r]));
+
+    // 3. Kumpulkan fallback target tables yang actionStatus-nya POSTED dan perlu di-count jika belum ada di log
+    const fallbackTargetQueries = [];
+    const fallbackTargetMap = new Map();
+
+    for (const cfg of configs) {
       const idStr = String(cfg.config_id);
       const matchedRun = allRuns.find((r) => {
         if (!r.config_id) return false;
@@ -139,55 +163,22 @@ class PipelineService {
         return ids.includes(idStr);
       }) || null;
 
-      // Ambil jumlah error terkait sesi terakhir config_id ini
-      let errorsCount = 0;
-      if (matchedRun && matchedRun.run_id) {
-        const errorCountRes = await queryPostgres(
-          `SELECT COUNT(*) AS total FROM etl_antam.migration_error_log WHERE config_id = $1 AND run_id = $2`,
-          [cfg.config_id, matchedRun.run_id]
-        );
-        errorsCount = parseInt(errorCountRes.rows[0]?.total, 10) || 0;
-      }
-
-      // Ambil log langkah terakhir
-      const lastStepRes = await queryPostgres(
-        `SELECT * FROM etl_antam.migration_step_log WHERE config_id = $1 ORDER BY log_id DESC LIMIT 1`,
-        [cfg.config_id]
-      );
-      const lastStep = lastStepRes.rows[0] || null;
-
-      // Evaluasi status alur Source ➔ Staging
-      let stage1Status = 'UNKNOWN';
-      if (srcRows !== null && stgRows !== null) {
-        if (srcRows === stgRows) {
-          stage1Status = 'MATCH';
-        } else if (stgRows < srcRows) {
-          stage1Status = 'PARTIAL';
-        } else {
-          stage1Status = 'OVERFLOW';
-        }
-      }
-
-      // 3. Evaluasi Multi-Target dari migration_target_config
       let cfgTargets = allTargetConfigs.filter((t) => t.config_id === cfg.config_id);
       if (cfgTargets.length === 0) {
         cfgTargets = [{
           target_config_id: null,
           config_id: cfg.config_id,
           exec_order: 1,
-          tgt_schema: cleanTgtSchema,
-          tgt_table: cleanTgtTable,
+          tgt_schema: sanitizeIdentifier(cfg.tgt_schema) || 'vendor',
+          tgt_table: sanitizeIdentifier(cfg.tgt_table),
           pk_columns: cfg.pk_columns,
-          is_active: true,
+          is_active: true
         }];
       }
 
-      const resolvedTargets = [];
       for (const t of cfgTargets) {
         const tSchema = sanitizeIdentifier(t.tgt_schema) || 'vendor';
         const tTable = sanitizeIdentifier(t.tgt_table);
-
-        // Cari step log yang cocok dengan tabel target ini (utamakan run sesi yang bersangkutan)
         const matchedLog = allPostStepLogs.find((sl) =>
           sl.config_id === cfg.config_id &&
           (matchedRun ? sl.run_id === matchedRun.run_id : true) &&
@@ -199,7 +190,99 @@ class PipelineService {
           sl.message.toLowerCase().includes(tTable.toLowerCase())
         );
 
-        // Tentukan Status Action: POSTED, STAGING_ONLY, ROLLED_BACK, atau NONE
+        let actionStatus = 'NONE';
+        if (matchedRun) {
+          actionStatus = matchedRun.is_rolled_back ? 'ROLLED_BACK' : (matchedRun.is_posted ? 'POSTED' : 'STAGING_ONLY');
+        } else if (matchedLog) {
+          actionStatus = 'POSTED';
+        }
+
+        if (actionStatus === 'POSTED' && tTable && (!matchedLog || matchedLog.rows_after === null)) {
+          const key = `"${tSchema}"."${tTable}"`;
+          if (!fallbackTargetMap.has(key)) {
+            fallbackTargetMap.set(key, null);
+            fallbackTargetQueries.push(
+              queryPostgres(`SELECT COUNT(*) AS total FROM ${key}`)
+                .then(r => fallbackTargetMap.set(key, parseInt(r.rows[0]?.total, 10) || 0))
+                .catch(() => fallbackTargetMap.set(key, null))
+            );
+          }
+        }
+      }
+    }
+
+    if (fallbackTargetQueries.length > 0) {
+      await Promise.all(fallbackTargetQueries);
+    }
+
+    // 4. Bangun seluruh pipeline results in-memory
+    const pipelineResults = [];
+
+    for (const cfg of configs) {
+      const srcInfo = srcMap.get(cfg.config_id) || { rows: null, error: null };
+      const stgInfo = stgMap.get(cfg.config_id) || { rows: null, error: null };
+      const srcRows = srcInfo.rows;
+      const stgRows = stgInfo.rows;
+      const srcError = srcInfo.error;
+      const stgError = stgInfo.error;
+
+      const cleanSrcSchema = sanitizeIdentifier(cfg.src_schema) || 'dbo';
+      const cleanSrcView = sanitizeIdentifier(cfg.src_view);
+      const cleanStgSchema = 'stg_antam';
+      const cleanStgTable = sanitizeIdentifier(cfg.stg_table);
+      const cleanTgtSchema = sanitizeIdentifier(cfg.tgt_schema) || 'vendor';
+      const cleanTgtTable = sanitizeIdentifier(cfg.tgt_table);
+
+      const idStr = String(cfg.config_id);
+      const matchedRun = allRuns.find((r) => {
+        if (!r.config_id) return false;
+        const ids = r.config_id.split(',').map((s) => s.trim());
+        return ids.includes(idStr);
+      }) || null;
+
+      const errorsCount = matchedRun ? (errorMap.get(`${cfg.config_id}_${matchedRun.run_id}`) || 0) : 0;
+      const lastStep = lastStepMap.get(cfg.config_id) || null;
+
+      let stage1Status = 'UNKNOWN';
+      if (srcRows !== null && stgRows !== null) {
+        if (srcRows === stgRows) {
+          stage1Status = 'MATCH';
+        } else if (stgRows < srcRows) {
+          stage1Status = 'PARTIAL';
+        } else {
+          stage1Status = 'OVERFLOW';
+        }
+      }
+
+      let cfgTargets = allTargetConfigs.filter((t) => t.config_id === cfg.config_id);
+      if (cfgTargets.length === 0) {
+        cfgTargets = [{
+          target_config_id: null,
+          config_id: cfg.config_id,
+          exec_order: 1,
+          tgt_schema: cleanTgtSchema,
+          tgt_table: cleanTgtTable,
+          pk_columns: cfg.pk_columns,
+          is_active: true
+        }];
+      }
+
+      const resolvedTargets = [];
+      for (const t of cfgTargets) {
+        const tSchema = sanitizeIdentifier(t.tgt_schema) || 'vendor';
+        const tTable = sanitizeIdentifier(t.tgt_table);
+
+        const matchedLog = allPostStepLogs.find((sl) =>
+          sl.config_id === cfg.config_id &&
+          (matchedRun ? sl.run_id === matchedRun.run_id : true) &&
+          sl.message && tTable &&
+          sl.message.toLowerCase().includes(tTable.toLowerCase())
+        ) || allPostStepLogs.find((sl) =>
+          sl.config_id === cfg.config_id &&
+          sl.message && tTable &&
+          sl.message.toLowerCase().includes(tTable.toLowerCase())
+        );
+
         let actionStatus = 'NONE';
         let postedAt = null;
         let rolledBackAt = null;
@@ -223,27 +306,15 @@ class PipelineService {
         let sumAfter = null;
         let sumBefore = null;
 
-        // Hanya isi sumBefore dan sumAfter jika data SUDAH pernah diposting ke target (POSTED)
-        // Jika masih STAGING_ONLY, biarkan null (akan tampil '-' di UI)
         if (actionStatus === 'POSTED') {
           sumAfter = (matchedLog && matchedLog.rows_after !== null && matchedLog.rows_after !== undefined)
             ? parseInt(matchedLog.rows_after, 10)
-            : null;
+            : (fallbackTargetMap.get(`"${tSchema}"."${tTable}"`) ?? null);
+
           sumBefore = (matchedLog && matchedLog.rows_before !== null && matchedLog.rows_before !== undefined)
             ? parseInt(matchedLog.rows_before, 10)
             : null;
 
-          // Fallback hitung jumlah baris aktual target di DB jika belum tercatat di log
-          if (sumAfter === null && tTable) {
-            try {
-              const countRes = await queryPostgres(`SELECT COUNT(*) AS total FROM "${tSchema}"."${tTable}"`);
-              sumAfter = parseInt(countRes.rows[0]?.total, 10) || 0;
-            } catch (e) {
-              sumAfter = null;
-            }
-          }
-
-          // Estimasi sumBefore jika null tapi sumAfter dan stgRows diketahui
           if (sumBefore === null && sumAfter !== null && stgRows !== null) {
             sumBefore = Math.max(0, sumAfter - stgRows);
           }
@@ -263,17 +334,15 @@ class PipelineService {
           lastRunId,
           actionStatus,
           postedAt,
-          rolledBackAt,
+          rolledBackAt
         });
       }
 
-      // Target utama untuk kompatibilitas visual flow diagram
       const primaryTarget = resolvedTargets[0] || {
         schema: cleanTgtSchema,
         table: cleanTgtTable,
-        sumAfter: null,
+        sumAfter: null
       };
-      tgtRows = primaryTarget.sumAfter;
 
       pipelineResults.push({
         configId: cfg.config_id,
@@ -285,29 +354,29 @@ class PipelineService {
           schema: cleanSrcSchema,
           view: cleanSrcView,
           rows: srcRows,
-          error: srcError,
+          error: srcError
         },
         staging: {
           database: 'db_procsi (PostgreSQL)',
           schema: cleanStgSchema,
           table: cleanStgTable,
           rows: stgRows,
-          error: stgError,
+          error: stgError
         },
         target: {
           database: 'db_procsi (PostgreSQL)',
           schema: primaryTarget.schema,
           table: primaryTarget.table,
-          rows: tgtRows,
-          error: tgtError,
+          rows: primaryTarget.sumAfter,
+          error: null
         },
         targets: resolvedTargets,
         reconciliation: {
           deltaSourceToStaging: (srcRows !== null && stgRows !== null) ? stgRows - srcRows : null,
-          deltaStagingToTarget: (stgRows !== null && tgtRows !== null) ? tgtRows - stgRows : null,
+          deltaStagingToTarget: (stgRows !== null && primaryTarget.sumAfter !== null) ? primaryTarget.sumAfter - stgRows : null,
           sourceToStagingStatus: stage1Status,
           errorsLogged: errorsCount,
-          lastStep,
+          lastStep
         },
         latestRun: matchedRun || allRuns[0] || null,
         metadata: {
@@ -316,16 +385,24 @@ class PipelineService {
           idColumn: cfg.id_column,
           idWidth: cfg.id_width,
           idSeed: cfg.id_seed,
-          srcPrecheckSql: cfg.src_precheck_sql,
-        },
+          srcPrecheckSql: cfg.src_precheck_sql
+        }
       });
     }
 
-    return {
+    const finalResult = {
       totalConfigs: pipelineResults.length,
       pipelines: pipelineResults,
-      recentRuns: allRuns.slice(0, 10),
+      recentRuns: allRuns.slice(0, 10)
     };
+
+    // Simpan ke in-memory cache
+    PipelineService._pipelineCache.set(cacheKey, {
+      timestamp: Date.now(),
+      data: finalResult
+    });
+
+    return finalResult;
   }
 
   /**

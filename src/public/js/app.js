@@ -180,7 +180,14 @@ async function checkSystemInitialization() {
       if (welcomeInfo) welcomeInfo.classList.remove('hidden');
       updateWelcomeStatusBadge(true);
       await loadContextClientsAndEnvironments();
-      switchMainTab('tab-source');
+      let initTab = 'tab-source';
+      try {
+        const savedTab = localStorage.getItem('antam_active_main_tab');
+        if (savedTab && document.getElementById(savedTab)) {
+          initTab = savedTab;
+        }
+      } catch (_) {}
+      switchMainTab(initTab);
     }
   } catch (err) {
     console.warn('Cek inisialisasi gagal:', err.message);
@@ -208,13 +215,27 @@ function setupEventListeners() {
     });
   });
 
-  // Process Subtabs
-  document.querySelectorAll('#tab-process .sub-tab-btn').forEach((btn) => {
+  // Canvas Studio Bottom Panel Subtabs Navigation
+  document.querySelectorAll('.canvas-bottom-tab-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
-      const subtabId = btn.getAttribute('data-subtab');
-      switchProcessSubtab(subtabId);
+      const tabId = btn.getAttribute('data-canvas-tab');
+      switchCanvasBottomTab(tabId);
     });
   });
+
+  // Toggle Canvas Console Panel Height (Expand / Collapse)
+  const btnTogglePanel = document.getElementById('btn-toggle-canvas-panel-height');
+  if (btnTogglePanel) {
+    btnTogglePanel.addEventListener('click', () => {
+      const panel = document.getElementById('canvas-bottom-panel');
+      if (panel) {
+        panel.classList.toggle('expanded');
+        const isExp = panel.classList.contains('expanded');
+        const icon = document.getElementById('canvas-panel-toggle-icon');
+        if (icon) icon.textContent = isExp ? '↘️' : '↕️';
+      }
+    });
+  }
 
   // Setting Subtabs
   document.querySelectorAll('[data-setting-tab]').forEach((btn) => {
@@ -232,6 +253,9 @@ function setupEventListeners() {
       resetVolatileStateAndUI();
       await loadContextEnvironments(state.selectedClientId);
       await resolveEnvironmentConnections(state.selectedEnvId);
+      if (window.flowCanvasStudio) {
+        window.flowCanvasStudio.onContextChanged?.();
+      }
       loadCurrentTab();
     });
   }
@@ -242,6 +266,9 @@ function setupEventListeners() {
       state.selectedEnvId = e.target.value ? parseInt(e.target.value, 10) : null;
       resetVolatileStateAndUI();
       await resolveEnvironmentConnections(state.selectedEnvId);
+      if (window.flowCanvasStudio) {
+        window.flowCanvasStudio.onContextChanged?.();
+      }
       loadCurrentTab();
     });
   }
@@ -250,6 +277,9 @@ function setupEventListeners() {
   document.getElementById('btn-refresh-all').addEventListener('click', async () => {
     resetVolatileStateAndUI();
     await resolveEnvironmentConnections(state.selectedEnvId);
+    if (window.flowCanvasStudio) {
+      window.flowCanvasStudio.onContextChanged?.();
+    }
     loadCurrentTab();
   });
 
@@ -481,6 +511,7 @@ function setupEventListeners() {
   });
 
   // Tab 3: Process Controls & Pagination
+  setupQuickFlowActions();
   document.getElementById('btn-refresh-runs').addEventListener('click', () => loadEtlRuns());
 
   const filterRunsStatus = document.getElementById('filter-runs-status');
@@ -652,7 +683,7 @@ function setupEventListeners() {
   });
 
   // Tab 4: Pipeline Controls
-  document.getElementById('btn-refresh-pipeline').addEventListener('click', () => loadPipelineReconciliation());
+  document.getElementById('btn-refresh-pipeline').addEventListener('click', () => loadPipelineReconciliation(true));
 
   document.querySelectorAll('.stage-btn').forEach((btn) => {
     btn.addEventListener('click', (e) => {
@@ -886,6 +917,107 @@ function setupEventListeners() {
   initCompareModalEvents();
 }
 
+function setupQuickFlowActions() {
+  document.getElementById('btn-quick-open-canvas')?.addEventListener('click', () => {
+    switchMainTab('tab-canvas');
+  });
+
+  document.getElementById('btn-quick-flow-1')?.addEventListener('click', async () => {
+    const configId = prompt('Masukkan Config ID untuk Flow 1 (Staging & Convert):', '1');
+    if (!configId) return;
+    showToast(`Memulai Flow 1 Staging untuk Config #${configId}...`, 'info');
+    try {
+      const res = await fetch('/api/flows/flow-1-staging', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ configId: parseInt(configId, 10) })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('✓ Flow 1 Staging & Conversion berhasil tuntas!', 'success');
+        loadEtlRuns();
+        loadEtlOverview();
+      } else {
+        showToast(`Gagal: ${data.error}`, 'error');
+      }
+    } catch (e) {
+      showToast(`Error: ${e.message}`, 'error');
+    }
+  });
+
+  document.getElementById('btn-quick-flow-2')?.addEventListener('click', async () => {
+    const runId = prompt('Masukkan Run ID yang akan di-post ke target:');
+    if (!runId) return;
+    const useBatch = confirm('Gunakan Mode Batch (1.000 baris per batch)? Klik OK untuk BATCH, Cancel untuk DIRECT') ? 'Y' : 'N';
+    showToast(`Memulai Flow 2 Post untuk Run ID #${runId} (Mode: ${useBatch === 'Y' ? 'BATCH 1000' : 'DIRECT'})...`, 'info');
+    try {
+      const res = await fetch('/api/flows/flow-2-post', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runId: parseInt(runId, 10), useBatch, batchSize: 1000 })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('✓ Flow 2 Multi-Target Post berhasil tuntas!', 'success');
+        loadEtlRuns();
+        loadEtlOverview();
+      } else {
+        showToast(`Gagal: ${data.error}`, 'error');
+      }
+    } catch (e) {
+      showToast(`Error: ${e.message}`, 'error');
+    }
+  });
+
+  document.getElementById('btn-quick-flow-3')?.addEventListener('click', async () => {
+    const runId = prompt('PERINGATAN: Masukkan Run ID yang akan di-ROLLBACK (data target akan dihapus):');
+    if (!runId) return;
+    if (!confirm(`Konfirmasi: Apakah Anda yakin ingin me-rollback target untuk Run ID #${runId}?`)) return;
+    showToast(`Memproses Flow 3 Rollback untuk Run ID #${runId}...`, 'info');
+    try {
+      const res = await fetch('/api/flows/flow-3-rollback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runId: parseInt(runId, 10) })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('✓ Flow 3 Safe Rollback berhasil membersihkan data target!', 'success');
+        loadEtlRuns();
+        loadEtlOverview();
+      } else {
+        showToast(`Gagal: ${data.error}`, 'error');
+      }
+    } catch (e) {
+      showToast(`Error: ${e.message}`, 'error');
+    }
+  });
+
+  document.getElementById('btn-quick-flow-4')?.addEventListener('click', async () => {
+    const configId = prompt('PERINGATAN: Masukkan Config ID untuk PURGE data target (khusus flag migration=1):', '1');
+    if (!configId) return;
+    if (!confirm(`Konfirmasi: Apakah Anda yakin ingin melakukan PURGE pada data target migrasi Config #${configId}?`)) return;
+    showToast(`Memproses Flow 4 Purge Target untuk Config #${configId}...`, 'info');
+    try {
+      const res = await fetch('/api/flows/flow-4-purge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ configId: parseInt(configId, 10) })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast('✓ Flow 4 Target Purge selesai.', 'success');
+        loadEtlRuns();
+        loadEtlOverview();
+      } else {
+        showToast(`Gagal: ${data.error}`, 'error');
+      }
+    } catch (e) {
+      showToast(`Error: ${e.message}`, 'error');
+    }
+  });
+}
+
 function setupSearchFilter(inputId, tbodyId) {
   const input = document.getElementById(inputId);
   if (!input) return;
@@ -907,6 +1039,9 @@ function switchMainTab(tabId) {
     tabId = 'tab-source';
   }
   state.activeTab = tabId;
+  try {
+    localStorage.setItem('antam_active_main_tab', tabId);
+  } catch (_) {}
   document.querySelectorAll('.nav-tab-btn').forEach((btn) => {
     btn.classList.toggle('active', btn.getAttribute('data-tab') === tabId);
   });
@@ -925,18 +1060,24 @@ function loadCurrentTab() {
     loadSourceViews();
   } else if (tabId === 'tab-config') {
     loadEtlMasters();
-  } else if (tabId === 'tab-process') {
+  } else if (tabId === 'tab-canvas') {
+    if (window.flowCanvasStudio) {
+      window.flowCanvasStudio.init();
+      window.flowCanvasStudio.onTabActivated?.();
+    }
     loadEtlOverview();
     loadEtlRuns();
-    if (state.activeProcessSubtab === 'subtab-steplogs') {
+    if (state.activeCanvasBottomTab === 'canvas-tab-steplogs') {
       loadEtlStepLogs(state.process.selectedRunId);
-    } else if (state.activeProcessSubtab === 'subtab-errorlogs') {
+    } else if (state.activeCanvasBottomTab === 'canvas-tab-errorlogs') {
       loadEtlErrorLogs(state.process.selectedRunId);
     }
   } else if (tabId === 'tab-pipeline') {
     loadPipelineReconciliation();
   } else if (tabId === 'tab-system') {
     loadSystemAdministration();
+  } else if (tabId === 'tab-userguide') {
+    loadUserguideView();
   }
 }
 
@@ -950,20 +1091,34 @@ function switchConfigSubtab(subtabId) {
   });
 }
 
-function switchProcessSubtab(subtabId) {
-  state.activeProcessSubtab = subtabId;
-  document.querySelectorAll('#tab-process .sub-tab-btn').forEach((btn) => {
-    btn.classList.toggle('active', btn.getAttribute('data-subtab') === subtabId);
+function switchCanvasBottomTab(tabId) {
+  // Support legacy subtab ID fallbacks
+  if (tabId === 'subtab-runs') tabId = 'canvas-tab-runs';
+  if (tabId === 'subtab-steplogs') tabId = 'canvas-tab-steplogs';
+  if (tabId === 'subtab-errorlogs') tabId = 'canvas-tab-errorlogs';
+  if (tabId === 'subtab-terminal') tabId = 'canvas-tab-terminal';
+
+  state.activeCanvasBottomTab = tabId;
+  document.querySelectorAll('.canvas-bottom-tab-btn').forEach((btn) => {
+    btn.classList.toggle('active', btn.getAttribute('data-canvas-tab') === tabId);
   });
-  document.querySelectorAll('#tab-process .subtab-content').forEach((c) => {
-    c.classList.toggle('active', c.id === subtabId);
+  document.querySelectorAll('.canvas-bottom-pane').forEach((pane) => {
+    pane.classList.toggle('active', pane.id === tabId);
   });
 
-  if (subtabId === 'subtab-steplogs') {
+  if (tabId === 'canvas-tab-runs') {
+    loadEtlOverview();
+    loadEtlRuns();
+  } else if (tabId === 'canvas-tab-steplogs') {
     loadEtlStepLogs(state.process.selectedRunId);
-  } else if (subtabId === 'subtab-errorlogs') {
+  } else if (tabId === 'canvas-tab-errorlogs') {
     loadEtlErrorLogs(state.process.selectedRunId);
   }
+}
+
+// Backwards-compatible alias for existing functions
+function switchProcessSubtab(subtabId) {
+  switchCanvasBottomTab(subtabId);
 }
 
 function switchSettingTab(tabId) {
@@ -1093,6 +1248,11 @@ function resetVolatileStateAndUI() {
   if (elStageThead) elStageThead.innerHTML = '<tr><th>Pilih pipeline untuk melihat sampel data</th></tr>';
   const elStageTbody = document.getElementById('stage-data-tbody');
   if (elStageTbody) elStageTbody.innerHTML = '<tr><td class="text-center py-8 text-muted">Data tahap belum dimuat.</td></tr>';
+
+  // 5. Reset Visual Canvas Studio Ephemeral Info & State
+  if (window.flowCanvasStudio) {
+    window.flowCanvasStudio.resetCanvasInfoAndState?.();
+  }
 }
 
 // =========================================================================
@@ -4050,12 +4210,22 @@ async function loadEtlOverview() {
     const data = json.data;
     state.process.overview = data;
 
-    document.getElementById('kpi-etl-total-runs').textContent = data.totalRuns;
-    document.getElementById('kpi-etl-success-runs').textContent = data.successRuns;
-    document.getElementById('kpi-etl-failed-runs').textContent = data.failedRuns;
-    document.getElementById('kpi-etl-total-errors').textContent = data.totalErrors;
+    const elTot = document.getElementById('kpi-etl-total-runs');
+    if (elTot) elTot.textContent = data.totalRuns;
+    const elSucc = document.getElementById('kpi-etl-success-runs');
+    if (elSucc) elSucc.textContent = data.successRuns;
+    const elFail = document.getElementById('kpi-etl-failed-runs');
+    if (elFail) elFail.textContent = data.failedRuns;
+    const elErr = document.getElementById('kpi-etl-total-errors');
+    if (elErr) elErr.textContent = data.totalErrors;
   } catch (e) {}
 }
+
+window.loadEtlOverview = loadEtlOverview;
+window.loadEtlRuns = loadEtlRuns;
+window.loadEtlStepLogs = loadEtlStepLogs;
+window.loadEtlErrorLogs = loadEtlErrorLogs;
+window.switchCanvasBottomTab = switchCanvasBottomTab;
 
 async function loadEtlRuns() {
   const tbody = document.getElementById('etl-runs-table-body');
@@ -4136,14 +4306,35 @@ async function loadEtlRuns() {
     }
 
     tbody.innerHTML = state.process.runs.map((run) => {
+      const isSuperseded = Boolean(run.note && (run.note.toUpperCase().includes('SUPERSEDED') || run.note.toUpperCase().includes('KADALUARSA')));
       const isSuccess = run.status === 'SUCCESS' || run.status === 'COMPLETED';
       const isFailed = run.status === 'FAILED';
-      const badgeClass = isSuccess ? 'badge-success' : (isFailed ? 'badge-danger' : 'badge-warning');
       const isFiltered = state.process.selectedRunId == run.run_id;
 
-      const postBadge = run.is_posted
-        ? `<span class="badge badge-success">✓ Posted (${escapeHtml(run.post_type || 'auto')})</span>`
-        : `<span class="badge badge-neutral">Belum</span>`;
+      // Status Badge
+      let statusBadge = '';
+      if (isSuperseded) {
+        statusBadge = `<span class="badge" style="background: rgba(148, 163, 184, 0.2); color: #64748b; border: 1px solid #cbd5e1; font-weight: 700;" title="Sesi usang karena digantikan oleh run baru">⚠️ SUPERSEDED</span>`;
+      } else if (isSuccess) {
+        statusBadge = `<span class="badge badge-success font-bold" title="Sesi aktif dan berhasil dieksekusi">✓ SUCCESS (Aktif)</span>`;
+      } else if (isFailed) {
+        statusBadge = `<span class="badge badge-danger font-bold">✕ FAILED</span>`;
+      } else {
+        const badgeClass = run.status === 'RUNNING' ? 'badge-primary' : 'badge-warning';
+        statusBadge = `<span class="badge ${badgeClass}">${run.status}</span>`;
+      }
+
+      // Posting Badge
+      let postBadge = '';
+      if (run.is_posted) {
+        postBadge = `<span class="badge badge-success font-bold">✓ Sudah Post (${escapeHtml(run.post_type || 'auto')})</span>`;
+      } else if (isSuperseded) {
+        postBadge = `<span class="badge" style="background: #f1f5f9; color: #94a3b8; border: 1px dashed #cbd5e1; font-weight: 600;" title="Data staging telah digantikan oleh sesi baru, tidak diposting">Batal / Usang</span>`;
+      } else if (isSuccess) {
+        postBadge = `<span class="badge font-bold" style="background: #e0f2fe; color: #0284c7; border: 1px solid #7dd3fc;" title="Data staging valid, siap diposting ke target (Flow 2)">Siap Post (Flow 2)</span>`;
+      } else {
+        postBadge = `<span class="badge badge-neutral">Belum</span>`;
+      }
 
       const rollbackBadge = run.is_rolled_back
         ? `<span class="badge badge-danger">⚠️ Rolled Back</span>`
@@ -4157,21 +4348,35 @@ async function loadEtlRuns() {
         ? `<span class="badge badge-purple font-mono font-bold" title="${escapeHtml(run.env_name || '')}">${escapeHtml(run.env_code)}</span>`
         : `<span class="badge badge-neutral text-xs">DEFAULT</span>`;
 
+      // Note text styling
+      let noteStyle = 'color: #64748b; font-size: 0.75rem;';
+      if (isSuperseded) {
+        noteStyle = 'color: #94a3b8; font-size: 0.75rem; font-style: italic;';
+      } else if (run.note && (run.note.includes('AKTIF') || run.note.includes('STAGING SIAP'))) {
+        noteStyle = 'color: #15803d; font-size: 0.75rem; font-weight: 600;';
+      } else if (run.is_posted) {
+        noteStyle = 'color: #0369a1; font-size: 0.75rem; font-weight: 600;';
+      }
+
+      const rowBgStyle = isSuperseded 
+        ? 'opacity: 0.7; background-color: rgba(241, 245, 249, 0.4);' 
+        : (!run.is_posted && isSuccess ? 'background-color: rgba(240, 253, 244, 0.35);' : '');
+
       return `
-        <tr class="${isFiltered ? 'active-row' : ''}">
+        <tr class="${isFiltered ? 'active-row' : ''}" style="${rowBgStyle}">
           <td class="font-mono font-bold">#${run.run_id}</td>
           <td>${clientBadge}</td>
           <td>${envBadge}</td>
           <td class="font-mono text-muted" style="font-size: 0.75rem;">${run.run_ts || '-'}</td>
           <td class="font-mono text-cyan" style="font-size: 0.75rem;">${run.main_workflow || '-'}</td>
           <td class="font-mono text-muted">${run.config_id ? `Config #${run.config_id}` : '-'}</td>
-          <td><span class="badge ${badgeClass}">${run.status}</span></td>
+          <td>${statusBadge}</td>
           <td class="font-mono text-muted" style="font-size: 0.75rem;">${formatDate(run.start_time)}</td>
           <td class="font-mono">${run.duration_seconds ? run.duration_seconds + 's' : '-'}</td>
           <td>${postBadge}</td>
           <td>${rollbackBadge}</td>
           <td class="font-mono text-muted" style="font-size: 0.75rem;">${run.hop_host || '-'}</td>
-          <td style="max-width: 200px;" class="text-muted" title="${escapeHtml(run.note || '')}">${escapeHtml(run.note || '-')}</td>
+          <td style="max-width: 250px; ${noteStyle}" title="${escapeHtml(run.note || '')}">${escapeHtml(run.note || '-')}</td>
           <td>
             <button class="btn btn-secondary btn-sm" onclick="filterLogsByRun(${run.run_id})">
               Lihat Logs
@@ -4188,13 +4393,19 @@ async function loadEtlRuns() {
 window.filterLogsByRun = function (runId) {
   state.process.selectedRunId = runId;
 
-  document.getElementById('steplogs-filter-desc').innerHTML = `Menampilkan log langkah untuk <strong>Run #${runId}</strong>`;
-  document.getElementById('btn-clear-step-filter').classList.remove('hidden');
+  if (state.activeTab !== 'tab-canvas') {
+    switchMainTab('tab-canvas');
+  }
 
-  document.getElementById('errorlogs-filter-desc').innerHTML = `Menampilkan log error untuk <strong>Run #${runId}</strong>`;
-  document.getElementById('btn-clear-error-filter').classList.remove('hidden');
+  const stepDesc = document.getElementById('steplogs-filter-desc');
+  if (stepDesc) stepDesc.innerHTML = `Menampilkan log langkah untuk <strong>Run #${runId}</strong>`;
+  document.getElementById('btn-clear-step-filter')?.classList.remove('hidden');
 
-  switchProcessSubtab('subtab-steplogs');
+  const errDesc = document.getElementById('errorlogs-filter-desc');
+  if (errDesc) errDesc.innerHTML = `Menampilkan log error untuk <strong>Run #${runId}</strong>`;
+  document.getElementById('btn-clear-error-filter')?.classList.remove('hidden');
+
+  switchCanvasBottomTab('canvas-tab-steplogs');
 };
 
 async function loadEtlStepLogs(runId = null) {
@@ -4398,14 +4609,106 @@ window.showJsonModal = function (errorId) {
 // =========================================================================
 // MODUL 4: HASIL MIGRASI (PIPELINE 3-TIER RECONCILIATION)
 // =========================================================================
-async function loadPipelineReconciliation() {
+
+function renderActionStatusBadge(actionStatus, postedAt, rolledBackAt) {
+  if (actionStatus === 'POSTED') {
+    const titleStr = postedAt ? `Sudah diposting ke target (${formatDate(postedAt)})` : 'Sudah diposting ke target vendor';
+    return `<span class="badge badge-success font-bold" title="${titleStr}" style="font-size: 0.78rem;">🚀 Posted</span>`;
+  }
+  if (actionStatus === 'STAGING_ONLY') {
+    return `<span class="badge badge-warning font-bold" title="Data berada di tahap staging, belum diposting ke target" style="font-size: 0.78rem;">📦 Staging</span>`;
+  }
+  if (actionStatus === 'ROLLED_BACK') {
+    const titleStr = rolledBackAt ? `Data di-rollback dari target (${formatDate(rolledBackAt)})` : 'Data di-rollback dari target';
+    return `<span class="badge badge-danger font-bold" title="${titleStr}" style="font-size: 0.78rem;">↩️ Rolled Back</span>`;
+  }
+  return `<span class="badge badge-neutral" style="font-size: 0.78rem;">-</span>`;
+}
+
+function renderPipelineMasterRows(pipelines) {
   const masterTbody = document.getElementById('pipeline-master-tbody');
-  masterTbody.innerHTML = `<tr><td colspan="9" class="text-center py-8 text-muted">Mengambil data rekonsiliasi 3-Tahap...</td></tr>`;
+  if (!masterTbody) return;
+
+  if (!pipelines || pipelines.length === 0) {
+    masterTbody.innerHTML = `<tr><td colspan="14" class="text-center py-8 text-muted">Belum ada data konfigurasi di migration_config untuk environment ini.</td></tr>`;
+    return;
+  }
+
+  masterTbody.innerHTML = pipelines.map((p) => {
+    const isSelected = p.configId === state.pipeline.selectedConfigId;
+    const targets = (p.targets && p.targets.length > 0) ? p.targets : [{
+      schema: p.target?.schema || 'vendor',
+      table: p.target?.table || '-',
+      sumSource: p.source?.rows ?? 0,
+      sumStaging: p.staging?.rows ?? 0,
+      sumBefore: 0,
+      sumAfter: p.target?.rows ?? 0,
+      lastRunId: p.latestRun?.run_id || null,
+      actionStatus: 'NONE',
+    }];
+    const spanCount = targets.length;
+    const isMatch = p.reconciliation?.sourceToStagingStatus === 'MATCH';
+    const statusBadge = isMatch
+      ? `<span class="badge badge-success font-bold" style="font-size: 0.78rem;">✓ 100% Match</span>`
+      : `<span class="badge badge-warning font-bold" style="font-size: 0.78rem;">⏳ Selisih</span>`;
+
+    const errorCount = p.reconciliation?.errorsLogged || 0;
+    const errorClass = errorCount > 0 ? 'text-rose font-bold' : 'text-muted';
+    const errorText = errorCount > 0 ? `${errorCount} errors` : '0 errors';
+
+    return targets.map((t, idx) => {
+      const isFirst = idx === 0;
+      const actionBadge = renderActionStatusBadge(t.actionStatus, t.postedAt, t.rolledBackAt);
+
+      const firstCols = isFirst ? `
+        <td class="font-mono font-bold text-center pipeline-merge-cell" rowspan="${spanCount}">#${p.configId}</td>
+        <td class="font-mono text-center pipeline-merge-cell" rowspan="${spanCount}">${p.execOrder}</td>
+        <td class="pipeline-merge-cell" rowspan="${spanCount}"><strong class="text-cyan">[${p.source.schema}].[${p.source.view}]</strong></td>
+        <td class="pipeline-merge-cell" rowspan="${spanCount}"><strong class="text-amber">stg_antam.${p.staging.table}</strong></td>
+      ` : '';
+
+      return `
+        <tr class="${isSelected ? 'active-row' : ''} ${isFirst ? 'pipeline-row-start' : 'pipeline-row-child'}" data-config-id="${p.configId}">
+          ${firstCols}
+          <td><strong class="text-emerald">${t.schema}.${t.table}</strong></td>
+          <td class="font-mono text-center font-bold text-emerald">${t.sumSource !== null && t.sumSource !== undefined ? formatNumber(t.sumSource) : (p.source.rows !== undefined ? formatNumber(p.source.rows) : '-')}</td>
+          <td class="font-mono text-center font-bold text-emerald">${t.sumStaging !== null && t.sumStaging !== undefined ? formatNumber(t.sumStaging) : (p.staging.rows !== undefined ? formatNumber(p.staging.rows) : '-')}</td>
+          <td class="font-mono text-center font-bold text-emerald">${t.sumBefore !== null && t.sumBefore !== undefined ? formatNumber(t.sumBefore) : '<span class="text-muted">-</span>'}</td>
+          <td class="font-mono text-center font-bold text-emerald">${t.sumAfter !== null && t.sumAfter !== undefined ? formatNumber(t.sumAfter) : '<span class="text-muted">-</span>'}</td>
+          <td class="font-mono text-center font-bold text-emerald">${t.lastRunId ? t.lastRunId : '-'}</td>
+          <td class="text-center">${actionBadge}</td>
+          <td class="text-center">${statusBadge}</td>
+          <td class="text-center"><span class="${errorClass}">${errorText}</span></td>
+          <td class="text-center">
+            <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
+              <button class="btn btn-secondary btn-xs" onclick="openPipelineInspectorModal(${p.configId}, '${t.table}')" title="Buka dialog peninjauan alur &amp; data tahap">Tinjau</button>
+              <button class="btn btn-compare-pipeline btn-xs" onclick="openPipelineCompareModal(${p.configId}, '${t.table}', ${t.lastRunId ? `'${t.lastRunId}'` : 'null'})" title="Komparasi kolom 3-Tier &amp; evaluasi sukses migrasi (Run: #${t.lastRunId || '-'})">⚖️ Compare</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  }).join('');
+}
+
+async function loadPipelineReconciliation(force = false) {
+  const masterTbody = document.getElementById('pipeline-master-tbody');
+  const refreshBtn = document.getElementById('btn-refresh-pipeline');
+
+  // FAST PATH: Jika sudah ada data di memory (Stale-While-Revalidate), langsung tampilkan 0 milidetik
+  if (state.pipeline.pipelines && state.pipeline.pipelines.length > 0) {
+    renderPipelineMasterRows(state.pipeline.pipelines);
+  } else {
+    masterTbody.innerHTML = `<tr><td colspan="14" class="text-center py-6 text-muted"><span class="loading-spinner"></span> Mengambil data rekonsiliasi konfigurasi...</td></tr>`;
+  }
+
+  if (refreshBtn) refreshBtn.classList.add('loading');
 
   try {
     const params = [];
     if (state.selectedClientId) params.push(`clientId=${state.selectedClientId}`);
     if (state.selectedEnvId) params.push(`envId=${state.selectedEnvId}`);
+    if (force) params.push('force=true');
     const qs = params.length > 0 ? `?${params.join('&')}` : '';
 
     const res = await fetch(`/api/reconciliation/pipeline${qs}`);
@@ -4432,82 +4735,18 @@ async function loadPipelineReconciliation() {
       return;
     }
 
-    function renderActionStatusBadge(actionStatus, postedAt, rolledBackAt) {
-      if (actionStatus === 'POSTED') {
-        const titleStr = postedAt ? `Sudah diposting ke target (${formatDate(postedAt)})` : 'Sudah diposting ke target vendor';
-        return `<span class="badge badge-success font-bold" title="${titleStr}" style="font-size: 0.78rem;">🚀 Posted</span>`;
-      }
-      if (actionStatus === 'STAGING_ONLY') {
-        return `<span class="badge badge-warning font-bold" title="Data berada di tahap staging, belum diposting ke target" style="font-size: 0.78rem;">📦 Staging</span>`;
-      }
-      if (actionStatus === 'ROLLED_BACK') {
-        const titleStr = rolledBackAt ? `Data di-rollback dari target (${formatDate(rolledBackAt)})` : 'Data di-rollback dari target';
-        return `<span class="badge badge-danger font-bold" title="${titleStr}" style="font-size: 0.78rem;">↩️ Rolled Back</span>`;
-      }
-      return `<span class="badge badge-neutral" style="font-size: 0.78rem;">-</span>`;
-    }
-
-    masterTbody.innerHTML = data.pipelines.map((p) => {
-      const isSelected = p.configId === state.pipeline.selectedConfigId;
-      const targets = (p.targets && p.targets.length > 0) ? p.targets : [{
-        schema: p.target.schema,
-        table: p.target.table,
-        sumSource: p.source.rows ?? 0,
-        sumStaging: p.staging.rows ?? 0,
-        sumBefore: 0,
-        sumAfter: p.target.rows ?? 0,
-        lastRunId: p.latestRun?.run_id || null,
-        actionStatus: 'NONE',
-      }];
-      const spanCount = targets.length;
-      const isMatch = p.reconciliation.sourceToStagingStatus === 'MATCH';
-      const statusBadge = isMatch
-        ? `<span class="badge badge-success font-bold" style="font-size: 0.78rem;">✓ 100% Match</span>`
-        : `<span class="badge badge-warning font-bold" style="font-size: 0.78rem;">⏳ Selisih</span>`;
-
-      const errorClass = p.reconciliation.errorsLogged > 0 ? 'text-rose font-bold' : 'text-muted';
-      const errorText = p.reconciliation.errorsLogged > 0 ? `${p.reconciliation.errorsLogged} errors` : '0 errors';
-
-      return targets.map((t, idx) => {
-        const isFirst = idx === 0;
-        const actionBadge = renderActionStatusBadge(t.actionStatus, t.postedAt, t.rolledBackAt);
-
-        const firstCols = isFirst ? `
-          <td class="font-mono font-bold text-center pipeline-merge-cell" rowspan="${spanCount}">#${p.configId}</td>
-          <td class="font-mono text-center pipeline-merge-cell" rowspan="${spanCount}">${p.execOrder}</td>
-          <td class="pipeline-merge-cell" rowspan="${spanCount}"><strong class="text-cyan">[${p.source.schema}].[${p.source.view}]</strong></td>
-          <td class="pipeline-merge-cell" rowspan="${spanCount}"><strong class="text-amber">stg_antam.${p.staging.table}</strong></td>
-        ` : '';
-
-        return `
-          <tr class="${isSelected ? 'active-row' : ''} ${isFirst ? 'pipeline-row-start' : 'pipeline-row-child'}" data-config-id="${p.configId}">
-            ${firstCols}
-            <td><strong class="text-emerald">${t.schema}.${t.table}</strong></td>
-            <td class="font-mono text-center font-bold text-emerald">${t.sumSource !== null && t.sumSource !== undefined ? formatNumber(t.sumSource) : (p.source.rows !== undefined ? formatNumber(p.source.rows) : '-')}</td>
-            <td class="font-mono text-center font-bold text-emerald">${t.sumStaging !== null && t.sumStaging !== undefined ? formatNumber(t.sumStaging) : (p.staging.rows !== undefined ? formatNumber(p.staging.rows) : '-')}</td>
-            <td class="font-mono text-center font-bold text-emerald">${t.sumBefore !== null && t.sumBefore !== undefined ? formatNumber(t.sumBefore) : '<span class="text-muted">-</span>'}</td>
-            <td class="font-mono text-center font-bold text-emerald">${t.sumAfter !== null && t.sumAfter !== undefined ? formatNumber(t.sumAfter) : '<span class="text-muted">-</span>'}</td>
-            <td class="font-mono text-center font-bold text-emerald">${t.lastRunId ? t.lastRunId : '-'}</td>
-            <td class="text-center">${actionBadge}</td>
-            <td class="text-center">${statusBadge}</td>
-            <td class="text-center"><span class="${errorClass}">${errorText}</span></td>
-            <td class="text-center">
-              <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
-                <button class="btn btn-secondary btn-xs" onclick="openPipelineInspectorModal(${p.configId}, '${t.table}')" title="Buka dialog peninjauan alur &amp; data tahap">Tinjau</button>
-                <button class="btn btn-compare-pipeline btn-xs" onclick="openPipelineCompareModal(${p.configId}, '${t.table}', ${t.lastRunId ? `'${t.lastRunId}'` : 'null'})" title="Komparasi kolom 3-Tier &amp; evaluasi sukses migrasi (Run: #${t.lastRunId || '-'})">⚖️ Compare</button>
-              </div>
-            </td>
-          </tr>
-        `;
-      }).join('');
-    }).join('');
+    renderPipelineMasterRows(data.pipelines);
 
     const targetConfigId = (state.pipeline.selectedConfigId && data.pipelines.some((x) => x.configId === state.pipeline.selectedConfigId))
       ? state.pipeline.selectedConfigId
       : data.pipelines[0].configId;
     state.pipeline.selectedConfigId = targetConfigId;
   } catch (err) {
-    masterTbody.innerHTML = `<tr><td colspan="14" class="text-center py-8 text-rose">${err.message}</td></tr>`;
+    if (!state.pipeline.pipelines || state.pipeline.pipelines.length === 0) {
+      masterTbody.innerHTML = `<tr><td colspan="14" class="text-center py-8 text-rose">${err.message}</td></tr>`;
+    }
+  } finally {
+    if (refreshBtn) refreshBtn.classList.remove('loading');
   }
 }
 
@@ -7141,8 +7380,12 @@ function applyMenuPermissions(menus) {
     }
   });
 
-  // Jika tab aktif saat ini tidak diizinkan, arahkan ke tab pertama yang diizinkan
-  if (!currentTabIsVisible) {
+  // Pastikan tombol Userguide selalu dapat diakses semua role
+  const userguideBtn = document.getElementById('nav-btn-userguide');
+  if (userguideBtn) userguideBtn.style.display = '';
+
+  // Jika tab aktif saat ini tidak diizinkan, arahkan ke tab pertama yang diizinkan (kecuali jika sedang di Userguide atau Welcome)
+  if (!currentTabIsVisible && state.activeTab !== 'tab-welcome' && state.activeTab !== 'tab-userguide') {
     const firstAllowedBtn = Object.values(menuNavMap).find(btn => btn && btn.style.display !== 'none');
     if (firstAllowedBtn) {
       const targetTab = firstAllowedBtn.getAttribute('data-tab');
@@ -8023,6 +8266,163 @@ async function saveMenuMatrix() {
   }
 }
 
+// =========================================================================
+// 📖 USERGUIDE / PANDUAN PENGGUNA MODUL INTERAKTIF
+// =========================================================================
+let userguideInitialized = false;
+
+function loadUserguideView() {
+  if (!userguideInitialized) {
+    initUserguide();
+    userguideInitialized = true;
+  }
+}
+
+function initUserguide() {
+  const searchInput = document.getElementById('userguide-search-input');
+  const chipButtons = document.querySelectorAll('#tab-userguide .guide-chip');
+  const navItems = document.querySelectorAll('#tab-userguide .guide-nav-item');
+  const cards = document.querySelectorAll('#tab-userguide .userguide-card');
+  const faqQuestions = document.querySelectorAll('#tab-userguide .faq-question');
+
+  let activeCategory = 'all';
+  let searchQuery = '';
+
+  function applyFilter() {
+    const q = searchQuery.toLowerCase().trim();
+    let visibleCount = 0;
+
+    cards.forEach(card => {
+      const cardCategory = card.getAttribute('data-category') || '';
+      const cardText = card.innerText.toLowerCase();
+      
+      const matchesCategory = (activeCategory === 'all' || cardCategory.includes(activeCategory));
+      const matchesSearch = (!q || cardText.includes(q));
+
+      if (matchesCategory && matchesSearch) {
+        card.style.display = '';
+        visibleCount++;
+      } else {
+        card.style.display = 'none';
+      }
+    });
+
+    // Indikator jika tidak ada yang cocok
+    let emptyMsg = document.getElementById('userguide-empty-msg');
+    if (visibleCount === 0) {
+      if (!emptyMsg) {
+        emptyMsg = document.createElement('div');
+        emptyMsg.id = 'userguide-empty-msg';
+        emptyMsg.className = 'userguide-card';
+        emptyMsg.style.padding = '2rem';
+        emptyMsg.style.textAlign = 'center';
+        emptyMsg.style.color = '#94a3b8';
+        emptyMsg.innerHTML = `
+          <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">🔍</div>
+          <div style="font-weight: 700; font-size: 1rem; color: #f1f5f9; margin-bottom: 0.25rem;">Tidak Ditemukan Topik Panduan</div>
+          <div style="font-size: 0.85rem;">Coba gunakan kata kunci pencarian lain atau pilih kategori Semua Bab.</div>
+          <button class="btn btn-sm btn-secondary" style="margin-top: 1rem;" onclick="resetUserguideFilter()">Reset Filter</button>
+        `;
+        const contentContainer = document.querySelector('#tab-userguide .userguide-content');
+        if (contentContainer) contentContainer.appendChild(emptyMsg);
+      }
+      emptyMsg.style.display = '';
+    } else if (emptyMsg) {
+      emptyMsg.style.display = 'none';
+    }
+  }
+
+  // Real-time Search Handler
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      searchQuery = e.target.value;
+      applyFilter();
+    });
+  }
+
+  // Filter Chip Handler
+  chipButtons.forEach(chip => {
+    chip.addEventListener('click', () => {
+      chipButtons.forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      activeCategory = chip.getAttribute('data-filter') || 'all';
+      applyFilter();
+    });
+  });
+
+  // Sidebar Links Smooth Scroll & Temporary Highlight
+  navItems.forEach(item => {
+    item.addEventListener('click', (e) => {
+      e.preventDefault();
+      const targetId = item.getAttribute('href')?.replace('#', '');
+      if (!targetId) return;
+
+      const targetEl = document.getElementById(targetId);
+      if (targetEl) {
+        // Jika sedang disembunyikan oleh filter, reset filter agar target tampil
+        if (targetEl.style.display === 'none') {
+          activeCategory = 'all';
+          searchQuery = '';
+          if (searchInput) searchInput.value = '';
+          chipButtons.forEach(c => c.classList.toggle('active', c.getAttribute('data-filter') === 'all'));
+          applyFilter();
+        }
+
+        // Update active class on nav
+        navItems.forEach(n => n.classList.remove('active'));
+        item.classList.add('active');
+
+        // Scroll to card
+        targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+        // Highlight visual pulse
+        targetEl.classList.add('highlight');
+        setTimeout(() => {
+          targetEl.classList.remove('highlight');
+        }, 1800);
+      }
+    });
+  });
+
+  // Interactive FAQ Accordion
+  faqQuestions.forEach(q => {
+    q.addEventListener('click', () => {
+      const parent = q.closest('.faq-item');
+      if (!parent) return;
+      const answer = parent.querySelector('.faq-answer');
+      if (answer) {
+        const isHidden = answer.style.display === 'none';
+        answer.style.display = isHidden ? 'block' : 'none';
+        const icon = q.querySelector('span:last-child');
+        if (icon) {
+          icon.textContent = isHidden ? '▲' : '▼';
+        }
+      }
+    });
+  });
+
+  // Quick Action Buttons Inside Guide Cards
+  document.querySelectorAll('#tab-userguide [data-nav-target]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const targetTab = btn.getAttribute('data-nav-target');
+      if (targetTab) {
+        switchMainTab(targetTab);
+      }
+    });
+  });
+}
+
+function resetUserguideFilter() {
+  const searchInput = document.getElementById('userguide-search-input');
+  if (searchInput) searchInput.value = '';
+  const allChip = document.querySelector('#tab-userguide .guide-chip[data-filter="all"]');
+  if (allChip) allChip.click();
+}
+
+function printUserguide() {
+  window.print();
+}
+
 // Global Exports
 window.handleLoginSubmit = handleLoginSubmit;
 window.handleLogout = handleLogout;
@@ -8043,4 +8443,8 @@ window.selectAllTenants = selectAllTenants;
 window.deselectAllTenants = deselectAllTenants;
 window.isCurrentUserAdmin = isCurrentUserAdmin;
 window.applyAdminSettingsButtonVisibility = applyAdminSettingsButtonVisibility;
+window.loadUserguideView = loadUserguideView;
+window.resetUserguideFilter = resetUserguideFilter;
+window.printUserguide = printUserguide;
+
 

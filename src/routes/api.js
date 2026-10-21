@@ -109,6 +109,20 @@ router.get('/reconciliation/stage-data', (req, res) => pipelineController.getPip
 router.get('/reconciliation/compare', (req, res) => pipelineController.comparePipelineConfig(req, res));
 router.get('/reconciliation/berita-acara', (req, res) => pipelineController.getBeritaAcara(req, res));
 
+const flowCanvasController = require('../controllers/flow-canvas.controller');
+
+// ==========================================
+// 7. Modul 5: Visual Workflow Canvas & Dynamic Orchestrator
+// ==========================================
+router.get('/flows/presets', (req, res) => flowCanvasController.getPresets(req, res));
+router.post('/flows/execute', (req, res) => flowCanvasController.executeFlow(req, res));
+router.post('/flows/flow-1-staging', (req, res) => flowCanvasController.executeFlow1(req, res));
+router.post('/flows/flow-2-post', (req, res) => flowCanvasController.executeFlow2(req, res));
+router.post('/flows/flow-3-rollback', (req, res) => flowCanvasController.executeFlow3(req, res));
+router.post('/flows/flow-4-purge', (req, res) => flowCanvasController.executeFlow4(req, res));
+router.get('/flows/stream/:runId', (req, res) => flowCanvasController.streamFlowEvents(req, res));
+router.get('/flows/error-diagnostic/:runId', (req, res) => flowCanvasController.getErrorDiagnostic(req, res));
+
 // Legacy compatibility
 router.get('/tables', (req, res) => migrationController.getTables(req, res));
 router.get('/summary', (req, res) => migrationController.getSummary(req, res));
