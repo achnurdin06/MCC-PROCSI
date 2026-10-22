@@ -22,6 +22,16 @@ const { closeTunnel } = require('./config/tunnel');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Security Headers & Hardening Middleware
+app.disable('x-powered-by');
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -58,9 +68,10 @@ app.use((req, res, next) => {
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Unhandled server error:', err);
+  const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
   res.status(500).json({
     success: false,
-    error: err.message || 'Internal Server Error',
+    error: isProd ? 'Terjadi kesalahan internal pada server. Silakan hubungi administrator.' : (err.message || 'Internal Server Error'),
   });
 });
 

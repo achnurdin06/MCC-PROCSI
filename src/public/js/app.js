@@ -1,4 +1,33 @@
 // =========================================================================
+// 🔒 TRANSPARENT AUTHENTICATION FETCH INTERCEPTOR
+// Otomatis menyertakan Bearer Token pada seluruh permintaan API internal
+// =========================================================================
+(function() {
+  const nativeFetch = window.fetch;
+  window.fetch = async function(resource, init = {}) {
+    let url = typeof resource === 'string' ? resource : (resource?.url || '');
+    if (url.startsWith('/api') || url.includes('/api/')) {
+      const token = (window.state && window.state.userToken) || localStorage.getItem('antam_token');
+      if (token && !url.includes('/api/auth/login')) {
+        init = init || {};
+        const headers = new Headers(init.headers || {});
+        if (!headers.has('Authorization')) {
+          headers.set('Authorization', `Bearer ${token}`);
+        }
+        init.headers = headers;
+      }
+    }
+    const res = await nativeFetch.call(this, resource, init);
+    if (res.status === 401 && !url.includes('/api/auth/login') && !url.includes('/api/health')) {
+      if (typeof handleLogout === 'function') {
+        handleLogout();
+      }
+    }
+    return res;
+  };
+})();
+
+// =========================================================================
 // STATE APLIKASI
 // =========================================================================
 const state = {

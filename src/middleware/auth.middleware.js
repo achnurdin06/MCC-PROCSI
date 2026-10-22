@@ -1,15 +1,21 @@
 const { verifyToken } = require('../utils/jwt');
 
 function requireAuth(req, res, next) {
+  let token = null;
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.split(' ')[1];
+  } else if (req.query && req.query.token) {
+    token = req.query.token;
+  }
+
+  if (!token) {
     return res.status(401).json({
       success: false,
       error: 'Akses ditolak. Token autentikasi tidak ditemukan. Silakan login terlebih dahulu.',
     });
   }
 
-  const token = authHeader.split(' ')[1];
   try {
     const payload = verifyToken(token);
     req.user = payload;
