@@ -1338,12 +1338,12 @@ class FlowCanvasStudio {
         const sortedRuns = [...runs].sort((a, b) => parseInt(b.run_id, 10) - parseInt(a.run_id, 10));
 
         sortedRuns.forEach(r => {
-          const isSuccess = r.status === 'SUCCESS';
+          const isEligible = r.status === 'SUCCESS' || (r.status === 'FAILED' && r.main_workflow === 'flow_2_post');
           const notPosted = !r.is_posted;
           const notRolledBack = !r.is_rolled_back;
           const isSuperseded = r.note && (r.note.includes('SUPERSEDED') || r.note.includes('KADALUARSA'));
 
-          if (isSuccess && notPosted && notRolledBack && !isSuperseded) {
+          if (isEligible && notPosted && notRolledBack && !isSuperseded) {
             const cfgKey = String(r.config_id || 'UNKNOWN');
             if (!activeRunsByConfig.has(cfgKey)) {
               activeRunsByConfig.set(cfgKey, r);

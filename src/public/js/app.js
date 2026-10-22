@@ -4751,6 +4751,7 @@ async function loadEtlRuns() {
       const isSuperseded = Boolean(run.note && (run.note.toUpperCase().includes('SUPERSEDED') || run.note.toUpperCase().includes('KADALUARSA')));
       const isSuccess = run.status === 'SUCCESS' || run.status === 'COMPLETED';
       const isFailed = run.status === 'FAILED';
+      const isPostFailed = (run.main_workflow === 'flow_2_post' && isFailed) || (isFailed && run.note && (run.note.toUpperCase().includes('FLOW 2') || run.note.toUpperCase().includes('PRECHECK_TARGET')));
       const isFiltered = state.process.selectedRunId == run.run_id;
 
       // Status Badge
@@ -4759,6 +4760,8 @@ async function loadEtlRuns() {
         statusBadge = `<span class="badge" style="background: rgba(148, 163, 184, 0.2); color: #64748b; border: 1px solid #cbd5e1; font-weight: 700;" title="Sesi usang karena digantikan oleh run baru">⚠️ SUPERSEDED</span>`;
       } else if (isSuccess) {
         statusBadge = `<span class="badge badge-success font-bold" title="Sesi aktif dan berhasil dieksekusi">✓ SUCCESS (Aktif)</span>`;
+      } else if (isPostFailed) {
+        statusBadge = `<span class="badge badge-danger font-bold" title="Staging sukses, namun gagal pada tahap Flow 2 Posting">✕ POST FAILED</span>`;
       } else if (isFailed) {
         statusBadge = `<span class="badge badge-danger font-bold">✕ FAILED</span>`;
       } else {
@@ -4772,6 +4775,8 @@ async function loadEtlRuns() {
         postBadge = `<span class="badge badge-success font-bold">✓ Sudah Post (${escapeHtml(run.post_type || 'auto')})</span>`;
       } else if (isSuperseded) {
         postBadge = `<span class="badge" style="background: #f1f5f9; color: #94a3b8; border: 1px dashed #cbd5e1; font-weight: 600;" title="Data staging telah digantikan oleh sesi baru, tidak diposting">Batal / Usang</span>`;
+      } else if (isPostFailed) {
+        postBadge = `<span class="badge badge-danger font-bold" title="Gagal saat posting ke tabel target">✕ Gagal Post (Flow 2)</span>`;
       } else if (isSuccess) {
         postBadge = `<span class="badge font-bold" style="background: #e0f2fe; color: #0284c7; border: 1px solid #7dd3fc;" title="Data staging valid, siap diposting ke target (Flow 2)">Siap Post (Flow 2)</span>`;
       } else {
@@ -4804,13 +4809,20 @@ async function loadEtlRuns() {
         ? 'opacity: 0.7; background-color: rgba(241, 245, 249, 0.4);' 
         : (!run.is_posted && isSuccess ? 'background-color: rgba(240, 253, 244, 0.35);' : '');
 
+      let workflowDisplay = `<span class="font-mono text-cyan" style="font-size: 0.75rem;">${run.main_workflow || '-'}</span>`;
+      if (run.main_workflow === 'flow_2_post') {
+        workflowDisplay = `<span class="badge badge-purple font-mono font-bold" title="Tahap 2: Posting Target">flow_2_post</span>`;
+      } else if (isPostFailed) {
+        workflowDisplay = `<span class="font-mono text-cyan" style="font-size: 0.75rem;">flow_1</span><span class="text-xs font-bold" style="color: #ef4444;"> ➔ flow_2</span>`;
+      }
+
       return `
         <tr class="${isFiltered ? 'active-row' : ''}" style="${rowBgStyle}">
           <td class="font-mono font-bold">#${run.run_id}</td>
           <td>${clientBadge}</td>
           <td>${envBadge}</td>
           <td class="font-mono text-muted" style="font-size: 0.75rem;">${run.run_ts || '-'}</td>
-          <td class="font-mono text-cyan" style="font-size: 0.75rem;">${run.main_workflow || '-'}</td>
+          <td>${workflowDisplay}</td>
           <td class="font-mono text-muted">${run.config_id ? `Config #${run.config_id}` : '-'}</td>
           <td>${statusBadge}</td>
           <td class="font-mono text-muted" style="font-size: 0.75rem;">${formatDate(run.start_time)}</td>
@@ -4825,8 +4837,8 @@ async function loadEtlRuns() {
                 Lihat Logs
               </button>
               ${(isFailed && !isSuperseded) ? `
-                <button class="btn btn-warning btn-sm" onclick="resumeWorkflow(${run.run_id}, '${run.main_workflow || 'flow_1_staging'}', '${run.config_id || ''}')" title="Lanjutkan proses pada sesi Run #${run.run_id} tanpa membuat entri baru">
-                  ▶️ Lanjutkan
+                <button class="btn btn-warning btn-sm" onclick="resumeWorkflow(${run.run_id}, '${isPostFailed ? 'flow_2_post' : (run.main_workflow || 'flow_1_staging')}', '${run.config_id || ''}')" title="${isPostFailed ? 'Lanjutkan eksekusi posting Flow 2 untuk sesi ini' : 'Lanjutkan proses pada sesi Run #' + run.run_id}">
+                  ▶️ ${isPostFailed ? 'Lanjutkan Post (Flow 2)' : 'Lanjutkan'}
                 </button>
               ` : ''}
             </div>
