@@ -1235,8 +1235,18 @@ class FlowCanvasStudio {
       if (currentFlow === 'flow_1_staging') {
         const postedMap = new Map();
         runs.forEach(r => {
-          if (r.is_posted && !r.is_rolled_back) {
-            postedMap.set(parseInt(r.config_id, 10), r.run_id);
+          if (r.is_posted && !r.is_rolled_back && r.config_id) {
+            // Dukung satu atau beberapa config_id dalam 1 sesi (contoh: "1,2,15,19")
+            const cfgIds = String(r.config_id)
+              .split(',')
+              .map(x => parseInt(x.trim(), 10))
+              .filter(n => !isNaN(n));
+
+            cfgIds.forEach(cId => {
+              if (!postedMap.has(cId) || r.run_id > postedMap.get(cId)) {
+                postedMap.set(cId, r.run_id);
+              }
+            });
           }
         });
 
@@ -1971,6 +1981,10 @@ class FlowCanvasStudio {
       // Buka koneksi SSE Seketika untuk memantau progres langkah demi langkah (Bug #2)
       this.connectEventStream(this.activeRunId);
 
+      // Auto refresh table runs saat eksekusi dimulai
+      if (typeof window.loadEtlRuns === 'function') window.loadEtlRuns();
+      if (typeof window.loadEtlOverview === 'function') window.loadEtlOverview();
+
     } catch (err) {
       console.error('Error saat submit eksekusi alur:', err);
       this.logConsole('ERROR', `Gagal memulai alur: ${err.message}`);
@@ -2044,6 +2058,9 @@ class FlowCanvasStudio {
       this.logConsole('SUCCESS', `Sesi migrasi #${this.activeRunId} aktif dilanjutkan. Membuka streaming SSE...`);
       this.connectEventStream(this.activeRunId);
 
+      if (typeof window.loadEtlRuns === 'function') window.loadEtlRuns();
+      if (typeof window.loadEtlOverview === 'function') window.loadEtlOverview();
+
     } catch (err) {
       console.error('Error saat melanjutkan eksekusi alur:', err);
       this.logConsole('ERROR', `Gagal melanjutkan alur: ${err.message}`);
@@ -2099,6 +2116,8 @@ class FlowCanvasStudio {
       case 'FLOW_STARTED':
         this.updateLiveProgress(0, data.totalNodes, `Memulai alur: ${data.flowName}`);
         this.logConsole('INFO', `[FLOW] "${data.flowName}" dimulai dengan ${data.totalNodes} tahapan eksekusi.`);
+        if (typeof window.loadEtlRuns === 'function') window.loadEtlRuns();
+        if (typeof window.loadEtlOverview === 'function') window.loadEtlOverview();
         break;
 
       case 'BATCH_CONFIG_STARTED':
@@ -2162,6 +2181,9 @@ class FlowCanvasStudio {
         if (activeRunLoopEdge) {
           activeRunLoopEdge.classList.add('active');
         }
+
+        // Live update table runs saat batch run dimulai
+        if (typeof window.loadEtlRuns === 'function') window.loadEtlRuns();
         break;
 
       case 'BATCH_RUN_COMPLETED':
@@ -2176,6 +2198,16 @@ class FlowCanvasStudio {
             compRunLoopEdge?.classList.remove('success');
           }, 800);
         }
+
+        // Live update table runs & kpi saat run dalam batch selesai diposting
+        if (typeof window.loadEtlRuns === 'function') window.loadEtlRuns();
+        if (typeof window.loadEtlOverview === 'function') window.loadEtlOverview();
+        break;
+
+      case 'BATCH_RUN_FAILED':
+        this.logConsole('ERROR', `❌ [MULTI-RUN LOOP] Sesi Run #${data.runId} gagal pada langkah [${data.failedStep}]: ${data.error}`);
+        if (typeof window.loadEtlRuns === 'function') window.loadEtlRuns();
+        if (typeof window.loadEtlOverview === 'function') window.loadEtlOverview();
         break;
 
       case 'NODE_STARTED':
@@ -2233,6 +2265,13 @@ class FlowCanvasStudio {
           };
           if (this.selectedNodeId === completedNode.id) this.renderInspector();
         }
+
+        // Jika simpul finalisasi dieksekusi, refresh riwayat langsung
+        if (['node_finish_post', 'node_finish_rb', 'node_finish_run'].includes(data.nodeId) || 
+            ['FINISH_FLOW2', 'FINISH_ROLLBACK', 'FINISH_RUN'].includes(data.nodeType)) {
+          if (typeof window.loadEtlRuns === 'function') window.loadEtlRuns();
+          if (typeof window.loadEtlOverview === 'function') window.loadEtlOverview();
+        }
         break;
 
       case 'FLOW_COMPLETED':
@@ -2262,9 +2301,18 @@ class FlowCanvasStudio {
         if (this.eventSource) this.eventSource.close();
         document.getElementById('btn-canvas-run-flow').disabled = false;
 
-        // Auto refresh data tabel riwayat di tab Proses jika ada
+        // Auto refresh data tabel riwayat di tab Proses seketika
         if (typeof window.loadEtlRuns === 'function') window.loadEtlRuns();
         if (typeof window.loadEtlOverview === 'function') window.loadEtlOverview();
+
+        // Buffer delay (~500ms) untuk memastikan database commit hoàn toàn stabil, lalu switch otomatis ke tab Riwayat Eksekusi
+        setTimeout(() => {
+          if (typeof window.loadEtlRuns === 'function') window.loadEtlRuns();
+          if (typeof window.loadEtlOverview === 'function') window.loadEtlOverview();
+          if (typeof window.switchCanvasBottomTab === 'function') {
+            window.switchCanvasBottomTab('canvas-tab-runs');
+          }
+        }, 500);
         break;
 
       case 'FLOW_FAILED':
@@ -2289,6 +2337,14 @@ class FlowCanvasStudio {
         this.logConsole('ERROR', `❌ [ERROR] Eksekusi terhenti: ${data.error}`);
         if (this.eventSource) this.eventSource.close();
         document.getElementById('btn-canvas-run-flow').disabled = false;
+
+        // Auto refresh data tabel riwayat saat flow gagal
+        if (typeof window.loadEtlRuns === 'function') window.loadEtlRuns();
+        if (typeof window.loadEtlOverview === 'function') window.loadEtlOverview();
+        setTimeout(() => {
+          if (typeof window.loadEtlRuns === 'function') window.loadEtlRuns();
+          if (typeof window.loadEtlOverview === 'function') window.loadEtlOverview();
+        }, 500);
 
         // Buka otomatis modal diagnostik error (Bug #3)
         this.openErrorDiagnosticModal(data);
@@ -2931,6 +2987,15 @@ class FlowCanvasStudio {
       }
     });
 
+    // Tombol Toggle Hide / Show Visual Canvas Studio (Task 3)
+    const toggleStudioBtn = document.getElementById('btn-canvas-toggle-studio');
+    if (toggleStudioBtn) {
+      toggleStudioBtn.onclick = (e) => {
+        if (e) e.preventDefault();
+        this.toggleStudioWorkspace();
+      };
+    }
+
     // Close diagnostic modal
     document.getElementById('btn-close-error-diagnostic')?.addEventListener('click', () => {
       document.getElementById('modal-node-error-diagnostic')?.classList.add('hidden');
@@ -2939,10 +3004,22 @@ class FlowCanvasStudio {
       document.getElementById('modal-node-error-diagnostic')?.classList.add('hidden');
     });
 
-    // Tombol aksi di diagnostic modal: Retry & Rollback
+    // Tombol aksi di diagnostic modal: Retry & Rollback (Task 1: Dengan Konfirmasi)
     document.getElementById('btn-diag-retry')?.addEventListener('click', () => {
       document.getElementById('modal-node-error-diagnostic')?.classList.add('hidden');
-      this.openExecutionParamsModal();
+      if (typeof window.openRerunConfirmModal === 'function') {
+        window.openRerunConfirmModal({
+          title: 'Coba Ulang Alur',
+          message: 'Apakah Anda yakin ingin mencoba eksekusi ulang alur ini?',
+          workflowId: this.currentPresetId,
+          runId: this.activeRunId,
+          onProceed: () => {
+            this.openExecutionParamsModal();
+          }
+        });
+      } else {
+        this.openExecutionParamsModal();
+      }
     });
 
     document.getElementById('btn-diag-rollback')?.addEventListener('click', async () => {
@@ -3007,7 +3084,65 @@ class FlowCanvasStudio {
       if (metricRows) metricRows.textContent = '0/0';
     });
   }
+
+  /**
+   * Toggle Hide / Show Workspace Visual Canvas Studio (Task 3)
+   */
+  toggleStudioWorkspace() {
+    const studioContainer = document.querySelector('.canvas-studio-container');
+    const toggleBtn = document.getElementById('btn-canvas-toggle-studio');
+    const toggleIcon = document.getElementById('canvas-toggle-studio-icon');
+    const toggleText = document.getElementById('canvas-toggle-studio-text');
+    const panel = document.getElementById('canvas-bottom-panel');
+
+    this.isStudioCollapsed = !this.isStudioCollapsed;
+
+    if (this.isStudioCollapsed) {
+      if (panel) {
+        this.prevConsoleHeight = panel.style.height || `${panel.getBoundingClientRect().height}px`;
+        panel.style.height = '';
+      }
+      studioContainer?.classList.add('studio-collapsed');
+      if (toggleIcon) toggleIcon.textContent = '👁️';
+      if (toggleText) toggleText.textContent = 'Show Studio';
+      if (toggleBtn) {
+        toggleBtn.title = 'Tampilkan Diagram Visual Canvas Studio';
+        toggleBtn.classList.add('active');
+      }
+    } else {
+      studioContainer?.classList.remove('studio-collapsed');
+      if (panel && this.prevConsoleHeight) {
+        panel.style.height = this.prevConsoleHeight;
+      }
+      if (toggleIcon) toggleIcon.textContent = '👁️';
+      if (toggleText) toggleText.textContent = 'Hide Studio';
+      if (toggleBtn) {
+        toggleBtn.title = 'Sembunyikan Diagram Visual Canvas Studio';
+        toggleBtn.classList.remove('active');
+      }
+      setTimeout(() => {
+        this.centerGraph(true);
+      }, 150);
+    }
+  }
 }
+
+// Global accessor for toggle studio
+window.toggleCanvasStudio = function() {
+  if (window.flowCanvasStudio) {
+    window.flowCanvasStudio.toggleStudioWorkspace();
+  } else {
+    const studioContainer = document.querySelector('.canvas-studio-container');
+    const toggleBtn = document.getElementById('btn-canvas-toggle-studio');
+    const toggleIcon = document.getElementById('canvas-toggle-studio-icon');
+    const toggleText = document.getElementById('canvas-toggle-studio-text');
+    if (!studioContainer) return;
+    const isCollapsed = studioContainer.classList.toggle('studio-collapsed');
+    if (toggleIcon) toggleIcon.textContent = '👁️';
+    if (toggleText) toggleText.textContent = isCollapsed ? 'Show Studio' : 'Hide Studio';
+    if (toggleBtn) toggleBtn.title = isCollapsed ? 'Tampilkan Diagram Visual Canvas Studio' : 'Sembunyikan Diagram Visual Canvas Studio';
+  }
+};
 
 // Inisialisasi otomatis
 window.flowCanvasStudio = new FlowCanvasStudio();

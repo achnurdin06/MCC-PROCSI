@@ -1194,6 +1194,31 @@ class EtlService {
     };
   }
 
+  async generateTargetConfigDefaults(params) {
+    const configId = parseInt(params.config_id, 10);
+    const tgtSchema = params.tgt_schema || 'vendor';
+    const tgtTable = params.tgt_table;
+    const pkColumns = params.pk_columns || 'id';
+
+    if (!configId || !tgtTable) {
+      throw new Error('Parameter config_id dan tgt_table wajib diisi untuk generate SQL.');
+    }
+
+    try {
+      const res = await queryPostgres(
+        'SELECT out_mapping_sql, out_rollback_sql FROM mc_center.fn_build_target_mapping_sql($1, $2, $3, $4)',
+        [configId, tgtSchema, tgtTable, pkColumns]
+      );
+      return {
+        mapping_sql: res.rows[0]?.out_mapping_sql || '',
+        rollback_sql: res.rows[0]?.out_rollback_sql || '',
+      };
+    } catch (err) {
+      console.warn(`[generateTargetConfigDefaults] Gagal panggil fn_build_target_mapping_sql (${configId}, ${tgtSchema}.${tgtTable}):`, err.message);
+      throw err;
+    }
+  }
+
   async autoPopulateMigrationConfigFields(data, id = null) {
     let currentRecord = null;
     if (id) {
@@ -1264,6 +1289,15 @@ class EtlService {
       }
     }
 
+    // Default is_active guard untuk tabel konfigurasi
+    if (['migration_config', 'migration_target_config', 'migration_convert_rule'].includes(tableName)) {
+      if (data.is_active === undefined || data.is_active === null || data.is_active === '') {
+        data.is_active = true;
+      } else if (typeof data.is_active === 'string') {
+        data.is_active = data.is_active.toLowerCase() === 'true' || data.is_active === '1';
+      }
+    }
+
     const keys = Object.keys(data).filter((k) => meta.autoPk ? k !== meta.pk : true);
     if (keys.length === 0) throw new Error('Tidak ada data kolom yang dikirim.');
 
@@ -1309,6 +1343,17 @@ class EtlService {
           throw new Error(
             `Staging table "${stg}" sudah digunakan oleh Config #${existing.config_id} (${existing.name_config || 'Tanpa Nama'}). Gunakan nama staging table yang unik agar tidak terjadi bentrok data.`
           );
+        }
+      }
+    }
+
+    // Default is_active guard untuk update
+    if (['migration_config', 'migration_target_config', 'migration_convert_rule'].includes(tableName)) {
+      if (data.is_active !== undefined) {
+        if (data.is_active === null || data.is_active === '') {
+          data.is_active = true;
+        } else if (typeof data.is_active === 'string') {
+          data.is_active = data.is_active.toLowerCase() === 'true' || data.is_active === '1';
         }
       }
     }
