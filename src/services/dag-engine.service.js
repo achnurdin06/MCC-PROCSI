@@ -1185,7 +1185,7 @@ class DagEngineService extends EventEmitter {
         const runsRes = await queryPostgres(`
           SELECT r.*, c.name_config, c.tgt_table, c.tgt_schema, c.stg_table, c.src_view, c.src_schema, c.exec_order
           FROM mc_center.migration_run r
-          LEFT JOIN mc_center.migration_config c ON c.config_id = CAST(NULLIF(regexp_replace(r.config_id, '[^0-9]', '', 'g'), '') AS INTEGER)
+          LEFT JOIN mc_center.migration_config c ON c.config_id = CAST(NULLIF(regexp_replace(split_part(r.config_id, ',', 1), '[^0-9]', '', 'g'), '') AS INTEGER)
           WHERE r.run_id = ANY($1::bigint[])
           ORDER BY COALESCE(c.exec_order, 999) ASC, r.run_id ASC
         `, [resolvedRunIds]);
@@ -1195,10 +1195,11 @@ class DagEngineService extends EventEmitter {
           throw new Error(`Sesi migrasi dengan Run ID [${resolvedRunIds.join(', ')}] tidak ditemukan.`);
         }
 
-        // Validasi ketat: HANYA run berstatus SUCCESS dan belum diposting yang dapat dieksekusi (Requirement 1)
+        // Validasi: Sesi berstatus SUCCESS atau sesi yang sempat gagal di tahap posting (flow_2_post) dapat diposting
         for (const tr of targetRuns) {
-          if (tr.status !== 'SUCCESS') {
-            throw new Error(`Run ID #${tr.run_id} berstatus "${tr.status}". Flow 2 hanya dapat memposting sesi dengan status SUCCESS.`);
+          const isStagingOk = tr.status === 'SUCCESS' || (tr.status === 'FAILED' && tr.main_workflow === 'flow_2_post');
+          if (!isStagingOk) {
+            throw new Error(`Run ID #${tr.run_id} berstatus "${tr.status}". Flow 2 hanya dapat memposting sesi dengan data staging yang valid.`);
           }
           if (tr.is_posted) {
             throw new Error(`Run ID #${tr.run_id} sudah pernah diposting ke target pada ${tr.posted_at ? new Date(tr.posted_at).toLocaleString() : 'sebelumnya'}. Harap lakukan Rollback terlebih dahulu.`);
@@ -1215,8 +1216,8 @@ class DagEngineService extends EventEmitter {
         const candidateRun = await queryPostgres(`
           SELECT r.*, c.name_config, c.tgt_table, c.tgt_schema, c.stg_table, c.src_view, c.src_schema
           FROM mc_center.migration_run r
-          LEFT JOIN mc_center.migration_config c ON c.config_id = CAST(NULLIF(regexp_replace(r.config_id, '[^0-9]', '', 'g'), '') AS INTEGER)
-          WHERE r.status = 'SUCCESS'
+          LEFT JOIN mc_center.migration_config c ON c.config_id = CAST(NULLIF(regexp_replace(split_part(r.config_id, ',', 1), '[^0-9]', '', 'g'), '') AS INTEGER)
+          WHERE (r.status = 'SUCCESS' OR (r.status = 'FAILED' AND r.main_workflow = 'flow_2_post'))
             AND (r.is_posted IS FALSE OR r.is_posted IS NULL)
             AND (r.is_rolled_back IS FALSE OR r.is_rolled_back IS NULL)
             AND (r.note NOT LIKE '%SUPERSEDED%' AND r.note NOT LIKE '%KADALUARSA%' OR r.note IS NULL)
@@ -1270,7 +1271,7 @@ class DagEngineService extends EventEmitter {
         const runsRes = await queryPostgres(`
           SELECT r.*, c.name_config, c.tgt_table, c.tgt_schema, c.stg_table, c.src_view, c.src_schema, c.exec_order
           FROM mc_center.migration_run r
-          LEFT JOIN mc_center.migration_config c ON c.config_id = CAST(NULLIF(regexp_replace(r.config_id, '[^0-9]', '', 'g'), '') AS INTEGER)
+          LEFT JOIN mc_center.migration_config c ON c.config_id = CAST(NULLIF(regexp_replace(split_part(r.config_id, ',', 1), '[^0-9]', '', 'g'), '') AS INTEGER)
           WHERE r.run_id = ANY($1::bigint[])
           ORDER BY r.run_id DESC
         `, [resolvedRunIds]);
@@ -1294,7 +1295,7 @@ class DagEngineService extends EventEmitter {
         const candidateRun = await queryPostgres(`
           SELECT r.*, c.name_config, c.tgt_table, c.tgt_schema, c.stg_table, c.src_view, c.src_schema
           FROM mc_center.migration_run r
-          LEFT JOIN mc_center.migration_config c ON c.config_id = CAST(NULLIF(regexp_replace(r.config_id, '[^0-9]', '', 'g'), '') AS INTEGER)
+          LEFT JOIN mc_center.migration_config c ON c.config_id = CAST(NULLIF(regexp_replace(split_part(r.config_id, ',', 1), '[^0-9]', '', 'g'), '') AS INTEGER)
           WHERE r.is_posted = true
             AND (r.is_rolled_back IS FALSE OR r.is_rolled_back IS NULL)
           ORDER BY r.run_id DESC
@@ -2123,14 +2124,18 @@ class DagEngineService extends EventEmitter {
             });
           } catch (_) {}
 
-          // 4. Update status migration_run menjadi FAILED
+          // 4. Update status migration_run menjadi FAILED pada tahap Flow 2
           try {
             await queryPostgres(`
               UPDATE mc_center.migration_run
-              SET status = 'FAILED',
-                  note = COALESCE(note, '') || ' | ' || $2
+              SET main_workflow = 'flow_2_post',
+                  status = 'FAILED',
+                  note = CASE
+                    WHEN note LIKE '%Flow 1 Staging%sukses%' THEN note || ' | FAILED (Flow 2 Post) at ' || $2
+                    ELSE 'FAILED (Flow 2 Post) at ' || $2
+                  END
               WHERE run_id = $1
-            `, [currentRunId, `FAILED at ${context.currentStep || 'POST'}: ${runErr.message} (Auto-Rollback OK)`]);
+            `, [currentRunId, `${context.currentStep || 'POST'}: ${runErr.message} (Auto-Rollback OK)`]);
           } catch (_) {}
 
           if (isMultiRun) {
@@ -2908,6 +2913,9 @@ class DagEngineService extends EventEmitter {
         const batchSize = params.batchSize || 1000;
         const postType = (useBatch === 'Y') ? `BATCH (${batchSize})` : 'DIRECT';
         await dbDispatcher.finishRun(runId, `Flow 2 Post Multi-Target selesai (mode ${postType})`, postType);
+        try {
+          await queryPostgres(`UPDATE mc_center.migration_run SET main_workflow = 'flow_2_post' WHERE run_id = $1`, [runId]);
+        } catch (_) {}
         return { status: 'SUCCESS', postType };
       }
 
@@ -2992,6 +3000,9 @@ class DagEngineService extends EventEmitter {
       // 13. Finalisasi Flow 3 (Rollback)
       case 'FINISH_FLOW3': {
         await dbDispatcher.finishRollbackRun(runId);
+        try {
+          await queryPostgres(`UPDATE mc_center.migration_run SET main_workflow = 'flow_3_rollback' WHERE run_id = $1`, [runId]);
+        } catch (_) {}
         return { status: 'SUCCESS', isRolledBack: true };
       }
 
