@@ -2081,7 +2081,9 @@ class FlowCanvasStudio {
     }
 
     this.startTimer();
-    this.eventSource = new EventSource(`/api/flows/stream/${runId}`);
+    const streamToken = localStorage.getItem('antam_token');
+    const tokenQuery = streamToken ? `?token=${encodeURIComponent(streamToken)}` : '';
+    this.eventSource = new EventSource(`/api/flows/stream/${runId}${tokenQuery}`);
 
     this.eventSource.onmessage = (event) => {
       try {

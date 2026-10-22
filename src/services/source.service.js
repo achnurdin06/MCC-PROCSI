@@ -1,5 +1,6 @@
 const { querySqlServer, sql } = require('../config/sqlserver');
 const { queryPostgres, pool: defaultPgPool } = require('../config/postgres');
+const { decrypt } = require('../utils/encryption');
 
 function sanitizeIdentifier(name) {
   if (!name || typeof name !== 'string') return null;
@@ -38,7 +39,11 @@ class SourceService {
         'SELECT * FROM mc_center.master_connection WHERE connection_id = $1',
         [parseInt(connectionId, 10)]
       );
-      return res.rows[0] || null;
+      if (!res.rows[0]) return null;
+      const conn = res.rows[0];
+      if (conn.password) conn.password = decrypt(conn.password);
+      if (conn.ssh_password) conn.ssh_password = decrypt(conn.ssh_password);
+      return conn;
     } catch (e) {
       return null;
     }
@@ -629,6 +634,12 @@ class SourceService {
     if (!cleanQuery) cleanQuery = querySql.trim();
     while (cleanQuery.endsWith(';')) {
       cleanQuery = cleanQuery.slice(0, -1).trim();
+    }
+
+    // SQL Guard: Cegah multiple statements & perintah berbahaya pada query validator
+    const dangerousPatterns = /;\s*(DROP|DELETE|INSERT|UPDATE|TRUNCATE|ALTER|EXEC|XP_|SHUTDOWN|CREATE)\b/i;
+    if (dangerousPatterns.test(cleanQuery)) {
+      throw new Error('Pernyataan SQL majemuk atau perintah DDL/DML destruktif dilarang dalam validasi query.');
     }
 
     const startTime = Date.now();

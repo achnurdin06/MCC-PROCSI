@@ -1,6 +1,7 @@
 const { querySqlServer } = require('../config/sqlserver');
 const { queryPostgres, getPostgresPool } = require('../config/postgres');
 const dbDispatcher = require('./db-dispatcher.service');
+const { isSensitiveStagingColumn } = require('../utils/encryption');
 
 /**
  * Ingestion Service
@@ -169,7 +170,11 @@ class IngestionService {
               const rawVal = row[m.srcCol];
               const formatted = this.formatValueForPg(rawVal, m.pgType, m.pgUdt);
               params.push(formatted);
-              rowPlaceholders.push(`$${paramIdx++}`);
+              if (isSensitiveStagingColumn(actualStg, m.pgCol)) {
+                rowPlaceholders.push(`mc_center.fn_encrypt_staging($${paramIdx++})`);
+              } else {
+                rowPlaceholders.push(`$${paramIdx++}`);
+              }
             }
             valuePlaceholders.push(`(${rowPlaceholders.join(', ')})`);
           }
@@ -191,7 +196,11 @@ class IngestionService {
               let pIdx = 1;
               for (const m of matching) {
                 rowParams.push(this.formatValueForPg(row[m.srcCol], m.pgType, m.pgUdt));
-                rowPlaceholders.push(`$${pIdx++}`);
+                if (isSensitiveStagingColumn(actualStg, m.pgCol)) {
+                  rowPlaceholders.push(`mc_center.fn_encrypt_staging($${pIdx++})`);
+                } else {
+                  rowPlaceholders.push(`$${pIdx++}`);
+                }
               }
               await queryPostgres(
                 `INSERT INTO stg_antam."${actualStg}" (${pgColNames}) VALUES (${rowPlaceholders.join(', ')})`,

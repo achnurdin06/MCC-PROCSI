@@ -5,6 +5,7 @@ const sql = require('mssql');
 const { Pool } = require('pg');
 const { checkSqlServerConnection, getSqlServerPool, querySqlServer } = require('../config/sqlserver');
 const { ensureTunnel } = require('../config/tunnel');
+const { encrypt, decrypt, isEncrypted, maskCredential } = require('../utils/encryption');
 
 function sanitizeIdentifier(name) {
   if (!name || typeof name !== 'string') return null;
@@ -823,11 +824,23 @@ class EtlService {
       }
       query += ` ORDER BY cl.client_id NULLS LAST, c.env_id NULLS LAST, c.connection_id`;
       const res = await queryPostgres(query, params);
-      return res.rows;
+      return res.rows.map((c) => ({
+        ...c,
+        has_password: Boolean(c.password),
+        has_ssh_password: Boolean(c.ssh_password),
+        password: c.password ? '••••••••' : '',
+        ssh_password: c.ssh_password ? '••••••••' : '',
+      }));
     } catch (err) {
       let list = [...inMemoryConnections];
       if (envId) list = list.filter((c) => c.env_id == envId);
-      return list;
+      return list.map((c) => ({
+        ...c,
+        has_password: Boolean(c.password),
+        has_ssh_password: Boolean(c.ssh_password),
+        password: c.password ? '••••••••' : '',
+        ssh_password: c.ssh_password ? '••••••••' : '',
+      }));
     }
   }
 
@@ -841,6 +854,9 @@ class EtlService {
 
     if (!connection_name || !host) throw new Error('Nama Koneksi dan Host wajib diisi.');
     if (!env_id) throw new Error('Environment wajib dipilih.');
+
+    const encPassword = password ? (isEncrypted(password) ? password : encrypt(password)) : '';
+    const encSshPassword = ssh_password ? (isEncrypted(ssh_password) ? ssh_password : encrypt(ssh_password)) : '';
 
     try {
       const res = await queryPostgres(`
@@ -859,15 +875,22 @@ class EtlService {
         database_name ? database_name.trim() : '',
         db_schema || (db_type === 'MSSQL' ? 'dbo' : 'public'),
         username ? username.trim() : '',
-        password || '',
+        encPassword,
         Boolean(use_ssh_tunnel),
         ssh_host ? ssh_host.trim() : null,
         parseInt(ssh_port, 10) || 22,
         ssh_user ? ssh_user.trim() : null,
-        ssh_password || '',
+        encSshPassword,
         Boolean(is_active),
       ]);
-      return res.rows[0];
+      const row = res.rows[0];
+      return {
+        ...row,
+        has_password: Boolean(row.password),
+        has_ssh_password: Boolean(row.ssh_password),
+        password: row.password ? '••••••••' : '',
+        ssh_password: row.ssh_password ? '••••••••' : '',
+      };
     } catch (err) {
       const item = {
         connection_id: inMemoryConnections.length + 1,
@@ -894,6 +917,35 @@ class EtlService {
       env_id, connection_name, db_type, db_role, host, port, database_name,
       db_schema, username, password, use_ssh_tunnel, ssh_host, ssh_port, ssh_user, ssh_password, is_active,
     } = data;
+
+    // Ambil existing credentials jika password dikirim bertanda '••••••••' atau tidak diubah
+    let existingPass = null;
+    let existingSshPass = null;
+    try {
+      const cur = await queryPostgres('SELECT password, ssh_password FROM mc_center.master_connection WHERE connection_id = $1', [parseInt(id, 10)]);
+      if (cur.rows.length > 0) {
+        existingPass = cur.rows[0].password;
+        existingSshPass = cur.rows[0].ssh_password;
+      }
+    } catch (_) {}
+
+    let finalPassword = null;
+    if (password === '••••••••' || password === undefined || password === null) {
+      finalPassword = existingPass;
+    } else if (password === '') {
+      finalPassword = '';
+    } else {
+      finalPassword = isEncrypted(password) ? password : encrypt(password);
+    }
+
+    let finalSshPassword = null;
+    if (ssh_password === '••••••••' || ssh_password === undefined || ssh_password === null) {
+      finalSshPassword = existingSshPass;
+    } else if (ssh_password === '') {
+      finalSshPassword = '';
+    } else {
+      finalSshPassword = isEncrypted(ssh_password) ? ssh_password : encrypt(ssh_password);
+    }
 
     try {
       const res = await queryPostgres(`
@@ -927,16 +979,23 @@ class EtlService {
         database_name !== undefined ? database_name.trim() : null,
         db_schema !== undefined ? db_schema : null,
         username !== undefined ? username.trim() : null,
-        password !== undefined ? password : null,
+        finalPassword,
         use_ssh_tunnel !== undefined ? Boolean(use_ssh_tunnel) : null,
         ssh_host !== undefined ? ssh_host : null,
         ssh_port !== undefined ? parseInt(ssh_port, 10) : null,
         ssh_user !== undefined ? ssh_user : null,
-        ssh_password !== undefined ? ssh_password : null,
+        finalSshPassword,
         is_active !== undefined ? Boolean(is_active) : null,
         parseInt(id, 10),
       ]);
-      return res.rows[0];
+      const row = res.rows[0];
+      return {
+        ...row,
+        has_password: Boolean(row.password),
+        has_ssh_password: Boolean(row.ssh_password),
+        password: row.password ? '••••••••' : '',
+        ssh_password: row.ssh_password ? '••••••••' : '',
+      };
     } catch (err) {
       const idx = inMemoryConnections.findIndex((c) => c.connection_id == id);
       if (idx !== -1) {
@@ -958,8 +1017,20 @@ class EtlService {
   }
 
   async testConnection(data) {
-    const { db_type = 'POSTGRESQL', host, port, database_name, username, password } = data;
+    let { db_type = 'POSTGRESQL', host, port, database_name, username, password, connection_id } = data;
     const startTime = Date.now();
+
+    // Resolusi password jika di-mask atau terenkripsi
+    if (password === '••••••••' && connection_id) {
+      try {
+        const cur = await queryPostgres('SELECT password FROM mc_center.master_connection WHERE connection_id = $1', [parseInt(connection_id, 10)]);
+        if (cur.rows.length > 0 && cur.rows[0].password) {
+          password = decrypt(cur.rows[0].password);
+        }
+      } catch (_) {}
+    } else if (password) {
+      password = decrypt(password);
+    }
 
     if (db_type.toUpperCase() === 'MSSQL') {
       const isAntamHost = !host || host === '10.20.95.10' || host === process.env.MSSQL_SERVER || host === process.env.MSSQL_SSH_HOST || host === '127.0.0.1' || host === 'localhost';
@@ -1417,6 +1488,11 @@ class EtlService {
     const upper = cleanSql.toUpperCase();
     if (!upper.startsWith('SELECT') && !upper.startsWith('WITH')) {
       throw new Error('Query Precheck hanya boleh berupa statement SELECT atau WITH.');
+    }
+    // SQL Guard: Cegah multiple statements & perintah berbahaya pada query precheck
+    const dangerousPatterns = /;\s*(DROP|DELETE|INSERT|UPDATE|TRUNCATE|ALTER|EXEC|XP_|SHUTDOWN|CREATE)\b/i;
+    if (dangerousPatterns.test(cleanSql)) {
+      throw new Error('Pernyataan SQL majemuk atau perintah DDL/DML destruktif dilarang dalam pengujian precheck.');
     }
     const { querySqlServer } = require('../config/sqlserver');
     const start = Date.now();
@@ -1965,14 +2041,14 @@ class EtlService {
         { name: "PG_PORT", value: String(targetConn.port || 5433), description: "" },
         { name: "PG_DB", value: String(targetConn.database_name || 'db_procsi'), description: "" },
         { name: "PG_USER", value: String(targetConn.username || 'procsi'), description: "" },
-        { name: "PG_PASSWORD", value: String(targetConn.password || 'Pr0CSi'), description: "" },
+        { name: "PG_PASSWORD", value: String(decrypt(targetConn.password || 'Pr0CSi')), description: "" },
         { name: "MSSQL_HOST", value: String(sourceConn.host || 'localhost'), description: "" },
         { name: "MSSQL_PORT", value: String(sourceConn.port || 1433), description: "" },
         { name: "MSSQL_DB", value: String(sourceConn.database_name || 'antam_scm'), description: "" },
         { name: "MSSQL_USER", value: String(sourceConn.username || 'sa'), description: "" },
-        { name: "MSSQL_PASSWORD", value: String(sourceConn.password || 'Sisi@2026!'), description: "" },
+        { name: "MSSQL_PASSWORD", value: String(decrypt(sourceConn.password || 'Sisi@2026!')), description: "" },
         { name: "MSSQL_USER_SSH", value: String(sourceConn.ssh_user || 'developer'), description: "" },
-        { name: "MSSQL_PASSWORD_SSH", value: String(sourceConn.ssh_password || 'Sisi@2026'), description: "" },
+        { name: "MSSQL_PASSWORD_SSH", value: String(decrypt(sourceConn.ssh_password || 'Sisi@2026')), description: "" },
         { name: "MSSQL_PORT_SSH", value: String(sourceConn.ssh_port || 22), description: "" },
         { name: "MSSQL_HOST_SSH", value: String(sourceConn.ssh_host || sourceConn.host || '10.20.95.10'), description: "" },
       ]
