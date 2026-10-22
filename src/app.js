@@ -1,7 +1,18 @@
 const express = require('express');
 const cors = require('cors');
+const fs = require('fs');
 const path = require('path');
-require('dotenv').config();
+
+// Dynamic Environment Loader (DEV vs PROD)
+const nodeEnv = (process.env.NODE_ENV || 'development').toLowerCase();
+const envFileName = nodeEnv === 'production' ? '.env.production' : '.env.development';
+const envFilePath = path.resolve(process.cwd(), envFileName);
+
+if (fs.existsSync(envFilePath)) {
+  require('dotenv').config({ path: envFilePath });
+} else {
+  require('dotenv').config();
+}
 
 const apiRoutes = require('./routes/api');
 const { getPostgresPool } = require('./config/postgres');
@@ -55,10 +66,12 @@ app.use((err, req, res, next) => {
 
 // Start server
 const server = app.listen(PORT, () => {
+  const currentEnv = (process.env.APP_ENV || (nodeEnv === 'production' ? 'PROD' : 'DEV')).toUpperCase();
   console.log(`=======================================================`);
-  console.log(`🚀 Migration Data Viewer App berjalan di lokal!`);
+  console.log(`🚀 Migration Command Center [${currentEnv}] Mode berjalan!`);
   console.log(`👉 Akses Dashboard: http://localhost:${PORT}`);
   console.log(`👉 API Health Check: http://localhost:${PORT}/api/health`);
+  console.log(`⚙️  Database Aplikasi: ${process.env.APP_DB_NAME || process.env.PG_DATABASE || 'db_procsi'} (skema ${process.env.APP_DB_SCHEMA || 'mc_center'})`);
   console.log(`=======================================================`);
 });
 

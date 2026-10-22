@@ -64,13 +64,13 @@ class DagEngineService extends EventEmitter {
     let tgtPort = null;
     let tgtDb = null;
     let tgtSchema = 'public';
-    let ctlSchema = 'etl_antam';
+    let ctlSchema = 'mc_center';
     let stgSchema = 'stg_antam';
     let activeConfigCount = 0;
 
     try {
       if (clientId) {
-        const cRes = await queryPostgres('SELECT client_id, client_code, client_name FROM etl_antam.master_client WHERE client_id = $1', [parseInt(clientId, 10)]);
+        const cRes = await queryPostgres('SELECT client_id, client_code, client_name FROM mc_center.master_client WHERE client_id = $1', [parseInt(clientId, 10)]);
         if (cRes.rows.length > 0) {
           clientCode = cRes.rows[0].client_code || clientCode;
           clientName = cRes.rows[0].client_name || clientName;
@@ -78,20 +78,20 @@ class DagEngineService extends EventEmitter {
         }
       }
       if (!envId && clientId) {
-        const defaultEnv = await queryPostgres('SELECT env_id, env_code, env_name FROM etl_antam.master_environment WHERE client_id = $1 ORDER BY env_id ASC LIMIT 1', [parseInt(clientId, 10)]);
+        const defaultEnv = await queryPostgres('SELECT env_id, env_code, env_name FROM mc_center.master_environment WHERE client_id = $1 ORDER BY env_id ASC LIMIT 1', [parseInt(clientId, 10)]);
         if (defaultEnv.rows.length > 0) {
           envId = defaultEnv.rows[0].env_id;
         }
       }
       if (envId) {
-        const eRes = await queryPostgres('SELECT env_id, env_code, env_name FROM etl_antam.master_environment WHERE env_id = $1', [parseInt(envId, 10)]);
+        const eRes = await queryPostgres('SELECT env_id, env_code, env_name FROM mc_center.master_environment WHERE env_id = $1', [parseInt(envId, 10)]);
         if (eRes.rows.length > 0) {
           envCode = eRes.rows[0].env_code || envCode;
           envName = eRes.rows[0].env_name || envName;
         }
         const connRes = await queryPostgres(
           `SELECT connection_id, env_id, connection_name, db_type, db_role, host, port, database_name, db_schema, use_ssh_tunnel, ssh_host, ssh_port 
-           FROM etl_antam.master_connection 
+           FROM mc_center.master_connection 
            WHERE env_id = $1 AND is_active = true`,
           [parseInt(envId, 10)]
         );
@@ -133,7 +133,7 @@ class DagEngineService extends EventEmitter {
         tgtSchema = 'public';
       }
 
-      let countSql = 'SELECT COUNT(*) as total FROM etl_antam.migration_config WHERE is_active = true';
+      let countSql = 'SELECT COUNT(*) as total FROM mc_center.migration_config WHERE is_active = true';
       const countParams = [];
       if (clientId) {
         countParams.push(parseInt(clientId, 10));
@@ -1120,7 +1120,7 @@ class DagEngineService extends EventEmitter {
     if (isBatchAll) {
       let q = `
         SELECT config_id, name_config, exec_order, src_schema, src_view, tgt_schema, tgt_table, stg_table, is_active
-        FROM etl_antam.migration_config
+        FROM mc_center.migration_config
         WHERE is_active = true
       `;
       const qParams = [];
@@ -1137,7 +1137,7 @@ class DagEngineService extends EventEmitter {
     } else {
       const cfgRes = await queryPostgres(`
         SELECT config_id, name_config, exec_order, src_schema, src_view, tgt_schema, tgt_table, stg_table, is_active
-        FROM etl_antam.migration_config
+        FROM mc_center.migration_config
         WHERE is_active = true AND config_id = ANY($1::int[])
         ORDER BY exec_order ASC, config_id ASC
       `, [targetConfigIds]);
@@ -1164,8 +1164,8 @@ class DagEngineService extends EventEmitter {
       if (resolvedRunIds.length > 0) {
         const runsRes = await queryPostgres(`
           SELECT r.*, c.name_config, c.tgt_table, c.tgt_schema, c.stg_table, c.src_view, c.src_schema, c.exec_order
-          FROM etl_antam.migration_run r
-          LEFT JOIN etl_antam.migration_config c ON c.config_id = CAST(NULLIF(regexp_replace(r.config_id, '[^0-9]', '', 'g'), '') AS INTEGER)
+          FROM mc_center.migration_run r
+          LEFT JOIN mc_center.migration_config c ON c.config_id = CAST(NULLIF(regexp_replace(r.config_id, '[^0-9]', '', 'g'), '') AS INTEGER)
           WHERE r.run_id = ANY($1::bigint[])
           ORDER BY COALESCE(c.exec_order, 999) ASC, r.run_id ASC
         `, [resolvedRunIds]);
@@ -1194,8 +1194,8 @@ class DagEngineService extends EventEmitter {
         // Fallback auto-picker jika user tidak mengirim runId (Hanya ambil sesi aktif yang belum SUPERSEDED)
         const candidateRun = await queryPostgres(`
           SELECT r.*, c.name_config, c.tgt_table, c.tgt_schema, c.stg_table, c.src_view, c.src_schema
-          FROM etl_antam.migration_run r
-          LEFT JOIN etl_antam.migration_config c ON c.config_id = CAST(NULLIF(regexp_replace(r.config_id, '[^0-9]', '', 'g'), '') AS INTEGER)
+          FROM mc_center.migration_run r
+          LEFT JOIN mc_center.migration_config c ON c.config_id = CAST(NULLIF(regexp_replace(r.config_id, '[^0-9]', '', 'g'), '') AS INTEGER)
           WHERE r.status = 'SUCCESS'
             AND (r.is_posted IS FALSE OR r.is_posted IS NULL)
             AND (r.is_rolled_back IS FALSE OR r.is_rolled_back IS NULL)
@@ -1217,7 +1217,7 @@ class DagEngineService extends EventEmitter {
       if (runConfigIds.length > 0) {
         const cfgRes = await queryPostgres(`
           SELECT config_id, name_config, exec_order, src_schema, src_view, tgt_schema, tgt_table, stg_table, is_active
-          FROM etl_antam.migration_config
+          FROM mc_center.migration_config
           WHERE config_id = ANY($1::int[])
         `, [runConfigIds]);
         if (cfgRes.rows.length > 0) {
@@ -1241,8 +1241,8 @@ class DagEngineService extends EventEmitter {
       if (resolvedRunIds.length > 0) {
         const runsRes = await queryPostgres(`
           SELECT r.*, c.name_config, c.tgt_table, c.tgt_schema, c.stg_table, c.src_view, c.src_schema, c.exec_order
-          FROM etl_antam.migration_run r
-          LEFT JOIN etl_antam.migration_config c ON c.config_id = CAST(NULLIF(regexp_replace(r.config_id, '[^0-9]', '', 'g'), '') AS INTEGER)
+          FROM mc_center.migration_run r
+          LEFT JOIN mc_center.migration_config c ON c.config_id = CAST(NULLIF(regexp_replace(r.config_id, '[^0-9]', '', 'g'), '') AS INTEGER)
           WHERE r.run_id = ANY($1::bigint[])
           ORDER BY r.run_id DESC
         `, [resolvedRunIds]);
@@ -1265,8 +1265,8 @@ class DagEngineService extends EventEmitter {
         // Fallback auto-picker jika user tidak mengirim runId: cari sesi terakhir yang is_posted = true dan belum di-rollback
         const candidateRun = await queryPostgres(`
           SELECT r.*, c.name_config, c.tgt_table, c.tgt_schema, c.stg_table, c.src_view, c.src_schema
-          FROM etl_antam.migration_run r
-          LEFT JOIN etl_antam.migration_config c ON c.config_id = CAST(NULLIF(regexp_replace(r.config_id, '[^0-9]', '', 'g'), '') AS INTEGER)
+          FROM mc_center.migration_run r
+          LEFT JOIN mc_center.migration_config c ON c.config_id = CAST(NULLIF(regexp_replace(r.config_id, '[^0-9]', '', 'g'), '') AS INTEGER)
           WHERE r.is_posted = true
             AND (r.is_rolled_back IS FALSE OR r.is_rolled_back IS NULL)
           ORDER BY r.run_id DESC
@@ -1286,7 +1286,7 @@ class DagEngineService extends EventEmitter {
       if (runConfigIds.length > 0) {
         const cfgRes = await queryPostgres(`
           SELECT config_id, name_config, exec_order, src_schema, src_view, tgt_schema, tgt_table, stg_table, is_active
-          FROM etl_antam.migration_config
+          FROM mc_center.migration_config
           WHERE config_id = ANY($1::int[])
         `, [runConfigIds]);
         if (cfgRes.rows.length > 0) {
@@ -1323,7 +1323,7 @@ class DagEngineService extends EventEmitter {
       const targetIds = targetConfigs.map(c => String(c.config_id));
       const activePostedRuns = await queryPostgres(`
         SELECT run_id, run_ts, config_id, status, is_posted, posted_at, post_type, is_rolled_back
-        FROM etl_antam.migration_run
+        FROM mc_center.migration_run
         WHERE config_id = ANY($1::text[])
           AND is_posted = true 
           AND (is_rolled_back IS FALSE OR is_rolled_back IS NULL)
@@ -1357,7 +1357,7 @@ class DagEngineService extends EventEmitter {
       } else if (flowId === 'flow_3_rollback') {
         currentRun = targetRollbackRuns[0];
       } else if (runId) {
-        const res = await queryPostgres('SELECT * FROM etl_antam.migration_run WHERE run_id = $1', [parseInt(runId, 10)]);
+        const res = await queryPostgres('SELECT * FROM mc_center.migration_run WHERE run_id = $1', [parseInt(runId, 10)]);
         if (res.rows.length === 0) throw new Error(`Run ID ${runId} tidak ditemukan.`);
         currentRun = res.rows[0];
       } else {
@@ -1381,7 +1381,7 @@ class DagEngineService extends EventEmitter {
       const targetIds = targetConfigs.map(c => String(c.config_id));
       try {
         await queryPostgres(`
-          UPDATE etl_antam.migration_run
+          UPDATE mc_center.migration_run
           SET note = '⚠️ KADALUARSA (SUPERSEDED): Data staging telah digantikan oleh sesi baru Run #' || $2
           WHERE (config_id = ANY($1::text[]) OR config_id = 'ALL')
             AND run_id < $2
@@ -1741,7 +1741,7 @@ class DagEngineService extends EventEmitter {
           finalMsg = `Alur "${flowName}" selesai sebagian: ${successfulConfigs.length} tabel sukses, ${failedConfigs.length} tabel gagal (${failedConfigs.map(f => '#' + f.configId).join(', ')})`;
           
           await queryPostgres(`
-            UPDATE etl_antam.migration_run
+            UPDATE mc_center.migration_run
             SET status = 'PARTIAL_SUCCESS',
                 note = COALESCE(note, '') || ' | ' || $2
             WHERE run_id = $1
@@ -2018,7 +2018,7 @@ class DagEngineService extends EventEmitter {
             console.error(`[DAG-ENGINE] Gagal auto-rollback Run #${currentRunId}:`, rbErr.message);
           }
 
-          // 2. Catat audit error ke etl_antam.migration_error_log
+          // 2. Catat audit error ke mc_center.migration_error_log
           try {
             await dbDispatcher.logError({
               runId: currentRunId,
@@ -2032,7 +2032,7 @@ class DagEngineService extends EventEmitter {
             });
           } catch (_) {}
 
-          // 3. Catat status FAILED pada etl_antam.migration_step_log
+          // 3. Catat status FAILED pada mc_center.migration_step_log
           try {
             await dbDispatcher.logStep({
               runId: currentRunId,
@@ -2046,7 +2046,7 @@ class DagEngineService extends EventEmitter {
           // 4. Update status migration_run menjadi FAILED
           try {
             await queryPostgres(`
-              UPDATE etl_antam.migration_run
+              UPDATE mc_center.migration_run
               SET status = 'FAILED',
                   note = COALESCE(note, '') || ' | ' || $2
               WHERE run_id = $1
@@ -2084,7 +2084,7 @@ class DagEngineService extends EventEmitter {
           finalMsg = `Flow 2 Post selesai sebagian: ${successfulRuns.length} run sukses, ${failedRuns.length} run gagal (${failedRuns.map(f => '#' + f.runId).join(', ')})`;
 
           await queryPostgres(`
-            UPDATE etl_antam.migration_run
+            UPDATE mc_center.migration_run
             SET status = 'PARTIAL_SUCCESS',
                 note = COALESCE(note, '') || ' | ' || $2
             WHERE run_id = $1
@@ -2424,17 +2424,17 @@ class DagEngineService extends EventEmitter {
           throw new Error('Koneksi ke SQL Server (antam_scm) gagal atau tidak merespons.');
         }
 
-        // Pengecekan konektivitas PostgreSQL (etl_antam)
+        // Pengecekan konektivitas PostgreSQL (mc_center)
         const pgRes = await queryPostgres('SELECT 1 AS ok');
         if (!pgRes.rows || pgRes.rows.length === 0) {
-          throw new Error('Koneksi ke PostgreSQL (etl_antam) gagal atau tidak merespons.');
+          throw new Error('Koneksi ke PostgreSQL (mc_center) gagal atau tidak merespons.');
         }
 
-        // Pengecekan ketersediaan tabel kontrol migrasi di etl_antam
+        // Pengecekan ketersediaan tabel kontrol migrasi di mc_center
         const tablesRes = await queryPostgres(`
           SELECT table_name 
           FROM information_schema.tables 
-          WHERE table_schema = 'etl_antam' 
+          WHERE table_schema = 'mc_center' 
             AND table_name IN ('migration_config', 'migration_run', 'migration_step_log', 'migration_error_log')
         `);
         const foundTables = tablesRes.rows.map(r => r.table_name);
@@ -2442,7 +2442,7 @@ class DagEngineService extends EventEmitter {
         const missing = requiredTables.filter(t => !foundTables.includes(t));
 
         if (missing.length > 0) {
-          throw new Error(`Tabel kontrol prasyarat migrasi belum lengkap di etl_antam: ${missing.join(', ')}.`);
+          throw new Error(`Tabel kontrol prasyarat migrasi belum lengkap di mc_center: ${missing.join(', ')}.`);
         }
 
         return {
@@ -2458,7 +2458,7 @@ class DagEngineService extends EventEmitter {
         const selectedIds = (context.targetConfigs || [context.config]).map(c => c.config_id);
         const res = await queryPostgres(`
           SELECT config_id, name_config, exec_order, src_view, stg_table
-          FROM etl_antam.migration_config
+          FROM mc_center.migration_config
           WHERE is_active = true AND config_id = ANY($1::int[])
           ORDER BY exec_order ASC, config_id ASC
         `, [selectedIds]);
@@ -2481,7 +2481,7 @@ class DagEngineService extends EventEmitter {
       case 'GET_CONFIGS': {
         const res = await queryPostgres(`
           SELECT config_id, name_config, exec_order, src_view, stg_table
-          FROM etl_antam.migration_config
+          FROM mc_center.migration_config
           WHERE is_active = true
           ORDER BY exec_order ASC, config_id ASC
         `);
@@ -2527,7 +2527,7 @@ class DagEngineService extends EventEmitter {
         // Pengecekan Target: Guard Siklus Selesai pada simpul Precheck (Bug #2)
         const activePostedRun = await queryPostgres(`
           SELECT run_id, run_ts, is_posted, posted_at, is_rolled_back
-          FROM etl_antam.migration_run
+          FROM mc_center.migration_run
           WHERE config_id = $1 
             AND is_posted = true 
             AND (is_rolled_back IS FALSE OR is_rolled_back IS NULL)
@@ -2602,7 +2602,7 @@ class DagEngineService extends EventEmitter {
 
         let rowsNew = 0;
         try {
-          const runRes = await queryPostgres('SELECT rows_new FROM etl_antam.migration_run WHERE run_id = $1', [parseInt(runId, 10)]);
+          const runRes = await queryPostgres('SELECT rows_new FROM mc_center.migration_run WHERE run_id = $1', [parseInt(runId, 10)]);
           rowsNew = parseInt(runRes.rows[0]?.rows_new || 0, 10);
           context.rowsNew = rowsNew;
         } catch (_) {}
@@ -2635,7 +2635,7 @@ class DagEngineService extends EventEmitter {
         const precheckOk = await dbDispatcher.precheckTarget(runId, configId);
         if (!precheckOk) {
           const errRes = await queryPostgres(`
-            SELECT message FROM etl_antam.migration_step_log 
+            SELECT message FROM mc_center.migration_step_log 
             WHERE run_id = $1 AND config_id = $2 AND step_name = 'PRECHECK' AND status = 'FAILED'
             ORDER BY log_id DESC LIMIT 1
           `, [runId, configId]);
@@ -2646,7 +2646,7 @@ class DagEngineService extends EventEmitter {
         // 2. Verifikasi keberadaan target mapping aktif di migration_target_config
         const tgtCfgRes = await queryPostgres(`
           SELECT count(*) as cnt 
-          FROM etl_antam.migration_target_config 
+          FROM mc_center.migration_target_config 
           WHERE config_id = $1 AND is_active = true
         `, [configId]);
         const tgtCount = parseInt(tgtCfgRes.rows[0]?.cnt || 0, 10);
@@ -2656,7 +2656,7 @@ class DagEngineService extends EventEmitter {
 
         // 3. Verifikasi ketersediaan data staging (mencegah false posting tabel kosong)
         const cfgRes = await queryPostgres(`
-          SELECT stg_table FROM etl_antam.migration_config WHERE config_id = $1
+          SELECT stg_table FROM mc_center.migration_config WHERE config_id = $1
         `, [configId]);
         const stgTable = cfgRes.rows[0]?.stg_table;
         const actualStgTable = stgTable ? (stgTable.endsWith('_src') ? stgTable : `${stgTable}_src`) : null;
@@ -2672,7 +2672,7 @@ class DagEngineService extends EventEmitter {
 
         if (stagingRowCount === 0) {
           const runRes = await queryPostgres(`
-            SELECT rows_stg FROM etl_antam.migration_step_log 
+            SELECT rows_stg FROM mc_center.migration_step_log 
             WHERE run_id = $1 AND rows_stg IS NOT NULL 
             ORDER BY log_id DESC LIMIT 1
           `, [runId]);
@@ -2705,7 +2705,7 @@ class DagEngineService extends EventEmitter {
         // 1. Cek apakah ada error log baru yang dicatat selama proses posting pada run_id ini
         const errLogRes = await queryPostgres(`
           SELECT error_id, step_name, error_code, error_message, error_field
-          FROM etl_antam.migration_error_log
+          FROM mc_center.migration_error_log
           WHERE run_id = $1
           ORDER BY error_id DESC LIMIT 5
         `, [runId]);
@@ -2718,7 +2718,7 @@ class DagEngineService extends EventEmitter {
         // 2. Ambil rekap baris posting resmi per target table dari migration_step_log (summary selesai post)
         const stepLogsRes = await queryPostgres(`
           SELECT step_name, status, message, rows_new, rows_src, rows_stg
-          FROM etl_antam.migration_step_log
+          FROM mc_center.migration_step_log
           WHERE run_id = $1 AND config_id = $2 
             AND step_name = 'POST_TARGET'
             AND message LIKE 'selesai post ke %'
@@ -2736,7 +2736,7 @@ class DagEngineService extends EventEmitter {
           // Fallback jika format pesan berbeda: ambil distinct target step yang memiliki rows_new
           const fallbackRes = await queryPostgres(`
             SELECT DISTINCT ON (message) rows_new
-            FROM etl_antam.migration_step_log
+            FROM mc_center.migration_step_log
             WHERE run_id = $1 AND config_id = $2 
               AND step_name = 'POST_TARGET' 
               AND status = 'OK'
@@ -2751,7 +2751,7 @@ class DagEngineService extends EventEmitter {
         try {
           const tgtConfigs = await queryPostgres(`
             SELECT DISTINCT tgt_schema, tgt_table
-            FROM etl_antam.migration_target_config
+            FROM mc_center.migration_target_config
             WHERE config_id = $1 AND is_active = true
           `, [configId]);
           for (const tc of tgtConfigs.rows) {
@@ -2779,7 +2779,7 @@ class DagEngineService extends EventEmitter {
 
         // 3. Catat audit rekonsiliasi ke step log
         await queryPostgres(`
-          CALL etl_antam.pr_log_step(
+          CALL mc_center.pr_log_step(
             $1::bigint, 
             $2::int, 
             'RECONCILIATION', 
@@ -2833,7 +2833,7 @@ class DagEngineService extends EventEmitter {
       // 11c. Precheck Rollback (Verifikasi Staging & Target Table Integrity)
       case 'PRECHECK_ROLLBACK': {
         const chkRes = await queryPostgres(
-          'SELECT etl_antam.fn_validate_rollback_trigger($1::bigint, $2::int, $3::bigint) AS res',
+          'SELECT mc_center.fn_validate_rollback_trigger($1::bigint, $2::int, $3::bigint) AS res',
           [runId, configId, runId]
         );
         const resVal = chkRes.rows[0]?.res;
@@ -2856,7 +2856,7 @@ class DagEngineService extends EventEmitter {
         try {
           const tgtConfigs = await queryPostgres(`
             SELECT DISTINCT tgt_schema, tgt_table
-            FROM etl_antam.migration_target_config
+            FROM mc_center.migration_target_config
             WHERE config_id = $1 AND is_active = true
           `, [configId]);
           for (const tc of tgtConfigs.rows) {
@@ -2991,7 +2991,7 @@ class DagEngineService extends EventEmitter {
       case 'FINISH_FLOW4': {
         try {
           await queryPostgres(`
-            UPDATE etl_antam.migration_run
+            UPDATE mc_center.migration_run
             SET status = 'SUCCESS',
                 note = COALESCE(note, '') || ' | Purge data migrasi tuntas untuk seluruh konfigurasi terpilih.'
             WHERE run_id = $1
@@ -3025,20 +3025,20 @@ class DagEngineService extends EventEmitter {
     // Ambil data run
     const runRes = await queryPostgres(`
       SELECT run_id, run_ts, status, config_id, main_workflow, note
-      FROM etl_antam.migration_run WHERE run_id = $1
+      FROM mc_center.migration_run WHERE run_id = $1
     `, [rId]);
 
     // Ambil step log terakhir
     const stepRes = await queryPostgres(`
       SELECT log_id AS step_id, step_name, status, message, start_time AS step_ts, rows_src, rows_stg
-      FROM etl_antam.migration_step_log WHERE run_id = $1
+      FROM mc_center.migration_step_log WHERE run_id = $1
       ORDER BY log_id DESC LIMIT 10
     `, [rId]);
 
     // Ambil error log baris bermasalah
     const errRes = await queryPostgres(`
       SELECT error_id, step_name, pipeline_name, error_code, error_message, error_field, row_data, logged_at
-      FROM etl_antam.migration_error_log WHERE run_id = $1
+      FROM mc_center.migration_error_log WHERE run_id = $1
       ORDER BY error_id DESC LIMIT 20
     `, [rId]);
 

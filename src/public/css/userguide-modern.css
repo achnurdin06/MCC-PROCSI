@@ -1,0 +1,156 @@
+/* ============================================================== */
+/* USERGUIDE MODERN COMPONENT STYLES                             */
+/* ============================================================== */
+
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 20px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+  vertical-align: middle;
+}
+
+#tab-userguide {
+  padding: 0.5rem 0.5rem 3rem 0.5rem !important;
+  background: #f8f9ff;
+  border-radius: 12px;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box;
+}
+
+#tab-userguide .userguide-modern-container {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  box-sizing: border-box;
+}
+
+#tab-userguide .userguide-layout-grid {
+  display: flex;
+  gap: 1.25rem;
+  align-items: flex-start;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+#tab-userguide .userguide-left-rail {
+  width: 270px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 1rem;
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  border-radius: 0.75rem;
+  background: #ffffff;
+  padding: 1rem;
+  box-shadow: 0 1px 8px rgba(0, 0, 0, 0.04);
+  border: 1px solid #e5eeff;
+}
+
+#tab-userguide .userguide-left-rail::-webkit-scrollbar {
+  width: 4px;
+}
+#tab-userguide .userguide-left-rail::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+#tab-userguide .userguide-main-column {
+  flex: 1 1 0%;
+  min-width: 0;
+  width: 100% !important;
+  max-width: 100% !important;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+#tab-userguide .userguide-center-content {
+  flex: 1 1 0%;
+  min-width: 0;
+  width: 100% !important;
+  max-width: 100% !important;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+#tab-userguide .userguide-right-toc {
+  width: 260px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 1rem;
+  max-height: calc(100vh - 100px);
+  overflow-y: auto;
+  border-radius: 0.75rem;
+  background: #ffffff;
+  padding: 1rem;
+  box-shadow: 0 1px 8px rgba(0, 0, 0, 0.04);
+  border: 1px solid #e5eeff;
+}
+
+#tab-userguide .userguide-right-toc::-webkit-scrollbar {
+  width: 4px;
+}
+#tab-userguide .userguide-right-toc::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+
+#tab-userguide pre code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
+#tab-userguide table th,
+#tab-userguide table td {
+  padding: 0.75rem;
+  vertical-align: middle;
+}
+
+#tab-userguide button {
+  cursor: pointer;
+}
+
+/* Smooth anchor scrolling */
+#tab-userguide section[id^="bab-"] {
+  scroll-margin-top: 1.5rem;
+}
+
+/* Floating back to top button */
+#userguide-back-to-top {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  z-index: 50;
+  width: 44px;
+  height: 44px;
+  border-radius: 9999px;
+  background: #3525cd;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(53, 37, 205, 0.3);
+  transition: all 0.25s ease;
+  border: none;
+  cursor: pointer;
+}
+
+#userguide-back-to-top:hover {
+  background: #4f46e5;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(53, 37, 205, 0.4);
+}

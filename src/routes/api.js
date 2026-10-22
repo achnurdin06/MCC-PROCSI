@@ -86,6 +86,9 @@ router.post('/source/sync-all-views', (req, res) => sourceController.syncAllView
 // 4. Modul 2: Migration Config (Master Tables & CRUD)
 // ==========================================
 router.get('/etl/configs', (req, res) => etlController.getMasterConfigs(req, res));
+router.get('/etl/configs/export', (req, res) => etlController.exportConfigs(req, res));
+router.post('/etl/configs/import', (req, res) => etlController.importConfigs(req, res));
+router.post('/etl/configs/test-precheck', (req, res) => etlController.testPrecheckSql(req, res));
 router.get('/etl/configs/migration_config/defaults', (req, res) => etlController.generateConfigDefaults(req, res));
 router.post('/etl/configs/migration_config/defaults', (req, res) => etlController.generateConfigDefaults(req, res));
 router.post('/etl/configs/:table', (req, res) => etlController.createConfigRecord(req, res));

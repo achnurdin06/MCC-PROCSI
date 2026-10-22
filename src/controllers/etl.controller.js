@@ -229,6 +229,35 @@ class EtlController {
     }
   }
 
+  async testPrecheckSql(req, res) {
+    try {
+      const { querySql } = req.body;
+      const data = await etlService.testPrecheckSql(querySql);
+      return res.json({ success: true, ...data });
+    } catch (err) {
+      return res.status(400).json({ success: false, error: err.message });
+    }
+  }
+
+  async exportConfigs(req, res) {
+    try {
+      const data = await etlService.exportConfigs(req.query);
+      return res.json({ success: true, ...data });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  }
+
+  async importConfigs(req, res) {
+    try {
+      const { payload, clientId, envId } = req.body;
+      const result = await etlService.importConfigs(payload, { clientId, envId });
+      return res.json(result);
+    } catch (err) {
+      return res.status(400).json({ success: false, error: err.message });
+    }
+  }
+
   // ==========================================
   // PROCESS RUNS & LOGS
   // ==========================================

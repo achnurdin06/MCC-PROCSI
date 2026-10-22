@@ -9,7 +9,25 @@ function sanitizeIdentifier(name) {
 
 let inMemoryConfiguredViews = [];
 
+const viewsSummaryCache = new Map();
+const VIEWS_CACHE_TTL_MS = 60 * 1000; // 60 detik cache TTL
+
 class SourceService {
+  /**
+   * Helper untuk membersihkan cache summary views
+   */
+  invalidateCache(connectionId = null) {
+    if (connectionId) {
+      for (const key of viewsSummaryCache.keys()) {
+        if (key.startsWith(`${connectionId}_`)) {
+          viewsSummaryCache.delete(key);
+        }
+      }
+    } else {
+      viewsSummaryCache.clear();
+    }
+  }
+
   /**
    * Helper untuk mengambil metadata koneksi dari database
    */
@@ -17,7 +35,7 @@ class SourceService {
     if (!connectionId) return null;
     try {
       const res = await queryPostgres(
-        'SELECT * FROM etl_antam.master_connection WHERE connection_id = $1',
+        'SELECT * FROM mc_center.master_connection WHERE connection_id = $1',
         [parseInt(connectionId, 10)]
       );
       return res.rows[0] || null;
@@ -33,6 +51,18 @@ class SourceService {
     if (!connectionId) {
       return { totalViews: 0, totalRowsAllViews: 0, views: [] };
     }
+
+    const cacheKey = `${connectionId}_${context?.clientId || 0}_${context?.envId || 0}`;
+    const isForceRefresh = Boolean(context?.refresh);
+
+    if (!isForceRefresh && viewsSummaryCache.has(cacheKey)) {
+      const cached = viewsSummaryCache.get(cacheKey);
+      if (Date.now() - cached.timestamp < VIEWS_CACHE_TTL_MS) {
+        return cached.data;
+      }
+      viewsSummaryCache.delete(cacheKey);
+    }
+
     const conn = await this.getConnectionMeta(connectionId);
     if (!conn) {
       return { totalViews: 0, totalRowsAllViews: 0, views: [] };
@@ -42,7 +72,6 @@ class SourceService {
     const databaseName = conn.database_name || 'antam_scm';
 
     let views = [];
-    let totalRowsAllViews = 0;
 
     if (dbType === 'MSSQL') {
       try {
@@ -95,10 +124,10 @@ class SourceService {
       }
     }
 
-    // Ambil metadata dari etl_antam.master_source_view
+    // Ambil metadata dari mc_center.master_source_view
     let configuredMap = {};
     try {
-      let q = 'SELECT view_id, view_name, query_sql, description, is_active, is_synced, connection_id FROM etl_antam.master_source_view';
+      let q = 'SELECT view_id, view_name, query_sql, description, is_active, is_synced, connection_id FROM mc_center.master_source_view';
       const params = [];
       if (connectionId) {
         q += ' WHERE connection_id = $1';
@@ -111,7 +140,7 @@ class SourceService {
       });
     } catch (e) {
       try {
-        let q = 'SELECT view_id, view_name, query_sql, is_active, is_synced, connection_id FROM etl_antam.master_source_view';
+        let q = 'SELECT view_id, view_name, query_sql, is_active, is_synced, connection_id FROM mc_center.master_source_view';
         const params = [];
         if (connectionId) {
           q += ' WHERE connection_id = $1';
@@ -129,12 +158,12 @@ class SourceService {
       }
     }
 
-    // Ambil metadata relasi dari etl_antam.migration_config
+    // Ambil metadata relasi dari mc_center.migration_config
     const migrationConfigMap = {};
     try {
       let mcQuery = `
         SELECT config_id, exec_order, src_schema, src_view, tgt_schema, tgt_table, stg_table, is_active, client_id, env_id
-        FROM etl_antam.migration_config
+        FROM mc_center.migration_config
       `;
       const mcParams = [];
       const mcConds = [];
@@ -172,50 +201,64 @@ class SourceService {
       console.warn('Gagal memuat relasi migration_config:', err.message);
     }
 
+    // Tuning performa: jalankan query COUNT secara bertahap (batch) dengan READ UNCOMMITTED & timeout guard 4s
+    const BATCH_SIZE = 8;
     const viewList = [];
-    for (const v of views) {
-      const cleanName = sanitizeIdentifier(v.name);
-      let count = 0;
-      let error = null;
+    for (let i = 0; i < views.length; i += BATCH_SIZE) {
+      const chunk = views.slice(i, i + BATCH_SIZE);
+      const chunkResults = await Promise.all(
+        chunk.map(async (v) => {
+          const cleanName = sanitizeIdentifier(v.name);
+          let count = 0;
+          let error = null;
 
-      if (cleanName) {
-        try {
-          if (dbType === 'MSSQL') {
-            const countRes = await querySqlServer(`SELECT COUNT_BIG(1) AS total FROM [${schemaName}].[${cleanName}]`);
-            count = parseInt(countRes.recordset[0]?.total, 10) || 0;
-          } else {
-            const countRes = await queryPostgres(`SELECT count(1) AS total FROM "${schemaName}"."${cleanName}"`);
-            count = parseInt(countRes.rows[0]?.total, 10) || 0;
+          if (cleanName) {
+            try {
+              if (dbType === 'MSSQL') {
+                const countQuery = querySqlServer(
+                  `SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; SELECT COUNT_BIG(1) AS total FROM [${schemaName}].[${cleanName}]`
+                );
+                const timeoutPromise = new Promise((_, reject) =>
+                  setTimeout(() => reject(new Error('Hitung baris timeout (4s)')), 4000)
+                );
+                const countRes = await Promise.race([countQuery, timeoutPromise]);
+                count = parseInt(countRes.recordset[0]?.total, 10) || 0;
+              } else {
+                const countRes = await queryPostgres(`SELECT count(1) AS total FROM "${schemaName}"."${cleanName}"`);
+                count = parseInt(countRes.rows[0]?.total, 10) || 0;
+              }
+            } catch (err) {
+              error = err.message;
+            }
           }
-          totalRowsAllViews += count;
-        } catch (err) {
-          error = err.message;
-        }
-      }
 
-      const cfg = configuredMap[v.name];
-      const viewDesc = (cfg && cfg.description) ? cfg.description : (v.description || '');
-      const viewKey = v.name ? v.name.trim().toLowerCase() : '';
-      const migConfigs = migrationConfigMap[viewKey] || [];
-      const isMigrationConfigured = migConfigs.length > 0;
+          const cfg = configuredMap[v.name];
+          const viewDesc = (cfg && cfg.description) ? cfg.description : (v.description || '');
+          const viewKey = v.name ? v.name.trim().toLowerCase() : '';
+          const migConfigs = migrationConfigMap[viewKey] || [];
+          const isMigrationConfigured = migConfigs.length > 0;
 
-      viewList.push({
-        schema: schemaName,
-        name: v.name,
-        description: viewDesc,
-        count,
-        error,
-        connectionId: connectionId ? parseInt(connectionId, 10) : (conn?.connection_id || 1),
-        connectionName: conn?.connection_name || 'Default Source (SQL Server)',
-        isConfigured: Boolean(cfg),
-        isSynced: cfg ? cfg.is_synced : false,
-        isActive: cfg ? cfg.is_active : true,
-        isMigrationConfigured,
-        migrationConfigs: migConfigs,
-      });
+          return {
+            schema: schemaName,
+            name: v.name,
+            description: viewDesc,
+            count,
+            error,
+            connectionId: connectionId ? parseInt(connectionId, 10) : (conn?.connection_id || 1),
+            connectionName: conn?.connection_name || 'Default Source (SQL Server)',
+            isConfigured: Boolean(cfg),
+            isSynced: cfg ? cfg.is_synced : false,
+            isActive: cfg ? cfg.is_active : true,
+            isMigrationConfigured,
+            migrationConfigs: migConfigs,
+          };
+        })
+      );
+      viewList.push(...chunkResults);
     }
+    const totalRowsAllViews = viewList.reduce((acc, curr) => acc + (curr.count || 0), 0);
 
-    return {
+    const result = {
       connectionId: connectionId ? parseInt(connectionId, 10) : (conn?.connection_id || 1),
       connectionName: conn?.connection_name || 'SQL Server Source (dbo)',
       dbType,
@@ -226,6 +269,14 @@ class SourceService {
       totalMigrationConfigured: viewList.filter((v) => v.isMigrationConfigured).length,
       views: viewList,
     };
+
+    // Simpan ke cache jika sukses
+    viewsSummaryCache.set(cacheKey, {
+      timestamp: Date.now(),
+      data: result,
+    });
+
+    return result;
   }
 
   /**
@@ -399,7 +450,7 @@ class SourceService {
     let savedConfig = null;
     try {
       let q = `
-        SELECT * FROM etl_antam.master_source_view 
+        SELECT * FROM mc_center.master_source_view 
         WHERE view_name = $1 AND schema_name = $2
       `;
       const params = [cleanView, schemaName];
@@ -454,7 +505,7 @@ class SourceService {
   }
 
   /**
-   * Simpan atau sinkronkan definisi query view ke tabel etl_antam.master_source_view
+   * Simpan atau sinkronkan definisi query view ke tabel mc_center.master_source_view
    */
   async saveViewDefinition(payload) {
     const { schema_name = 'dbo', view_name, query_sql, description = '', connection_id = null } = payload;
@@ -468,14 +519,14 @@ class SourceService {
     try {
       // Upsert: periksa apakah sudah tercatat sebelumnya
       const checkQ = connection_id
-        ? 'SELECT view_id FROM etl_antam.master_source_view WHERE view_name = $1 AND schema_name = $2 AND connection_id = $3'
-        : 'SELECT view_id FROM etl_antam.master_source_view WHERE view_name = $1 AND schema_name = $2';
+        ? 'SELECT view_id FROM mc_center.master_source_view WHERE view_name = $1 AND schema_name = $2 AND connection_id = $3'
+        : 'SELECT view_id FROM mc_center.master_source_view WHERE view_name = $1 AND schema_name = $2';
       const checkParams = connection_id ? [cleanView, schema_name, parseInt(connection_id, 10)] : [cleanView, schema_name];
       const existing = await queryPostgres(checkQ, checkParams);
 
       if (existing.rows.length > 0) {
         const updateRes = await queryPostgres(`
-          UPDATE etl_antam.master_source_view
+          UPDATE mc_center.master_source_view
           SET query_sql = $1, description = $2, is_active = true, is_synced = true, last_synced_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
           WHERE view_id = $3
           RETURNING *
@@ -484,7 +535,7 @@ class SourceService {
       }
 
       const res = await queryPostgres(`
-        INSERT INTO etl_antam.master_source_view (
+        INSERT INTO mc_center.master_source_view (
           schema_name, view_name, query_sql, description, connection_id, is_active, is_synced, last_synced_at
         ) VALUES ($1, $2, $3, $4, $5, true, true, CURRENT_TIMESTAMP)
         RETURNING *
@@ -636,6 +687,27 @@ class SourceService {
     const cleanView = sanitizeIdentifier(viewName);
     if (!cleanView) throw new Error('Nama view tidak valid.');
 
+    // Dependency Guard: Cek apakah view ini aktif digunakan pada migration_config
+    try {
+      const activeConfigsRes = await queryPostgres(
+        `SELECT config_id, name_config, tgt_table FROM mc_center.migration_config WHERE LOWER(TRIM(src_view)) = LOWER(TRIM($1))`,
+        [cleanView]
+      );
+      if (activeConfigsRes.rows && activeConfigsRes.rows.length > 0) {
+        const configLabels = activeConfigsRes.rows
+          .map((c) => c.name_config || `Config #${c.config_id}`)
+          .join(', ');
+        throw new Error(
+          `View [${cleanView}] diproteksi karena sedang aktif digunakan pada Migration Config: ${configLabels}. Harap hapus atau ubah konfigurasi terkait sebelum menghapus view ini.`
+        );
+      }
+    } catch (err) {
+      if (err.message && err.message.includes('diproteksi karena sedang aktif')) {
+        throw err;
+      }
+      console.warn('Gagal cek dependensi migration_config:', err.message);
+    }
+
     const conn = await this.getConnectionMeta(connectionId);
     const dbType = conn ? conn.db_type.toUpperCase() : 'MSSQL';
     const schemaName = conn ? (conn.db_schema || (dbType === 'MSSQL' ? 'dbo' : 'public')) : 'dbo';
@@ -648,7 +720,7 @@ class SourceService {
 
     try {
       await queryPostgres(`
-        UPDATE etl_antam.master_source_view 
+        UPDATE mc_center.master_source_view 
         SET is_active = false, is_synced = false, updated_at = CURRENT_TIMESTAMP
         WHERE view_name = $1
       `, [cleanView]);

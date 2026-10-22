@@ -16,10 +16,10 @@ class AuthService {
               u.client_id, c.client_code, c.client_name,
               u.env_id, e.env_code, e.env_name,
               r.role_id, r.role_code, r.role_name
-       FROM etl_antam.sys_users u
-       LEFT JOIN etl_antam.sys_roles r ON u.role_id = r.role_id
-       LEFT JOIN etl_antam.master_client c ON u.client_id = c.client_id
-       LEFT JOIN etl_antam.master_environment e ON u.env_id = e.env_id
+       FROM mc_center.sys_users u
+       LEFT JOIN mc_center.sys_roles r ON u.role_id = r.role_id
+       LEFT JOIN mc_center.master_client c ON u.client_id = c.client_id
+       LEFT JOIN mc_center.master_environment e ON u.env_id = e.env_id
        WHERE LOWER(u.username) = $1`,
       [cleanUser]
     );
@@ -41,7 +41,7 @@ class AuthService {
 
     // Update last_login_at
     await queryPostgres(
-      `UPDATE etl_antam.sys_users SET last_login_at = CURRENT_TIMESTAMP WHERE user_id = $1`,
+      `UPDATE mc_center.sys_users SET last_login_at = CURRENT_TIMESTAMP WHERE user_id = $1`,
       [user.user_id]
     );
 
@@ -52,16 +52,16 @@ class AuthService {
     // Ambil multi-client & multi-env penugasan
     const userClientsRes = await queryPostgres(
       `SELECT c.client_id, c.client_code, c.client_name 
-       FROM etl_antam.sys_user_clients uc
-       JOIN etl_antam.master_client c ON uc.client_id = c.client_id
+       FROM mc_center.sys_user_clients uc
+       JOIN mc_center.master_client c ON uc.client_id = c.client_id
        WHERE uc.user_id = $1
        ORDER BY c.client_id`,
       [user.user_id]
     );
     const userEnvsRes = await queryPostgres(
       `SELECT e.env_id, e.env_code, e.env_name, e.client_id 
-       FROM etl_antam.sys_user_environments ue
-       JOIN etl_antam.master_environment e ON ue.env_id = e.env_id
+       FROM mc_center.sys_user_environments ue
+       JOIN mc_center.master_environment e ON ue.env_id = e.env_id
        WHERE ue.user_id = $1
        ORDER BY e.env_id`,
       [user.user_id]
@@ -139,10 +139,10 @@ class AuthService {
               u.client_id, c.client_code, c.client_name,
               u.env_id, e.env_code, e.env_name,
               r.role_id, r.role_code, r.role_name
-       FROM etl_antam.sys_users u
-       LEFT JOIN etl_antam.sys_roles r ON u.role_id = r.role_id
-       LEFT JOIN etl_antam.master_client c ON u.client_id = c.client_id
-       LEFT JOIN etl_antam.master_environment e ON u.env_id = e.env_id
+       FROM mc_center.sys_users u
+       LEFT JOIN mc_center.sys_roles r ON u.role_id = r.role_id
+       LEFT JOIN mc_center.master_client c ON u.client_id = c.client_id
+       LEFT JOIN mc_center.master_environment e ON u.env_id = e.env_id
        WHERE u.user_id = $1`,
       [userId]
     );
@@ -157,16 +157,16 @@ class AuthService {
 
     const userClientsRes = await queryPostgres(
       `SELECT c.client_id, c.client_code, c.client_name 
-       FROM etl_antam.sys_user_clients uc
-       JOIN etl_antam.master_client c ON uc.client_id = c.client_id
+       FROM mc_center.sys_user_clients uc
+       JOIN mc_center.master_client c ON uc.client_id = c.client_id
        WHERE uc.user_id = $1
        ORDER BY c.client_id`,
       [user.user_id]
     );
     const userEnvsRes = await queryPostgres(
       `SELECT e.env_id, e.env_code, e.env_name, e.client_id 
-       FROM etl_antam.sys_user_environments ue
-       JOIN etl_antam.master_environment e ON ue.env_id = e.env_id
+       FROM mc_center.sys_user_environments ue
+       JOIN mc_center.master_environment e ON ue.env_id = e.env_id
        WHERE ue.user_id = $1
        ORDER BY e.env_id`,
       [user.user_id]
@@ -227,22 +227,22 @@ class AuthService {
              r.role_id, r.role_code, r.role_name,
              COALESCE(
                (SELECT json_agg(json_build_object('client_id', mc.client_id, 'client_code', mc.client_code, 'client_name', mc.client_name))
-                FROM etl_antam.sys_user_clients uc
-                JOIN etl_antam.master_client mc ON uc.client_id = mc.client_id
+                FROM mc_center.sys_user_clients uc
+                JOIN mc_center.master_client mc ON uc.client_id = mc.client_id
                 WHERE uc.user_id = u.user_id),
                '[]'::json
              ) AS assigned_clients,
              COALESCE(
                (SELECT json_agg(json_build_object('env_id', me.env_id, 'env_code', me.env_code, 'env_name', me.env_name, 'client_id', me.client_id))
-                FROM etl_antam.sys_user_environments ue
-                JOIN etl_antam.master_environment me ON ue.env_id = me.env_id
+                FROM mc_center.sys_user_environments ue
+                JOIN mc_center.master_environment me ON ue.env_id = me.env_id
                 WHERE ue.user_id = u.user_id),
                '[]'::json
              ) AS assigned_environments
-      FROM etl_antam.sys_users u
-      LEFT JOIN etl_antam.sys_roles r ON u.role_id = r.role_id
-      LEFT JOIN etl_antam.master_client c ON u.client_id = c.client_id
-      LEFT JOIN etl_antam.master_environment e ON u.env_id = e.env_id
+      FROM mc_center.sys_users u
+      LEFT JOIN mc_center.sys_roles r ON u.role_id = r.role_id
+      LEFT JOIN mc_center.master_client c ON u.client_id = c.client_id
+      LEFT JOIN mc_center.master_environment e ON u.env_id = e.env_id
       ORDER BY u.user_id ASC
     `);
     return res.rows;
@@ -256,7 +256,7 @@ class AuthService {
 
     const cleanUser = username.trim().toLowerCase();
     const existing = await queryPostgres(
-      `SELECT user_id FROM etl_antam.sys_users WHERE LOWER(username) = $1`,
+      `SELECT user_id FROM mc_center.sys_users WHERE LOWER(username) = $1`,
       [cleanUser]
     );
     if (existing.rows.length > 0) {
@@ -268,7 +268,7 @@ class AuthService {
     const pwdHash = hashPassword(password);
 
     const res = await queryPostgres(
-      `INSERT INTO etl_antam.sys_users (username, password_hash, full_name, email, role_id, client_id, env_id, is_active)
+      `INSERT INTO mc_center.sys_users (username, password_hash, full_name, email, role_id, client_id, env_id, is_active)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING user_id, username, full_name, email, role_id, client_id, env_id, is_active, created_at`,
       [cleanUser, pwdHash, full_name.trim(), email ? email.trim() : null, role_id ? parseInt(role_id, 10) : null, resolvedClientId, resolvedEnvId, is_active]
@@ -282,7 +282,7 @@ class AuthService {
       : (client_id ? [client_id] : []);
     for (const cid of finalClientIds) {
       await queryPostgres(
-        `INSERT INTO etl_antam.sys_user_clients (user_id, client_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        `INSERT INTO mc_center.sys_user_clients (user_id, client_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
         [newUser.user_id, parseInt(cid, 10)]
       );
     }
@@ -293,7 +293,7 @@ class AuthService {
       : (env_id ? [env_id] : []);
     for (const eid of finalEnvIds) {
       await queryPostgres(
-        `INSERT INTO etl_antam.sys_user_environments (user_id, env_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        `INSERT INTO mc_center.sys_user_environments (user_id, env_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
         [newUser.user_id, parseInt(eid, 10)]
       );
     }
@@ -314,7 +314,7 @@ class AuthService {
       : (env_id !== undefined ? (env_id ? parseInt(env_id, 10) : null) : undefined);
 
     const res = await queryPostgres(
-      `UPDATE etl_antam.sys_users
+      `UPDATE mc_center.sys_users
        SET full_name = COALESCE($1, full_name),
            email = COALESCE($2, email),
            role_id = COALESCE($3, role_id),
@@ -343,12 +343,12 @@ class AuthService {
 
     // Update multi-client mapping if specified
     if (client_ids !== undefined) {
-      await queryPostgres(`DELETE FROM etl_antam.sys_user_clients WHERE user_id = $1`, [uid]);
+      await queryPostgres(`DELETE FROM mc_center.sys_user_clients WHERE user_id = $1`, [uid]);
       if (Array.isArray(client_ids)) {
         for (const cid of client_ids) {
           if (cid) {
             await queryPostgres(
-              `INSERT INTO etl_antam.sys_user_clients (user_id, client_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+              `INSERT INTO mc_center.sys_user_clients (user_id, client_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
               [uid, parseInt(cid, 10)]
             );
           }
@@ -358,12 +358,12 @@ class AuthService {
 
     // Update multi-env mapping if specified
     if (env_ids !== undefined) {
-      await queryPostgres(`DELETE FROM etl_antam.sys_user_environments WHERE user_id = $1`, [uid]);
+      await queryPostgres(`DELETE FROM mc_center.sys_user_environments WHERE user_id = $1`, [uid]);
       if (Array.isArray(env_ids)) {
         for (const eid of env_ids) {
           if (eid) {
             await queryPostgres(
-              `INSERT INTO etl_antam.sys_user_environments (user_id, env_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+              `INSERT INTO mc_center.sys_user_environments (user_id, env_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
               [uid, parseInt(eid, 10)]
             );
           }
@@ -382,7 +382,7 @@ class AuthService {
     const pwdHash = hashPassword(newPassword);
 
     const res = await queryPostgres(
-      `UPDATE etl_antam.sys_users
+      `UPDATE mc_center.sys_users
        SET password_hash = $1, updated_at = CURRENT_TIMESTAMP
        WHERE user_id = $2
        RETURNING user_id, username`,
@@ -398,7 +398,7 @@ class AuthService {
   async deleteUser(userId) {
     const uid = parseInt(userId, 10);
     const res = await queryPostgres(
-      `DELETE FROM etl_antam.sys_users WHERE user_id = $1 RETURNING user_id, username`,
+      `DELETE FROM mc_center.sys_users WHERE user_id = $1 RETURNING user_id, username`,
       [uid]
     );
     if (res.rows.length === 0) {
@@ -414,8 +414,8 @@ class AuthService {
     const res = await queryPostgres(`
       SELECT r.role_id, r.role_code, r.role_name, r.description, r.is_active, r.created_at,
              COUNT(u.user_id) AS user_count
-      FROM etl_antam.sys_roles r
-      LEFT JOIN etl_antam.sys_users u ON r.role_id = u.role_id
+      FROM mc_center.sys_roles r
+      LEFT JOIN mc_center.sys_users u ON r.role_id = u.role_id
       GROUP BY r.role_id
       ORDER BY r.role_id ASC
     `);
@@ -430,7 +430,7 @@ class AuthService {
 
     const cleanCode = role_code.trim().toUpperCase();
     const existing = await queryPostgres(
-      `SELECT role_id FROM etl_antam.sys_roles WHERE role_code = $1`,
+      `SELECT role_id FROM mc_center.sys_roles WHERE role_code = $1`,
       [cleanCode]
     );
     if (existing.rows.length > 0) {
@@ -438,7 +438,7 @@ class AuthService {
     }
 
     const res = await queryPostgres(
-      `INSERT INTO etl_antam.sys_roles (role_code, role_name, description, is_active)
+      `INSERT INTO mc_center.sys_roles (role_code, role_name, description, is_active)
        VALUES ($1, $2, $3, $4)
        RETURNING *`,
       [cleanCode, role_name.trim(), description ? description.trim() : null, is_active]
@@ -450,7 +450,7 @@ class AuthService {
     const allMenus = await this.getMenus();
     for (const m of allMenus) {
       await queryPostgres(
-        `INSERT INTO etl_antam.sys_role_menus (role_id, menu_id, can_view, can_create, can_update, can_delete)
+        `INSERT INTO mc_center.sys_role_menus (role_id, menu_id, can_view, can_create, can_update, can_delete)
          VALUES ($1, $2, false, false, false, false)
          ON CONFLICT DO NOTHING`,
         [newRole.role_id, m.menu_id]
@@ -465,7 +465,7 @@ class AuthService {
     const rid = parseInt(roleId, 10);
 
     const res = await queryPostgres(
-      `UPDATE etl_antam.sys_roles
+      `UPDATE mc_center.sys_roles
        SET role_name = COALESCE($1, role_name),
            description = COALESCE($2, description),
            is_active = COALESCE($3, is_active),
@@ -484,13 +484,13 @@ class AuthService {
   async deleteRole(roleId) {
     const rid = parseInt(roleId, 10);
     // Jangan hapus SUPERADMIN
-    const chk = await queryPostgres(`SELECT role_code FROM etl_antam.sys_roles WHERE role_id = $1`, [rid]);
+    const chk = await queryPostgres(`SELECT role_code FROM mc_center.sys_roles WHERE role_id = $1`, [rid]);
     if (chk.rows.length > 0 && chk.rows[0].role_code === 'SUPERADMIN') {
       throw new Error('Role SUPERADMIN sistem tidak boleh dihapus.');
     }
 
     const res = await queryPostgres(
-      `DELETE FROM etl_antam.sys_roles WHERE role_id = $1 RETURNING role_id, role_code`,
+      `DELETE FROM mc_center.sys_roles WHERE role_id = $1 RETURNING role_id, role_code`,
       [rid]
     );
     if (res.rows.length === 0) {
@@ -505,7 +505,7 @@ class AuthService {
   async getMenus() {
     const res = await queryPostgres(`
       SELECT menu_id, menu_code, menu_name, menu_icon, menu_order, route_tab, is_active
-      FROM etl_antam.sys_menus
+      FROM mc_center.sys_menus
       ORDER BY menu_order ASC, menu_id ASC
     `);
     return res.rows;
@@ -520,8 +520,8 @@ class AuthService {
               COALESCE(rm.can_create, false) AS can_create,
               COALESCE(rm.can_update, false) AS can_update,
               COALESCE(rm.can_delete, false) AS can_delete
-       FROM etl_antam.sys_menus m
-       LEFT JOIN etl_antam.sys_role_menus rm ON m.menu_id = rm.menu_id AND rm.role_id = $1
+       FROM mc_center.sys_menus m
+       LEFT JOIN mc_center.sys_role_menus rm ON m.menu_id = rm.menu_id AND rm.role_id = $1
        ORDER BY m.menu_order ASC, m.menu_id ASC`,
       [rid]
     );
@@ -542,7 +542,7 @@ class AuthService {
       const canDelete = Boolean(item.can_delete);
 
       await queryPostgres(
-        `INSERT INTO etl_antam.sys_role_menus (role_id, menu_id, can_view, can_create, can_update, can_delete)
+        `INSERT INTO mc_center.sys_role_menus (role_id, menu_id, can_view, can_create, can_update, can_delete)
          VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (role_id, menu_id) DO UPDATE SET
            can_view = EXCLUDED.can_view,

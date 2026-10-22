@@ -38,9 +38,9 @@ class EtlService {
 
     try {
       await queryPostgres(`
-        CREATE SCHEMA IF NOT EXISTS etl_antam;
+        CREATE SCHEMA IF NOT EXISTS mc_center;
 
-        CREATE TABLE IF NOT EXISTS etl_antam.master_client (
+        CREATE TABLE IF NOT EXISTS mc_center.master_client (
           client_id SERIAL PRIMARY KEY,
           client_code VARCHAR(50) UNIQUE NOT NULL,
           client_name VARCHAR(150) NOT NULL,
@@ -50,9 +50,9 @@ class EtlService {
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
-        CREATE TABLE IF NOT EXISTS etl_antam.master_environment (
+        CREATE TABLE IF NOT EXISTS mc_center.master_environment (
           env_id SERIAL PRIMARY KEY,
-          client_id INTEGER REFERENCES etl_antam.master_client(client_id) ON DELETE CASCADE,
+          client_id INTEGER REFERENCES mc_center.master_client(client_id) ON DELETE CASCADE,
           env_code VARCHAR(30) NOT NULL,
           env_name VARCHAR(100) NOT NULL,
           description TEXT,
@@ -61,9 +61,9 @@ class EtlService {
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
-        CREATE TABLE IF NOT EXISTS etl_antam.master_connection (
+        CREATE TABLE IF NOT EXISTS mc_center.master_connection (
           connection_id SERIAL PRIMARY KEY,
-          env_id INTEGER REFERENCES etl_antam.master_environment(env_id) ON DELETE CASCADE,
+          env_id INTEGER REFERENCES mc_center.master_environment(env_id) ON DELETE CASCADE,
           connection_name VARCHAR(100) NOT NULL,
           db_type VARCHAR(30) NOT NULL,
           db_role VARCHAR(30) NOT NULL,
@@ -82,9 +82,9 @@ class EtlService {
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
-        ALTER TABLE etl_antam.master_source_view ADD COLUMN IF NOT EXISTS connection_id INTEGER;
-        ALTER TABLE etl_antam.master_source_view ADD COLUMN IF NOT EXISTS description TEXT;
-        CREATE TABLE IF NOT EXISTS etl_antam.master_source_view (
+        ALTER TABLE mc_center.master_source_view ADD COLUMN IF NOT EXISTS connection_id INTEGER;
+        ALTER TABLE mc_center.master_source_view ADD COLUMN IF NOT EXISTS description TEXT;
+        CREATE TABLE IF NOT EXISTS mc_center.master_source_view (
           view_id SERIAL PRIMARY KEY,
           client_id INTEGER,
           env_id INTEGER,
@@ -100,34 +100,34 @@ class EtlService {
         );
 
         -- Master Connection and SSH Password column
-        ALTER TABLE IF EXISTS etl_antam.master_connection ADD COLUMN IF NOT EXISTS ssh_password VARCHAR(255);
+        ALTER TABLE IF EXISTS mc_center.master_connection ADD COLUMN IF NOT EXISTS ssh_password VARCHAR(255);
 
         -- Multi-Tenant columns on Config & Run tables
-        ALTER TABLE IF EXISTS etl_antam.migration_config ADD COLUMN IF NOT EXISTS name_config VARCHAR(255);
-        ALTER TABLE IF EXISTS etl_antam.migration_config ADD COLUMN IF NOT EXISTS client_id INTEGER;
-        ALTER TABLE IF EXISTS etl_antam.migration_config ADD COLUMN IF NOT EXISTS env_id INTEGER;
-        ALTER TABLE IF EXISTS etl_antam.migration_convert_rule ADD COLUMN IF NOT EXISTS client_id INTEGER;
-        ALTER TABLE IF EXISTS etl_antam.migration_convert_rule ADD COLUMN IF NOT EXISTS env_id INTEGER;
-        ALTER TABLE IF EXISTS etl_antam.migration_target_config ADD COLUMN IF NOT EXISTS client_id INTEGER;
-        ALTER TABLE IF EXISTS etl_antam.migration_target_config ADD COLUMN IF NOT EXISTS env_id INTEGER;
-        ALTER TABLE IF EXISTS etl_antam.migration_lookup ADD COLUMN IF NOT EXISTS client_id INTEGER;
-        ALTER TABLE IF EXISTS etl_antam.migration_lookup ADD COLUMN IF NOT EXISTS env_id INTEGER;
-        ALTER TABLE IF EXISTS etl_antam.migration_run ADD COLUMN IF NOT EXISTS client_id INTEGER;
-        ALTER TABLE IF EXISTS etl_antam.migration_run ADD COLUMN IF NOT EXISTS env_id INTEGER;
+        ALTER TABLE IF EXISTS mc_center.migration_config ADD COLUMN IF NOT EXISTS name_config VARCHAR(255);
+        ALTER TABLE IF EXISTS mc_center.migration_config ADD COLUMN IF NOT EXISTS client_id INTEGER;
+        ALTER TABLE IF EXISTS mc_center.migration_config ADD COLUMN IF NOT EXISTS env_id INTEGER;
+        ALTER TABLE IF EXISTS mc_center.migration_convert_rule ADD COLUMN IF NOT EXISTS client_id INTEGER;
+        ALTER TABLE IF EXISTS mc_center.migration_convert_rule ADD COLUMN IF NOT EXISTS env_id INTEGER;
+        ALTER TABLE IF EXISTS mc_center.migration_target_config ADD COLUMN IF NOT EXISTS client_id INTEGER;
+        ALTER TABLE IF EXISTS mc_center.migration_target_config ADD COLUMN IF NOT EXISTS env_id INTEGER;
+        ALTER TABLE IF EXISTS mc_center.migration_lookup ADD COLUMN IF NOT EXISTS client_id INTEGER;
+        ALTER TABLE IF EXISTS mc_center.migration_lookup ADD COLUMN IF NOT EXISTS env_id INTEGER;
+        ALTER TABLE IF EXISTS mc_center.migration_run ADD COLUMN IF NOT EXISTS client_id INTEGER;
+        ALTER TABLE IF EXISTS mc_center.migration_run ADD COLUMN IF NOT EXISTS env_id INTEGER;
 
         -- User Multi-Tenancy columns & tables
-        ALTER TABLE IF EXISTS etl_antam.sys_users ADD COLUMN IF NOT EXISTS client_id INTEGER REFERENCES etl_antam.master_client(client_id) ON DELETE SET NULL;
-        ALTER TABLE IF EXISTS etl_antam.sys_users ADD COLUMN IF NOT EXISTS env_id INTEGER REFERENCES etl_antam.master_environment(env_id) ON DELETE SET NULL;
+        ALTER TABLE IF EXISTS mc_center.sys_users ADD COLUMN IF NOT EXISTS client_id INTEGER REFERENCES mc_center.master_client(client_id) ON DELETE SET NULL;
+        ALTER TABLE IF EXISTS mc_center.sys_users ADD COLUMN IF NOT EXISTS env_id INTEGER REFERENCES mc_center.master_environment(env_id) ON DELETE SET NULL;
 
-        CREATE TABLE IF NOT EXISTS etl_antam.sys_user_clients (
-          user_id INTEGER REFERENCES etl_antam.sys_users(user_id) ON DELETE CASCADE,
-          client_id INTEGER REFERENCES etl_antam.master_client(client_id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS mc_center.sys_user_clients (
+          user_id INTEGER REFERENCES mc_center.sys_users(user_id) ON DELETE CASCADE,
+          client_id INTEGER REFERENCES mc_center.master_client(client_id) ON DELETE CASCADE,
           PRIMARY KEY (user_id, client_id)
         );
 
-        CREATE TABLE IF NOT EXISTS etl_antam.sys_user_environments (
-          user_id INTEGER REFERENCES etl_antam.sys_users(user_id) ON DELETE CASCADE,
-          env_id INTEGER REFERENCES etl_antam.master_environment(env_id) ON DELETE CASCADE,
+        CREATE TABLE IF NOT EXISTS mc_center.sys_user_environments (
+          user_id INTEGER REFERENCES mc_center.sys_users(user_id) ON DELETE CASCADE,
+          env_id INTEGER REFERENCES mc_center.master_environment(env_id) ON DELETE CASCADE,
           PRIMARY KEY (user_id, env_id)
         );
       `);
@@ -142,7 +142,7 @@ class EtlService {
   async getInitializationStatus() {
     await this.ensureMasterTablesExist();
     try {
-      const res = await queryPostgres(`SELECT COUNT(*) AS total FROM etl_antam.master_client`);
+      const res = await queryPostgres(`SELECT COUNT(*) AS total FROM mc_center.master_client`);
       const total = parseInt(res.rows[0]?.total, 10) || 0;
       return {
         isInitialized: total > 0,
@@ -173,7 +173,7 @@ class EtlService {
     try {
       // 1. Simpan Client
       const clientRes = await queryPostgres(`
-        INSERT INTO etl_antam.master_client (client_code, client_name, description, is_active)
+        INSERT INTO mc_center.master_client (client_code, client_name, description, is_active)
         VALUES ($1, $2, $3, $4)
         RETURNING *
       `, [client.client_code.toUpperCase().trim(), client.client_name.trim(), client.description || '', true]);
@@ -181,7 +181,7 @@ class EtlService {
 
       // 2. Simpan Environment
       const envRes = await queryPostgres(`
-        INSERT INTO etl_antam.master_environment (client_id, env_code, env_name, description, is_active)
+        INSERT INTO mc_center.master_environment (client_id, env_code, env_name, description, is_active)
         VALUES ($1, $2, $3, $4, $5)
         RETURNING *
       `, [savedClient.client_id, environment.env_code.toUpperCase().trim(), environment.env_name.trim(), environment.description || '', true]);
@@ -192,7 +192,7 @@ class EtlService {
       for (const conn of connections) {
         if (!conn.connection_name || !conn.host) continue;
         const connRes = await queryPostgres(`
-          INSERT INTO etl_antam.master_connection (
+          INSERT INTO mc_center.master_connection (
             env_id, connection_name, db_type, db_role, host, port, database_name,
             db_schema, username, password, use_ssh_tunnel, ssh_host, ssh_port, ssh_user, is_active
           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
@@ -306,8 +306,8 @@ class EtlService {
             ) FILTER (WHERE e.env_id IS NOT NULL),
             '[]'::json
           ) AS environments
-        FROM etl_antam.master_client c
-        LEFT JOIN etl_antam.master_environment e ON c.client_id = e.client_id
+        FROM mc_center.master_client c
+        LEFT JOIN mc_center.master_environment e ON c.client_id = e.client_id
         ${whereClause}
         GROUP BY c.client_id
         ORDER BY c.client_id
@@ -338,8 +338,8 @@ class EtlService {
     try {
       const envRes = await queryPostgres(`
         SELECT e.*, c.client_code, c.client_name 
-        FROM etl_antam.master_environment e
-        LEFT JOIN etl_antam.master_client c ON e.client_id = c.client_id
+        FROM mc_center.master_environment e
+        LEFT JOIN mc_center.master_client c ON e.client_id = c.client_id
         WHERE e.env_id = $1
       `, [parseInt(envId, 10)]);
 
@@ -348,7 +348,7 @@ class EtlService {
       }
 
       const connRes = await queryPostgres(`
-        SELECT * FROM etl_antam.master_connection 
+        SELECT * FROM mc_center.master_connection 
         WHERE env_id = $1 
         ORDER BY connection_id
       `, [parseInt(envId, 10)]);
@@ -423,7 +423,7 @@ class EtlService {
         connection_name: targetConn?.connection_name || 'Tidak ada koneksi TARGET',
         db_type: targetConn?.db_type || 'POSTGRESQL',
         database: targetConn?.database_name || 'db_procsi',
-        db_schema: targetConn?.db_schema || 'etl_antam',
+        db_schema: targetConn?.db_schema || 'vendor',
         host: targetConn?.host || 'localhost',
         port: targetConn?.port || 5432,
         connected: Boolean(targetHealth.success),
@@ -445,7 +445,7 @@ class EtlService {
       let savedEnv;
       if (env_id) {
         const res = await queryPostgres(`
-          UPDATE etl_antam.master_environment
+          UPDATE mc_center.master_environment
           SET client_id = $1, env_code = $2, env_name = $3, description = $4, is_active = $5, updated_at = CURRENT_TIMESTAMP
           WHERE env_id = $6
           RETURNING *
@@ -460,7 +460,7 @@ class EtlService {
         savedEnv = res.rows[0];
       } else {
         const res = await queryPostgres(`
-          INSERT INTO etl_antam.master_environment (client_id, env_code, env_name, description, is_active)
+          INSERT INTO mc_center.master_environment (client_id, env_code, env_name, description, is_active)
           VALUES ($1, $2, $3, $4, $5)
           RETURNING *
         `, [
@@ -482,7 +482,7 @@ class EtlService {
 
         if (conn.connection_id) {
           const updateRes = await queryPostgres(`
-            UPDATE etl_antam.master_connection
+            UPDATE mc_center.master_connection
             SET env_id = $1,
                 connection_name = $2,
                 db_type = $3,
@@ -527,7 +527,7 @@ class EtlService {
           }
         } else {
           const insertRes = await queryPostgres(`
-            INSERT INTO etl_antam.master_connection (
+            INSERT INTO mc_center.master_connection (
               env_id, connection_name, db_type, db_role, host, port, database_name,
               db_schema, username, password, use_ssh_tunnel, ssh_host, ssh_port, ssh_user, ssh_password, is_active
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
@@ -559,7 +559,7 @@ class EtlService {
 
       if (keptConnIds.length > 0) {
         await queryPostgres(`
-          DELETE FROM etl_antam.master_connection
+          DELETE FROM mc_center.master_connection
           WHERE env_id = $1 AND connection_id NOT IN (${keptConnIds.join(',')})
         `, [currentEnvId]);
       }
@@ -583,7 +583,7 @@ class EtlService {
 
     try {
       const res = await queryPostgres(`
-        INSERT INTO etl_antam.master_client (client_code, client_name, description, is_active)
+        INSERT INTO mc_center.master_client (client_code, client_name, description, is_active)
         VALUES ($1, $2, $3, $4)
         RETURNING *
       `, [client_code.toUpperCase().trim(), client_name.trim(), description || '', Boolean(is_active)]);
@@ -606,7 +606,7 @@ class EtlService {
     const { client_code, client_name, description, is_active } = data;
     try {
       const res = await queryPostgres(`
-        UPDATE etl_antam.master_client
+        UPDATE mc_center.master_client
         SET client_code = COALESCE($1, client_code),
             client_name = COALESCE($2, client_name),
             description = COALESCE($3, description),
@@ -634,7 +634,7 @@ class EtlService {
 
   async deleteClient(id) {
     try {
-      await queryPostgres(`DELETE FROM etl_antam.master_client WHERE client_id = $1`, [parseInt(id, 10)]);
+      await queryPostgres(`DELETE FROM mc_center.master_client WHERE client_id = $1`, [parseInt(id, 10)]);
       return { success: true, client_id: id };
     } catch (err) {
       inMemoryClients = inMemoryClients.filter((c) => c.client_id != id);
@@ -654,9 +654,9 @@ class EtlService {
       let query = `
         SELECT e.*, c.client_name, c.client_code,
                COUNT(conn.connection_id)::int AS total_connections
-        FROM etl_antam.master_environment e
-        LEFT JOIN etl_antam.master_client c ON e.client_id = c.client_id
-        LEFT JOIN etl_antam.master_connection conn ON e.env_id = conn.env_id
+        FROM mc_center.master_environment e
+        LEFT JOIN mc_center.master_client c ON e.client_id = c.client_id
+        LEFT JOIN mc_center.master_connection conn ON e.env_id = conn.env_id
       `;
       const params = [];
       const conditions = [];
@@ -733,7 +733,7 @@ class EtlService {
 
     try {
       const res = await queryPostgres(`
-        INSERT INTO etl_antam.master_environment (client_id, env_code, env_name, description, is_active)
+        INSERT INTO mc_center.master_environment (client_id, env_code, env_name, description, is_active)
         VALUES ($1, $2, $3, $4, $5)
         RETURNING *
       `, [client_id ? parseInt(client_id, 10) : null, env_code.toUpperCase().trim(), env_name.trim(), description || '', Boolean(is_active)]);
@@ -757,7 +757,7 @@ class EtlService {
     const { client_id, env_code, env_name, description, is_active } = data;
     try {
       const res = await queryPostgres(`
-        UPDATE etl_antam.master_environment
+        UPDATE mc_center.master_environment
         SET client_id = COALESCE($1, client_id),
             env_code = COALESCE($2, env_code),
             env_name = COALESCE($3, env_name),
@@ -787,7 +787,7 @@ class EtlService {
 
   async deleteEnvironment(id) {
     try {
-      await queryPostgres(`DELETE FROM etl_antam.master_environment WHERE env_id = $1`, [parseInt(id, 10)]);
+      await queryPostgres(`DELETE FROM mc_center.master_environment WHERE env_id = $1`, [parseInt(id, 10)]);
       return { success: true, env_id: id };
     } catch (err) {
       inMemoryEnvironments = inMemoryEnvironments.filter((e) => e.env_id != id);
@@ -803,9 +803,9 @@ class EtlService {
     try {
       let query = `
         SELECT c.*, e.env_name, e.env_code, cl.client_name, cl.client_code, cl.client_id
-        FROM etl_antam.master_connection c
-        LEFT JOIN etl_antam.master_environment e ON c.env_id = e.env_id
-        LEFT JOIN etl_antam.master_client cl ON e.client_id = cl.client_id
+        FROM mc_center.master_connection c
+        LEFT JOIN mc_center.master_environment e ON c.env_id = e.env_id
+        LEFT JOIN mc_center.master_client cl ON e.client_id = cl.client_id
       `;
       const params = [];
       const conditions = [];
@@ -843,7 +843,7 @@ class EtlService {
 
     try {
       const res = await queryPostgres(`
-        INSERT INTO etl_antam.master_connection (
+        INSERT INTO mc_center.master_connection (
           env_id, connection_name, db_type, db_role, host, port, database_name,
           db_schema, username, password, use_ssh_tunnel, ssh_host, ssh_port, ssh_user, ssh_password, is_active
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
@@ -896,7 +896,7 @@ class EtlService {
 
     try {
       const res = await queryPostgres(`
-        UPDATE etl_antam.master_connection
+        UPDATE mc_center.master_connection
         SET env_id = COALESCE($1, env_id),
             connection_name = COALESCE($2, connection_name),
             db_type = COALESCE($3, db_type),
@@ -948,7 +948,7 @@ class EtlService {
 
   async deleteConnection(id) {
     try {
-      await queryPostgres(`DELETE FROM etl_antam.master_connection WHERE connection_id = $1`, [parseInt(id, 10)]);
+      await queryPostgres(`DELETE FROM mc_center.master_connection WHERE connection_id = $1`, [parseInt(id, 10)]);
       return { success: true, connection_id: id };
     } catch (err) {
       inMemoryConnections = inMemoryConnections.filter((c) => c.connection_id != id);
@@ -1096,10 +1096,10 @@ class EtlService {
     }
 
     const [configsRes, rulesRes, lookupRes, targetConfigsRes] = await Promise.all([
-      queryPostgres(`SELECT * FROM etl_antam.migration_config ${cfgWhere} ORDER BY exec_order, config_id`, cfgParams),
-      queryPostgres(`SELECT * FROM etl_antam.migration_convert_rule ${cfgWhere} ORDER BY config_id, rule_id`, cfgParams),
-      queryPostgres(`SELECT * FROM etl_antam.migration_lookup ${cfgWhere} ORDER BY lookup_name`, cfgParams),
-      queryPostgres(`SELECT * FROM etl_antam.migration_target_config ${cfgWhere} ORDER BY exec_order, target_config_id`, cfgParams),
+      queryPostgres(`SELECT * FROM mc_center.migration_config ${cfgWhere} ORDER BY exec_order, config_id`, cfgParams),
+      queryPostgres(`SELECT * FROM mc_center.migration_convert_rule ${cfgWhere} ORDER BY config_id, rule_id`, cfgParams),
+      queryPostgres(`SELECT * FROM mc_center.migration_lookup ${cfgWhere} ORDER BY lookup_name`, cfgParams),
+      queryPostgres(`SELECT * FROM mc_center.migration_target_config ${cfgWhere} ORDER BY exec_order, target_config_id`, cfgParams),
     ]);
 
     return {
@@ -1197,7 +1197,7 @@ class EtlService {
     let currentRecord = null;
     if (id) {
       try {
-        const curRes = await queryPostgres('SELECT * FROM etl_antam.migration_config WHERE config_id = $1', [id]);
+        const curRes = await queryPostgres('SELECT * FROM mc_center.migration_config WHERE config_id = $1', [id]);
         currentRecord = curRes.rows[0];
       } catch (e) {
         console.warn('[autoPopulateMigrationConfigFields] Gagal ambil existing record:', e.message);
@@ -1237,6 +1237,30 @@ class EtlService {
 
     if (tableName === 'migration_config') {
       await this.autoPopulateMigrationConfigFields(data);
+
+      // Staging Collision Guard (Point 7)
+      if (data.stg_table) {
+        const stg = String(data.stg_table).trim().toLowerCase();
+        const cid = data.client_id !== undefined ? (parseInt(data.client_id, 10) || null) : null;
+        const eid = data.env_id !== undefined ? (parseInt(data.env_id, 10) || null) : null;
+        let checkSql = 'SELECT config_id, name_config FROM mc_center.migration_config WHERE LOWER(TRIM(stg_table)) = $1';
+        const checkParams = [stg];
+        if (cid) {
+          checkSql += ` AND (client_id = $${checkParams.length + 1} OR client_id IS NULL)`;
+          checkParams.push(cid);
+        }
+        if (eid) {
+          checkSql += ` AND (env_id = $${checkParams.length + 1} OR env_id IS NULL)`;
+          checkParams.push(eid);
+        }
+        const collisionRes = await queryPostgres(checkSql, checkParams);
+        if (collisionRes.rows.length > 0) {
+          const existing = collisionRes.rows[0];
+          throw new Error(
+            `Staging table "${stg}" sudah digunakan oleh Config #${existing.config_id} (${existing.name_config || 'Tanpa Nama'}). Gunakan nama staging table yang unik agar tidak terjadi bentrok data.`
+          );
+        }
+      }
     }
 
     const keys = Object.keys(data).filter((k) => meta.autoPk ? k !== meta.pk : true);
@@ -1247,7 +1271,7 @@ class EtlService {
     const colNames = keys.map((k) => `"${k}"`).join(', ');
 
     const query = `
-      INSERT INTO etl_antam.${tableName} (${colNames})
+      INSERT INTO mc_center.${tableName} (${colNames})
       VALUES (${placeholders})
       RETURNING *
     `;
@@ -1262,6 +1286,30 @@ class EtlService {
 
     if (tableName === 'migration_config') {
       await this.autoPopulateMigrationConfigFields(data, id);
+
+      // Staging Collision Guard (Point 7)
+      if (data.stg_table) {
+        const stg = String(data.stg_table).trim().toLowerCase();
+        const cid = data.client_id !== undefined ? (parseInt(data.client_id, 10) || null) : null;
+        const eid = data.env_id !== undefined ? (parseInt(data.env_id, 10) || null) : null;
+        let checkSql = 'SELECT config_id, name_config FROM mc_center.migration_config WHERE LOWER(TRIM(stg_table)) = $1 AND config_id != $2';
+        const checkParams = [stg, parseInt(id, 10)];
+        if (cid) {
+          checkSql += ` AND (client_id = $${checkParams.length + 1} OR client_id IS NULL)`;
+          checkParams.push(cid);
+        }
+        if (eid) {
+          checkSql += ` AND (env_id = $${checkParams.length + 1} OR env_id IS NULL)`;
+          checkParams.push(eid);
+        }
+        const collisionRes = await queryPostgres(checkSql, checkParams);
+        if (collisionRes.rows.length > 0) {
+          const existing = collisionRes.rows[0];
+          throw new Error(
+            `Staging table "${stg}" sudah digunakan oleh Config #${existing.config_id} (${existing.name_config || 'Tanpa Nama'}). Gunakan nama staging table yang unik agar tidak terjadi bentrok data.`
+          );
+        }
+      }
     }
 
     const keys = Object.keys(data).filter((k) => k !== meta.pk);
@@ -1272,7 +1320,7 @@ class EtlService {
     values.push(id);
 
     const query = `
-      UPDATE etl_antam.${tableName}
+      UPDATE mc_center.${tableName}
       SET ${setClauses}
       WHERE "${meta.pk}" = $${values.length}
       RETURNING *
@@ -1287,10 +1335,200 @@ class EtlService {
     const meta = ALLOWED_CONFIG_TABLES[tableName];
     if (!meta) throw new Error(`Tabel "${tableName}" tidak diizinkan untuk operasi konfigurasi.`);
 
-    const query = `DELETE FROM etl_antam.${tableName} WHERE "${meta.pk}" = $1 RETURNING *`;
+    // Dependency Guard (Point 1)
+    if (tableName === 'migration_config') {
+      const cfgId = parseInt(id, 10);
+      const [rulesCheck, targetsCheck] = await Promise.all([
+        queryPostgres('SELECT COUNT(*) as cnt FROM mc_center.migration_convert_rule WHERE config_id = $1', [cfgId]),
+        queryPostgres('SELECT COUNT(*) as cnt FROM mc_center.migration_target_config WHERE config_id = $1', [cfgId]),
+      ]);
+      const rulesCnt = parseInt(rulesCheck.rows[0]?.cnt, 10) || 0;
+      const targetsCnt = parseInt(targetsCheck.rows[0]?.cnt, 10) || 0;
+      if (rulesCnt > 0 || targetsCnt > 0) {
+        const parts = [];
+        if (rulesCnt > 0) parts.push(`${rulesCnt} Convert Rules`);
+        if (targetsCnt > 0) parts.push(`${targetsCnt} Target Configs`);
+        throw new Error(
+          `Config #${cfgId} tidak dapat dihapus karena masih memiliki relasi aktif (${parts.join(' & ')}). Harap hapus atau pindahkan relasi terkait terlebih dahulu.`
+        );
+      }
+    }
+
+    const query = `DELETE FROM mc_center.${tableName} WHERE "${meta.pk}" = $1 RETURNING *`;
     const res = await queryPostgres(query, [id]);
     if (res.rows.length === 0) throw new Error(`Record dengan ID ${id} tidak ditemukan di tabel ${tableName}.`);
     return { success: true, deleted: res.rows[0] };
+  }
+
+  /**
+   * Pengujian Sintaks Precheck SQL (Point 4)
+   */
+  async testPrecheckSql(querySql) {
+    if (!querySql || typeof querySql !== 'string' || !querySql.trim()) {
+      throw new Error('Query SQL Precheck tidak boleh kosong.');
+    }
+    const cleanSql = querySql.trim();
+    const upper = cleanSql.toUpperCase();
+    if (!upper.startsWith('SELECT') && !upper.startsWith('WITH')) {
+      throw new Error('Query Precheck hanya boleh berupa statement SELECT atau WITH.');
+    }
+    const { querySqlServer } = require('../config/sqlserver');
+    const start = Date.now();
+    const testQuery = querySqlServer(`SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; ${cleanSql}`);
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Uji Precheck SQL timeout (5s)')), 5000)
+    );
+    const result = await Promise.race([testQuery, timeoutPromise]);
+    const durationMs = Date.now() - start;
+    const rows = result.recordset || [];
+    return {
+      success: true,
+      durationMs,
+      rowCount: rows.length,
+      sampleRows: rows.slice(0, 5),
+    };
+  }
+
+  /**
+   * Export Master Konfigurasi (Point 8)
+   */
+  async exportConfigs(filters = {}) {
+    const data = await this.getMasterConfigs(filters);
+    return {
+      version: '1.0',
+      exportedAt: new Date().toISOString(),
+      filters,
+      data: {
+        migration_config: data.migration_config || [],
+        migration_convert_rule: data.migration_convert_rule || [],
+        migration_target_config: data.migration_target_config || [],
+        migration_lookup: data.migration_lookup || [],
+      },
+      totals: data.totals,
+    };
+  }
+
+  /**
+   * Import Master Konfigurasi (Point 8)
+   */
+  async importConfigs(payload, targetClientEnv = {}) {
+    const { data } = payload || {};
+    if (!data) throw new Error('Format file import tidak valid (data hilang).');
+
+    const targetClientId = targetClientEnv.clientId ? parseInt(targetClientEnv.clientId, 10) : null;
+    const targetEnvId = targetClientEnv.envId ? parseInt(targetClientEnv.envId, 10) : null;
+
+    let importedConfigs = 0;
+    let importedRules = 0;
+    let importedTargets = 0;
+    let importedLookups = 0;
+
+    const configIdMap = new Map();
+
+    // 1. Import migration_config
+    if (Array.isArray(data.migration_config)) {
+      for (const item of data.migration_config) {
+        const oldId = item.config_id;
+        const insertData = { ...item };
+        delete insertData.config_id;
+        if (targetClientId) insertData.client_id = targetClientId;
+        if (targetEnvId) insertData.env_id = targetEnvId;
+
+        try {
+          const res = await this.createConfigRecord('migration_config', insertData);
+          if (res && res.config_id) {
+            configIdMap.set(oldId, res.config_id);
+            importedConfigs++;
+          }
+        } catch (e) {
+          console.warn('Import migration_config warn:', e.message);
+        }
+      }
+    }
+
+    // 2. Import migration_convert_rule
+    if (Array.isArray(data.migration_convert_rule)) {
+      for (const item of data.migration_convert_rule) {
+        const insertData = { ...item };
+        delete insertData.rule_id;
+        if (configIdMap.has(item.config_id)) {
+          insertData.config_id = configIdMap.get(item.config_id);
+        }
+        if (targetClientId) insertData.client_id = targetClientId;
+        if (targetEnvId) insertData.env_id = targetEnvId;
+        try {
+          await this.createConfigRecord('migration_convert_rule', insertData);
+          importedRules++;
+        } catch (e) {
+          console.warn('Import rule warn:', e.message);
+        }
+      }
+    }
+
+    // 3. Import migration_target_config
+    if (Array.isArray(data.migration_target_config)) {
+      for (const item of data.migration_target_config) {
+        const insertData = { ...item };
+        delete insertData.target_config_id;
+        if (configIdMap.has(item.config_id)) {
+          insertData.config_id = configIdMap.get(item.config_id);
+        }
+        if (targetClientId) insertData.client_id = targetClientId;
+        if (targetEnvId) insertData.env_id = targetEnvId;
+        try {
+          await this.createConfigRecord('migration_target_config', insertData);
+          importedTargets++;
+        } catch (e) {
+          console.warn('Import target warn:', e.message);
+        }
+      }
+    }
+
+    // 4. Import migration_lookup
+    if (Array.isArray(data.migration_lookup)) {
+      for (const item of data.migration_lookup) {
+        const insertData = { ...item };
+        if (targetClientId) insertData.client_id = targetClientId;
+        if (targetEnvId) insertData.env_id = targetEnvId;
+        try {
+          await queryPostgres(`
+            INSERT INTO mc_center.migration_lookup (
+              lookup_name, master_schema, master_table, master_src_col, master_tgt_col, 
+              master_filter, on_unmapped, default_value, normalize, description, client_id, env_id
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+            ON CONFLICT (lookup_name) DO UPDATE SET
+              master_schema = EXCLUDED.master_schema,
+              master_table = EXCLUDED.master_table,
+              master_src_col = EXCLUDED.master_src_col,
+              master_tgt_col = EXCLUDED.master_tgt_col,
+              master_filter = EXCLUDED.master_filter,
+              on_unmapped = EXCLUDED.on_unmapped,
+              default_value = EXCLUDED.default_value,
+              normalize = EXCLUDED.normalize,
+              description = EXCLUDED.description
+          `, [
+            insertData.lookup_name, insertData.master_schema || 'public', insertData.master_table,
+            insertData.master_src_col, insertData.master_tgt_col, insertData.master_filter || null,
+            insertData.on_unmapped || 'REJECT', insertData.default_value || null,
+            Boolean(insertData.normalize), insertData.description || null,
+            insertData.client_id || null, insertData.env_id || null,
+          ]);
+          importedLookups++;
+        } catch (e) {
+          console.warn('Import lookup warn:', e.message);
+        }
+      }
+    }
+
+    return {
+      success: true,
+      imported: {
+        configs: importedConfigs,
+        rules: importedRules,
+        targets: importedTargets,
+        lookups: importedLookups,
+      },
+    };
   }
 
   // ==========================================
@@ -1315,8 +1553,8 @@ class EtlService {
     const whereSqlJoin = whereConditions.length > 0 ? `WHERE ${whereConditions.map(w => 'r.' + w).join(' AND ')}` : '';
 
     const errorCountQuery = whereConditions.length > 0
-      ? `SELECT COUNT(*) AS total_errors FROM etl_antam.migration_error_log e JOIN etl_antam.migration_run r ON e.run_id = r.run_id ${whereSqlJoin}`
-      : `SELECT COUNT(*) AS total_errors FROM etl_antam.migration_error_log`;
+      ? `SELECT COUNT(*) AS total_errors FROM mc_center.migration_error_log e JOIN mc_center.migration_run r ON e.run_id = r.run_id ${whereSqlJoin}`
+      : `SELECT COUNT(*) AS total_errors FROM mc_center.migration_error_log`;
 
     const [runsSummary, errorsCount, latestRun] = await Promise.all([
       queryPostgres(`
@@ -1325,11 +1563,11 @@ class EtlService {
           COUNT(*) FILTER (WHERE UPPER(status) IN ('SUCCESS', 'COMPLETED', 'OK')) AS success_runs,
           COUNT(*) FILTER (WHERE UPPER(status) IN ('FAILED', 'ERROR')) AS failed_runs,
           COUNT(*) FILTER (WHERE UPPER(status) IN ('RUNNING', 'STARTED')) AS running_runs
-        FROM etl_antam.migration_run
+        FROM mc_center.migration_run
         ${whereSql}
       `, params),
       queryPostgres(errorCountQuery, params),
-      queryPostgres(`SELECT * FROM etl_antam.migration_run ${whereSql} ORDER BY run_id DESC LIMIT 1`, params),
+      queryPostgres(`SELECT * FROM mc_center.migration_run ${whereSql} ORDER BY run_id DESC LIMIT 1`, params),
     ]);
 
     return {
@@ -1367,7 +1605,7 @@ class EtlService {
     const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
     const countRes = await queryPostgres(
-      `SELECT COUNT(*) AS total FROM etl_antam.migration_run r ${whereClause}`,
+      `SELECT COUNT(*) AS total FROM mc_center.migration_run r ${whereClause}`,
       params
     );
     const total = parseInt(countRes.rows[0]?.total, 10) || 0;
@@ -1414,9 +1652,9 @@ class EtlService {
         r.is_rolled_back,
         r.rolled_back_at,
         ROUND(EXTRACT(EPOCH FROM (r.end_time - r.start_time))::numeric, 2) AS duration_seconds
-      FROM etl_antam.migration_run r
-      LEFT JOIN etl_antam.master_client mc ON r.client_id = mc.client_id
-      LEFT JOIN etl_antam.master_environment me ON r.env_id = me.env_id
+      FROM mc_center.migration_run r
+      LEFT JOIN mc_center.master_client mc ON r.client_id = mc.client_id
+      LEFT JOIN mc_center.master_environment me ON r.env_id = me.env_id
       ${whereClause}
       ORDER BY ${sortColumn} ${sortDirection}
       LIMIT $${params.length - 1} OFFSET $${params.length}
@@ -1439,12 +1677,12 @@ class EtlService {
     const limitNum = Math.min(200, Math.max(1, parseInt(limit, 10) || 50));
     const offset = (pageNum - 1) * limitNum;
 
-    let fromJoin = `FROM etl_antam.migration_step_log s`;
+    let fromJoin = `FROM mc_center.migration_step_log s`;
     const params = [];
     const whereConditions = [];
 
     if (envId || clientId) {
-      fromJoin += ` JOIN etl_antam.migration_run r ON s.run_id = r.run_id`;
+      fromJoin += ` JOIN mc_center.migration_run r ON s.run_id = r.run_id`;
       if (envId) {
         params.push(parseInt(envId, 10));
         whereConditions.push(`r.env_id = $${params.length}`);
@@ -1536,12 +1774,12 @@ class EtlService {
     const limitNum = Math.min(200, Math.max(1, parseInt(limit, 10) || 50));
     const offset = (pageNum - 1) * limitNum;
 
-    let fromJoin = `FROM etl_antam.migration_error_log e`;
+    let fromJoin = `FROM mc_center.migration_error_log e`;
     const params = [];
     const whereConditions = [];
 
     if (envId || clientId) {
-      fromJoin += ` JOIN etl_antam.migration_run r ON e.run_id = r.run_id`;
+      fromJoin += ` JOIN mc_center.migration_run r ON e.run_id = r.run_id`;
       if (envId) {
         params.push(parseInt(envId, 10));
         whereConditions.push(`r.env_id = $${params.length}`);
@@ -1634,8 +1872,8 @@ class EtlService {
         c.client_code,
         c.client_name,
         c.description AS client_desc
-      FROM etl_antam.master_environment e
-      JOIN etl_antam.master_client c ON e.client_id = c.client_id
+      FROM mc_center.master_environment e
+      JOIN mc_center.master_client c ON e.client_id = c.client_id
       WHERE e.env_id = $1
     `, [parseInt(envId, 10)]);
 
@@ -1650,7 +1888,7 @@ class EtlService {
     // 2. Ambil semua koneksi database aktif untuk environment ini
     const connRes = await queryPostgres(`
       SELECT *
-      FROM etl_antam.master_connection
+      FROM mc_center.master_connection
       WHERE env_id = $1
       ORDER BY connection_id ASC
     `, [parseInt(envId, 10)]);
