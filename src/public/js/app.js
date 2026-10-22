@@ -25,7 +25,7 @@ const state = {
   source: {
     views: [],
     page: 1,
-    limit: 25,
+    limit: 10,
     search: '',
     configFilter: 'ALL',
     sortBy: 'name',
@@ -105,6 +105,10 @@ const state = {
     location: '',
     sortBy: null,
     sortDir: 'ASC',
+    masterPage: 1,
+    masterLimit: 10,
+    masterSortBy: 'configId',
+    masterSortDir: 'ASC',
   },
 
   // Modul 4: 3-Tier Column & Status Comparator
@@ -138,6 +142,14 @@ const state = {
     roles: [],
     selectedMatrixRoleId: null,
     menuMatrix: [],
+    usersPage: 1,
+    usersLimit: 10,
+    usersSortBy: 'user_id',
+    usersSortDir: 'ASC',
+    rolesPage: 1,
+    rolesLimit: 10,
+    rolesSortBy: 'role_id',
+    rolesSortDir: 'ASC',
   },
 };
 
@@ -302,13 +314,28 @@ function setupEventListeners() {
   initSettingFilterListeners();
 
   // Tab 1: Source View Controls & Full-Width Table
-  document.getElementById('btn-refresh-views').addEventListener('click', () => loadSourceViews());
-  document.getElementById('btn-sync-all-views').addEventListener('click', () => syncAllViews());
-  document.getElementById('btn-open-create-view').addEventListener('click', () => openViewEditor());
-  document.getElementById('btn-close-view-editor').addEventListener('click', () => closeViewEditor());
-  document.getElementById('btn-ve-cancel').addEventListener('click', () => closeViewEditor());
-  document.getElementById('btn-ve-validate').addEventListener('click', () => validateViewQuery());
-  document.getElementById('btn-ve-save').addEventListener('click', () => saveOrExecuteView());
+  const btnRefreshViews = document.getElementById('btn-refresh-views');
+  if (btnRefreshViews) {
+    btnRefreshViews.addEventListener('click', () => loadSourceViews(true));
+  }
+  const btnSyncAllViews = document.getElementById('btn-sync-all-views');
+  if (btnSyncAllViews) {
+    btnSyncAllViews.addEventListener('click', () => {
+      openGeneralConfirmModal({
+        title: '⚡ Konfirmasi Sinkronisasi View',
+        message: 'Apakah Anda yakin ingin menyinkronkan seluruh query view dari database sumber (SQL Server) ke tabel konfigurasi?',
+        submessage: 'Proses ini akan membaca ulang definisi DDL dari database sumber dan memperbarui katalog konfigurasi.',
+        proceedLabel: '⚡ Sinkronkan Sekarang',
+        proceedClass: 'btn-primary',
+        onConfirm: () => syncAllViews(),
+      });
+    });
+  }
+  document.getElementById('btn-open-create-view')?.addEventListener('click', () => openViewEditor());
+  document.getElementById('btn-close-view-editor')?.addEventListener('click', () => closeViewEditor());
+  document.getElementById('btn-ve-cancel')?.addEventListener('click', () => closeViewEditor());
+  document.getElementById('btn-ve-validate')?.addEventListener('click', () => validateViewQuery());
+  document.getElementById('btn-ve-save')?.addEventListener('click', () => saveOrExecuteView());
 
   const btnVeFormat = document.getElementById('btn-ve-format');
   if (btnVeFormat) btnVeFormat.addEventListener('click', () => formatViewEditorQuery());
@@ -339,10 +366,14 @@ function setupEventListeners() {
 
   const searchSourceViews = document.getElementById('search-source-views');
   if (searchSourceViews) {
+    let searchDebounceTimer = null;
     searchSourceViews.addEventListener('input', (e) => {
-      state.source.search = e.target.value.trim().toLowerCase();
-      state.source.page = 1;
-      renderSourceViewsTable();
+      clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(() => {
+        state.source.search = e.target.value.trim().toLowerCase();
+        state.source.page = 1;
+        renderSourceViewsTable();
+      }, 150);
     });
   }
 
@@ -351,9 +382,34 @@ function setupEventListeners() {
     filterSourceConfig.addEventListener('change', (e) => {
       state.source.configFilter = e.target.value;
       state.source.page = 1;
+
+      // Sinkronkan chip filter cepat aktif
+      document.querySelectorAll('.btn-qf').forEach((b) => {
+        b.classList.toggle('active', b.getAttribute('data-qfilter') === e.target.value);
+      });
+
       renderSourceViewsTable();
     });
   }
+
+  // Listener untuk Quick Filter Badges (Semua, Terdaftar, Belum Dikonfigurasi, Error)
+  document.querySelectorAll('.btn-qf').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const qfilter = btn.getAttribute('data-qfilter');
+      state.source.configFilter = qfilter;
+      state.source.page = 1;
+
+      // Sinkronkan dropdown filter
+      const sel = document.getElementById('filter-source-config-status');
+      if (sel) sel.value = qfilter;
+
+      // Update visual active
+      document.querySelectorAll('.btn-qf').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      renderSourceViewsTable();
+    });
+  });
 
   const selectSourceLimit = document.getElementById('select-source-views-limit');
   if (selectSourceLimit) {
@@ -683,7 +739,50 @@ function setupEventListeners() {
   });
 
   // Tab 4: Pipeline Controls
-  document.getElementById('btn-refresh-pipeline').addEventListener('click', () => loadPipelineReconciliation(true));
+  document.getElementById('btn-refresh-pipeline')?.addEventListener('click', () => loadPipelineReconciliation(true));
+
+  // Pipeline Master Table Sorting & Pagination
+  document.querySelectorAll('#pipeline-master-table th.sortable').forEach((th) => {
+    th.addEventListener('click', () => {
+      const col = th.getAttribute('data-pipe-col');
+      if (!col) return;
+      if (state.pipeline.masterSortBy === col) {
+        state.pipeline.masterSortDir = state.pipeline.masterSortDir === 'ASC' ? 'DESC' : 'ASC';
+      } else {
+        state.pipeline.masterSortBy = col;
+        state.pipeline.masterSortDir = 'ASC';
+      }
+      state.pipeline.masterPage = 1;
+      renderPipelineMasterRows(state.pipeline.pipelines);
+    });
+  });
+
+  const limitPipeSelect = document.getElementById('limit-pipe-master-select');
+  if (limitPipeSelect) {
+    limitPipeSelect.addEventListener('change', (e) => {
+      state.pipeline.masterLimit = parseInt(e.target.value, 10) || 10;
+      state.pipeline.masterPage = 1;
+      renderPipelineMasterRows(state.pipeline.pipelines);
+    });
+  }
+
+  const btnPipePrev = document.getElementById('btn-pipe-master-prev');
+  if (btnPipePrev) {
+    btnPipePrev.addEventListener('click', () => {
+      if (state.pipeline.masterPage > 1) {
+        state.pipeline.masterPage--;
+        renderPipelineMasterRows(state.pipeline.pipelines);
+      }
+    });
+  }
+
+  const btnPipeNext = document.getElementById('btn-pipe-master-next');
+  if (btnPipeNext) {
+    btnPipeNext.addEventListener('click', () => {
+      state.pipeline.masterPage++;
+      renderPipelineMasterRows(state.pipeline.pipelines);
+    });
+  }
 
   document.querySelectorAll('.stage-btn').forEach((btn) => {
     btn.addEventListener('click', (e) => {
@@ -890,6 +989,7 @@ function setupEventListeners() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       const modalIds = [
+        'modal-general-confirm',
         'modal-pipeline-compare',
         'modal-pipeline-inspector',
         'modal-source-inspector',
@@ -1644,12 +1744,13 @@ async function finishWizard() {
         ssh_password: '***REDACTED***',
       },
       {
-        connection_name: 'PostgreSQL Target (etl_antam)',
+        connection_name: 'PostgreSQL Target (vendor/dwh)',
         db_type: 'POSTGRESQL',
         db_role: 'TARGET',
         host: tgtHost,
         port: parseInt(document.getElementById('wz-tgt-port')?.value.trim(), 10) || 5433,
         database_name: document.getElementById('wz-tgt-db')?.value.trim() || 'db_procsi',
+        db_schema: 'vendor',
         username: document.getElementById('wz-tgt-user')?.value.trim() || 'procsi',
         password: document.getElementById('wz-tgt-pass')?.value.trim() || '***REDACTED***',
         use_ssh_tunnel: false,
@@ -2000,21 +2101,26 @@ window.testPingConnection = async function (connId) {
 // =========================================================================
 // MODUL 1: SOURCE DATA (SQL SERVER VIEWS & VIEW CREATOR)
 // =========================================================================
-async function loadSourceViews() {
+async function loadSourceViews(forceRefresh = false) {
+  // Performance optimization: jika sudah ada data di memory dan bukan force refresh, render instan!
+  if (!forceRefresh && state.source.views && state.source.views.length > 0) {
+    renderSourceViewsTable();
+    return;
+  }
+
   const tbody = document.getElementById('source-views-table-body');
   if (tbody) {
-    tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-muted">Memuat daftar view SQL Server...</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-muted">Memuat daftar view SQL Server...</td></tr>`;
   }
 
   if (!state.selectedSourceConnectionId) {
     if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-amber font-medium">⚠️ Belum ada koneksi SOURCE (SQL Server) yang terdaftar untuk Environment ini.<br><span class="text-xs text-muted">Silakan buka menu <strong>Setting ⚙️ ➔ 3. Master Connection</strong> untuk menambahkan koneksi database sumber.</span></td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-amber font-medium">⚠️ Belum ada koneksi SOURCE (SQL Server) yang terdaftar untuk Environment ini.<br><span class="text-xs text-muted">Silakan buka menu <strong>Setting ⚙️ ➔ 3. Master Connection</strong> untuk menambahkan koneksi database sumber.</span></td></tr>`;
     }
     const resetValues = [
       ['kpi-source-views-count', '0'],
       ['kpi-source-total-rows', '0'],
       ['kpi-source-mapping-count', '-'],
-      ['kpi-source-sync-status', '-'],
       ['kpi-source-health-status', '-'],
     ];
     resetValues.forEach(([id, val]) => {
@@ -2030,6 +2136,8 @@ async function loadSourceViews() {
     let connParam = `?connection_id=${state.selectedSourceConnectionId}`;
     if (state.selectedClientId) connParam += `&client_id=${state.selectedClientId}`;
     if (state.selectedEnvId) connParam += `&env_id=${state.selectedEnvId}`;
+    if (forceRefresh) connParam += `&refresh=true`;
+
     const res = await fetch(`/api/source/views${connParam}`);
     const json = await res.json();
     if (!json.success) throw new Error(json.error);
@@ -2052,51 +2160,27 @@ async function loadSourceViews() {
     const mappingPct = views.length > 0 ? Math.round((configuredCount / views.length) * 100) : 0;
     const elMappingCount = document.getElementById('kpi-source-mapping-count');
     if (elMappingCount) {
-      elMappingCount.innerHTML = `<span style="color: ${mappingPct === 100 ? 'var(--accent-emerald)' : 'var(--accent-cyan)'};">${configuredCount} / ${views.length}</span> <span class="text-xs text-muted" style="font-size: 0.75rem; font-weight: normal;">(${mappingPct}%)</span>`;
+      elMappingCount.innerHTML = `<span style="color: #0f172a; font-weight: 800;">${configuredCount} / ${views.length}</span> <span style="font-size: 0.75rem; font-weight: 500; color: #64748b; margin-left: 0.25rem;">(${mappingPct}%)</span>`;
     }
     const elMappingBar = document.getElementById('kpi-source-mapping-bar');
     if (elMappingBar) {
       elMappingBar.style.width = `${mappingPct}%`;
     }
-    const elMappingFoot = document.getElementById('kpi-source-mapping-foot');
-    if (elMappingFoot) {
-      elMappingFoot.textContent = unconfiguredCount === 0 
-        ? '✓ Seluruh view telah terdaftar di migration_config' 
-        : `${unconfiguredCount} view belum ada di migration_config`;
-    }
 
-    // Card 4: DDL Sync Status
-    const syncedCount = views.filter((v) => v.isConfigured && v.isSynced).length;
-    const needSyncCount = views.filter((v) => v.isConfigured && !v.isSynced).length;
-    const elSyncStatus = document.getElementById('kpi-source-sync-status');
-    const elSyncFoot = document.getElementById('kpi-source-sync-foot');
-    const elSyncDot = document.getElementById('kpi-source-sync-dot');
-    if (elSyncStatus) {
-      if (needSyncCount === 0) {
-        elSyncStatus.innerHTML = `<span style="color: var(--accent-emerald);">100% Up to Date</span>`;
-        if (elSyncFoot) elSyncFoot.textContent = `${views.filter(v => v.isConfigured).length} view tersinkronisasi`;
-        if (elSyncDot) elSyncDot.className = 'status-pulse-dot bg-emerald';
-      } else {
-        elSyncStatus.innerHTML = `<span style="color: var(--accent-amber);">${needSyncCount} Perlu Sync ⚠️</span>`;
-        if (elSyncFoot) elSyncFoot.textContent = 'Klik "Sinkronkan Semua" untuk update';
-        if (elSyncDot) elSyncDot.className = 'status-pulse-dot bg-amber';
-      }
-    }
-
-    // Card 5: Object Health / Validity
+    // Card 4: Object Health / Validity
     const errorViews = views.filter((v) => v.error);
     const elHealthStatus = document.getElementById('kpi-source-health-status');
     const elHealthFoot = document.getElementById('kpi-source-health-foot');
     const elHealthDot = document.getElementById('kpi-source-health-dot');
     if (elHealthStatus) {
       if (errorViews.length === 0) {
-        elHealthStatus.innerHTML = `<span style="color: var(--accent-emerald);">100% Valid</span>`;
+        elHealthStatus.innerHTML = `<span style="color: #059669; font-weight: 800;">100% Valid</span>`;
         if (elHealthFoot) elHealthFoot.textContent = '0 error binding query di database sumber';
-        if (elHealthDot) elHealthDot.className = 'status-pulse-dot bg-emerald';
+        if (elHealthDot) elHealthDot.className = 'kpi-h-dot bg-emerald';
       } else {
-        elHealthStatus.innerHTML = `<span style="color: var(--accent-rose);">${errorViews.length} Bermasalah ⚠️</span>`;
+        elHealthStatus.innerHTML = `<span style="color: #e11d48; font-weight: 800;">${errorViews.length} Bermasalah ⚠️</span>`;
         if (elHealthFoot) elHealthFoot.textContent = `${errorViews[0].name}: ${errorViews[0].error.slice(0, 32)}...`;
-        if (elHealthDot) elHealthDot.className = 'status-pulse-dot bg-rose';
+        if (elHealthDot) elHealthDot.className = 'kpi-h-dot bg-rose';
       }
     }
 
@@ -2104,7 +2188,7 @@ async function loadSourceViews() {
     renderSourceViewsTable();
   } catch (err) {
     if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-rose">${err.message}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-rose">${err.message}</td></tr>`;
     }
   }
 }
@@ -2114,7 +2198,7 @@ function renderSourceViewsTable() {
   if (!tbody) return;
 
   if (!state.source.views || state.source.views.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-muted">Tidak ada VIEW di schema dbo SQL Server.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-muted">Tidak ada VIEW di schema dbo SQL Server.</td></tr>`;
     const pagInfo = document.getElementById('source-views-pagination-info');
     if (pagInfo) pagInfo.textContent = '0 views';
     const pagNumbers = document.getElementById('source-views-page-numbers');
@@ -2126,7 +2210,33 @@ function renderSourceViewsTable() {
     return;
   }
 
-  // 1. Filter
+  // 1. Update Quick Filter Badge Counts
+  const allViews = state.source.views || [];
+  const countAll = allViews.length;
+  const countConfigured = allViews.filter((v) => v.isMigrationConfigured).length;
+  const countUnconfigured = allViews.filter((v) => !v.isMigrationConfigured).length;
+  const countError = allViews.filter((v) => Boolean(v.error)).length;
+
+  const qfAll = document.getElementById('qf-count-all');
+  if (qfAll) qfAll.textContent = countAll;
+  const qfCfg = document.getElementById('qf-count-configured');
+  if (qfCfg) qfCfg.textContent = countConfigured;
+  const qfUncfg = document.getElementById('qf-count-unconfigured');
+  if (qfUncfg) qfUncfg.textContent = countUnconfigured;
+  const qfErr = document.getElementById('qf-count-error');
+  const btnQfErr = document.getElementById('qf-error');
+  if (qfErr) qfErr.textContent = countError;
+  if (btnQfErr) {
+    btnQfErr.style.display = countError > 0 ? 'inline-flex' : 'none';
+  }
+
+  // Sync visual active class on quick filter buttons
+  const curFilter = state.source.configFilter || 'ALL';
+  document.querySelectorAll('.btn-qf').forEach((b) => {
+    b.classList.toggle('active', b.getAttribute('data-qfilter') === curFilter);
+  });
+
+  // 2. Filter
   let items = [...state.source.views];
   if (state.source.search) {
     const q = state.source.search.toLowerCase();
@@ -2141,14 +2251,8 @@ function renderSourceViewsTable() {
     items = items.filter((v) => v.isMigrationConfigured);
   } else if (state.source.configFilter === 'MIGRATION_UNCONFIGURED') {
     items = items.filter((v) => !v.isMigrationConfigured);
-  } else if (state.source.configFilter === 'SYNCED') {
-    items = items.filter((v) => v.isConfigured && v.isSynced);
-  } else if (state.source.configFilter === 'UNSYNCED') {
-    items = items.filter((v) => v.isConfigured && !v.isSynced);
-  } else if (state.source.configFilter === 'CONFIGURED') {
-    items = items.filter((v) => v.isConfigured);
-  } else if (state.source.configFilter === 'UNCONFIGURED') {
-    items = items.filter((v) => !v.isConfigured);
+  } else if (state.source.configFilter === 'ERROR') {
+    items = items.filter((v) => Boolean(v.error));
   }
 
   // 2. Sort
@@ -2165,11 +2269,6 @@ function renderSourceViewsTable() {
     if (sortBy === 'isMigrationConfigured') {
       valA = a.isMigrationConfigured ? 1 : 0;
       valB = b.isMigrationConfigured ? 1 : 0;
-      return sortDir === 'ASC' ? valA - valB : valB - valA;
-    }
-    if (sortBy === 'isConfigured') {
-      valA = a.isConfigured ? (a.isSynced ? 2 : 1) : 0;
-      valB = b.isConfigured ? (b.isSynced ? 2 : 1) : 0;
       return sortDir === 'ASC' ? valA - valB : valB - valA;
     }
     valA = (valA || '').toString().toLowerCase();
@@ -2192,7 +2291,7 @@ function renderSourceViewsTable() {
   });
 
   const totalFiltered = items.length;
-  const limit = state.source.limit || 25;
+  const limit = state.source.limit || 10;
   const totalPages = Math.max(1, Math.ceil(totalFiltered / limit));
   state.source.page = Math.min(state.source.page || 1, totalPages);
   const page = state.source.page || 1;
@@ -2202,7 +2301,7 @@ function renderSourceViewsTable() {
   const pagedItems = items.slice(startIdx, endIdx);
 
   if (pagedItems.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-muted">Tidak ada view yang sesuai dengan filter pencarian.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-muted">Tidak ada view yang sesuai dengan filter pencarian.</td></tr>`;
   } else {
     tbody.innerHTML = pagedItems.map((v, idx) => {
       const globalIndex = startIdx + idx + 1;
@@ -2229,18 +2328,12 @@ function renderSourceViewsTable() {
         `;
       }
 
-      // Katalog View Badge (master_source_view)
-      const catalogBadge = v.isConfigured
-        ? `<span class="badge ${v.isSynced ? 'badge-success' : 'badge-warning'}">✓ ${v.isSynced ? 'Sinkron' : 'Perlu Sync'}</span>`
-        : `<span class="badge badge-neutral">Belum Dicatat</span>`;
-
       return `
         <tr>
           <td class="font-mono text-muted text-center col-order">${globalIndex}</td>
           <td class="col-name">
             <div class="flex-center gap-2" style="justify-content: flex-start;">
-              <span class="text-sm">👁️</span>
-              <strong class="font-mono text-cyan" style="cursor: pointer; text-decoration: underline;" onclick="openSourceInspectorModal('${v.name}')" title="Klik untuk inspeksi data & skema view">${escapeHtml(v.name)}</strong>
+              <span class="font-mono font-semibold" style="font-size: 0.925rem; color: #0f172a;">${escapeHtml(v.name)}</span>
             </div>
           </td>
           <td class="col-desc">
@@ -2251,13 +2344,14 @@ function renderSourceViewsTable() {
             ${v.error ? `<span title="${escapeHtml(v.error)}">Error</span>` : formatNumber(v.count)}
           </td>
           <td class="col-mig-config">${migConfigBadge}</td>
-          <td class="col-status text-center">${catalogBadge}</td>
           <td class="col-action">
             <div class="flex-gap-2 flex-wrap" style="justify-content: center;">
               <button class="btn btn-primary btn-xs" onclick="openSourceInspectorModal('${v.name}')" title="Buka dialog data inspector, skema kolom, dan DDL">🔍 Detail</button>
-              <button class="btn btn-secondary btn-xs" onclick="quickSyncView('${v.name}')" title="Simpan query view ke tabel konfigurasi">💾 Sync</button>
-              <button class="btn btn-secondary btn-xs" onclick="openViewEditor('${v.name}')" title="Edit query view">✏️ Edit</button>
-              <button class="btn btn-danger btn-xs" onclick="openDeleteModal('source_view', '${v.name}', '${v.name}')" title="Hapus view dari DB">🗑️</button>
+              <button class="btn btn-secondary btn-xs" onclick="openViewEditor('${v.name}')" title="Edit query view di SQL Server">✏️ Edit</button>
+              ${v.isMigrationConfigured
+                ? `<button class="btn btn-secondary btn-xs text-muted" style="opacity: 0.55; cursor: not-allowed;" title="Diproteksi: View ini terdaftar di ${v.migrationConfigs.length} Migration Config (${escapeHtml(v.migrationConfigs.map(c => `Config #${c.configId}`).join(', '))})" onclick="showToast('View [${escapeHtml(v.name)}] diproteksi: Sedang digunakan oleh ${v.migrationConfigs.length} Migration Config!', 'warning')">🔒</button>`
+                : `<button class="btn btn-danger btn-xs" onclick="openDeleteModal('source_view', '${v.name}', '${v.name}')" title="Hapus view dari DB">🗑️</button>`
+              }
             </div>
           </td>
         </tr>
@@ -2294,14 +2388,10 @@ window.openSourceInspectorModal = function (viewName) {
   if (!modal) return;
   modal.classList.remove('hidden');
 
-  document.getElementById('si-modal-title').textContent = `🔍 Data Inspector: [dbo].[${viewName}]`;
+  document.getElementById('si-modal-title').textContent = `🔍 Data Inspector: ${viewName}`;
   document.getElementById('si-modal-subtitle').textContent = `Database: antam_scm • Schema: dbo • Inspeksi data aktual, struktur kolom, dan DDL`;
 
   const viewObj = (state.source.views || []).find((v) => v.name === viewName);
-  const descEl = document.getElementById('si-modal-desc-badge');
-  if (descEl) {
-    descEl.textContent = viewObj?.description ? `📝 Deskripsi: ${viewObj.description}` : '';
-  }
 
   const footerLeft = document.getElementById('si-footer-left-actions');
   if (footerLeft) {
@@ -3138,17 +3228,16 @@ function formatViewEditorQuery() {
     // Visual feedback pada tombol format
     const btnHeader = document.getElementById('btn-ve-format');
     const btnFooter = document.getElementById('btn-ve-format-footer');
-    [btnHeader, btnFooter].forEach((b) => {
-      if (b) {
-        const origText = b.innerHTML;
-        b.innerHTML = '✓ Terformat!';
-        b.classList.add('btn-success');
-        setTimeout(() => {
-          b.innerHTML = origText;
-          b.classList.remove('btn-success');
-        }, 1200);
-      }
-    });
+    if (btnFooter) {
+      const origText = btnFooter.innerHTML;
+      btnFooter.innerHTML = '✓ Terformat!';
+      btnFooter.classList.add('btn-success');
+      setTimeout(() => {
+        btnFooter.innerHTML = origText;
+        btnFooter.classList.remove('btn-success');
+      }, 1200);
+    }
+    showToast('✓ Format query SQL berhasil dirapikan.', 'success', 2000);
   }
 }
 
@@ -3165,6 +3254,7 @@ async function copyViewEditorQuery() {
         btnCopy.innerHTML = origText;
       }, 1200);
     }
+    showToast('✓ Query berhasil disalin ke clipboard.', 'info', 2000);
   } catch (e) {
     console.warn('Gagal salin query:', e);
   }
@@ -3366,8 +3456,10 @@ window.quickSyncView = async function (viewName) {
 
 async function syncAllViews() {
   const btn = document.getElementById('btn-sync-all-views');
-  btn.disabled = true;
-  btn.textContent = 'Menyinkronkan...';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Menyinkronkan...';
+  }
 
   try {
     const res = await fetch('/api/source/sync-all-views', {
@@ -3378,13 +3470,15 @@ async function syncAllViews() {
     const json = await res.json();
     if (!json.success) throw new Error(json.error);
 
-    alert(`✓ Berhasil menyinkronkan ${json.data.totalSynced} view ke tabel master konfigurasi!`);
-    loadSourceViews();
+    showToast(`✓ Berhasil menyinkronkan ${json.data.totalSynced} view ke tabel master konfigurasi!`, 'success');
+    loadSourceViews(true);
   } catch (err) {
-    alert(`Gagal menyinkronkan seluruh view: ${err.message}`);
+    showToast(`Gagal menyinkronkan seluruh view: ${err.message}`, 'error');
   } finally {
-    btn.disabled = false;
-    btn.textContent = '⚡ Sinkronkan Semua';
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '⚡ Sinkronkan Semua';
+    }
   }
 }
 
@@ -3509,6 +3603,11 @@ function renderConfigTable(tableKey) {
   if (prevBtn) prevBtn.disabled = tState.page <= 1;
   if (nextBtn) nextBtn.disabled = tState.page >= totalPages;
 
+  renderPaginationNumbers(`cfg-${tableKey}-page-numbers`, tState.page, totalPages, (newPage) => {
+    tState.page = newPage;
+    renderConfigTable(tableKey);
+  });
+
   // 5. Render Rows
   if (pageItems.length === 0) {
     tbody.innerHTML = `<tr><td colspan="${colspan}" class="text-center py-8 text-muted">Tidak ada data ${tState.search ? 'yang cocok dengan pencarian' : 'pada tabel ini'}.</td></tr>`;
@@ -3516,35 +3615,53 @@ function renderConfigTable(tableKey) {
   }
 
   if (tableKey === 'main') {
-    tbody.innerHTML = pageItems.map((c) => `
+    tbody.innerHTML = pageItems.map((c) => {
+      const clientObj = (state.clients || []).find((cl) => cl.client_id == c.client_id);
+      const envObj = (state.environments || []).find((e) => e.env_id == c.env_id);
+      const clientCode = clientObj ? clientObj.client_code : (c.client_id ? `#${c.client_id}` : '-');
+      const envCode = envObj ? envObj.env_code : (c.env_id ? `#${c.env_id}` : '-');
+
+      return `
       <tr>
-        <td class="font-mono font-bold text-center">#${c.config_id}</td>
-        <td><strong class="text-white">${escapeHtml(c.name_config || '-')}</strong></td>
-        <td class="font-mono text-center">${c.exec_order}</td>
-        <td class="font-mono text-muted">${escapeHtml(c.src_schema || 'dbo')}</td>
-        <td><strong class="text-cyan">${escapeHtml(c.src_view)}</strong></td>
-        <td><strong class="text-amber">stg_antam.${escapeHtml(c.stg_table)}</strong></td>
-        <td class="font-mono text-muted">${escapeHtml(c.tgt_schema || 'vendor')}</td>
-        <td><strong class="text-emerald">${escapeHtml(c.tgt_table)}</strong></td>
+        <td class="font-mono font-bold text-center"><span class="badge badge-neutral font-bold text-xs">#${c.config_id}</span></td>
+        <td><strong class="text-white" style="font-size: 0.925rem;">${escapeHtml(c.name_config || `Config #${c.config_id}`)}</strong></td>
+        <td class="font-mono text-center"><span class="badge badge-indigo font-mono text-xs">${c.exec_order}</span></td>
+        <td class="text-center">
+          <div class="flex-gap-1 justify-center text-xs">
+            <span class="badge badge-neutral font-mono" title="Client ID: ${c.client_id || '-'}">${escapeHtml(clientCode)}</span>
+            <span class="badge badge-info font-mono" title="Env ID: ${c.env_id || '-'}">${escapeHtml(envCode)}</span>
+          </div>
+        </td>
+        <td class="font-mono text-cyan" style="font-size: 0.8125rem;">
+          <span title="Source: [${escapeHtml(c.src_schema || 'dbo')}].[${escapeHtml(c.src_view || '-')}]">[${escapeHtml(c.src_schema || 'dbo')}].[${escapeHtml(c.src_view || '-')}]</span>
+        </td>
+        <td class="font-mono text-amber" style="font-size: 0.8125rem;">
+          <span title="Staging Table: ${escapeHtml(c.stg_table || '-')}">${escapeHtml(c.stg_table || '-')}</span>
+        </td>
+        <td class="font-mono font-semibold" style="font-size: 0.8125rem; color: #34d399;">
+          <span title="Target: [${escapeHtml(c.tgt_schema || 'vendor')}].[${escapeHtml(c.tgt_table || '-')}]">[${escapeHtml(c.tgt_schema || 'vendor')}].[${escapeHtml(c.tgt_table || '-')}]</span>
+        </td>
         <td>${formatPkColumns(c.pk_columns)}</td>
         <td>${formatCompareColumns(c.compare_columns)}</td>
-        <td class="font-mono">${escapeHtml(c.id_column || '-')}</td>
-        <td class="font-mono text-center">${c.id_width ?? '-'}</td>
-        <td class="font-mono text-center">${c.id_seed ?? '-'}</td>
+        <td class="font-mono text-xs">${escapeHtml(c.id_column || '-')}</td>
+        <td class="font-mono text-center text-xs">${c.id_width ?? '-'}</td>
+        <td class="font-mono text-center text-xs">${c.id_seed ?? '-'}</td>
         <td>${formatSqlSnippet(c.src_precheck_sql)}</td>
         <td class="text-center"><span class="badge ${c.is_active ? 'badge-success' : 'badge-danger'}">${c.is_active ? 'Active' : 'Inactive'}</span></td>
         <td class="sticky-action-col">
           <div class="flex-gap-2 justify-center">
+            <button class="btn btn-secondary btn-sm" onclick="cloneConfig(${c.config_id})" title="Duplikat Konfigurasi ini">📋 Duplikat</button>
             <button class="btn btn-secondary btn-sm" onclick="openEditConfigModal('migration_config', ${c.config_id})">Edit</button>
-            <button class="btn btn-danger btn-sm" onclick="openDeleteModal('migration_config', ${c.config_id}, 'Config #${c.config_id}')">Hapus</button>
+            <button class="btn btn-danger btn-sm" onclick="openDeleteModal('migration_config', ${c.config_id}, '${escapeHtml(c.name_config || `Config #${c.config_id}`)}')">Hapus</button>
           </div>
         </td>
       </tr>
-    `).join('');
+      `;
+    }).join('');
   } else if (tableKey === 'rules') {
     tbody.innerHTML = pageItems.map((r) => {
       const cfg = (state.config.masters?.migration_config || []).find((c) => c.config_id == r.config_id);
-      const cfgLabel = cfg ? `${cfg.src_view || ''} ➔ ${cfg.tgt_schema || 'vendor'}.${cfg.tgt_table || ''}` : '';
+      const cfgName = cfg ? (cfg.name_config || `Config #${r.config_id}`) : `Config #${r.config_id}`;
       const clientObj = (state.clients || []).find((c) => c.client_id == r.client_id);
       const envObj = (state.environments || []).find((e) => e.env_id == r.env_id);
       const clientCode = clientObj ? clientObj.client_code : (r.client_id ? `#${r.client_id}` : '-');
@@ -3554,8 +3671,8 @@ function renderConfigTable(tableKey) {
       <tr>
         <td class="font-mono text-muted text-center font-bold">#${r.rule_id}</td>
         <td class="text-center font-mono">
-          <span class="badge badge-neutral font-bold text-amber" title="${escapeHtml(cfgLabel || `Config #${r.config_id}`)}">#${r.config_id}</span>
-          ${cfg ? `<div class="text-xs text-muted" title="${escapeHtml(cfgLabel)}">${escapeHtml(cfg.tgt_table || '')}</div>` : ''}
+          <span class="badge badge-neutral font-bold text-amber">#${r.config_id}</span>
+          <div class="text-xs text-white font-semibold mt-1">${escapeHtml(cfgName)}</div>
         </td>
         <td><strong class="text-emerald font-mono">${escapeHtml(r.column_name || '-')}</strong></td>
         <td class="text-muted font-mono">${escapeHtml(r.source_column || '-')}</td>
@@ -3585,10 +3702,17 @@ function renderConfigTable(tableKey) {
       `;
     }).join('');
   } else if (tableKey === 'targets') {
-    tbody.innerHTML = pageItems.map((t) => `
+    tbody.innerHTML = pageItems.map((t) => {
+      const cfg = (state.config.masters?.migration_config || []).find((c) => c.config_id == t.config_id);
+      const cfgName = cfg ? (cfg.name_config || `Config #${t.config_id}`) : `Config #${t.config_id}`;
+
+      return `
       <tr>
         <td class="font-mono text-muted text-center">#${t.target_config_id}</td>
-        <td class="font-mono font-bold text-center">#${t.config_id}</td>
+        <td class="font-mono font-bold text-center">
+          <span class="badge badge-neutral text-amber">#${t.config_id}</span>
+          <div class="text-xs text-white font-semibold mt-1">${escapeHtml(cfgName)}</div>
+        </td>
         <td class="font-mono text-center">${t.exec_order}</td>
         <td class="text-muted">${escapeHtml(t.tgt_schema || 'vendor')}</td>
         <td><strong class="text-emerald">${escapeHtml(t.tgt_table)}</strong></td>
@@ -3605,7 +3729,8 @@ function renderConfigTable(tableKey) {
           </div>
         </td>
       </tr>
-    `).join('');
+      `;
+    }).join('');
   } else if (tableKey === 'lookups') {
     tbody.innerHTML = pageItems.map((l) => `
       <tr>
@@ -3702,7 +3827,7 @@ const FORM_DEFINITIONS = {
   migration_target_config: {
     title: 'Target Config',
     fields: [
-      { name: 'config_id', label: 'Config ID', type: 'number', required: true },
+      { name: 'config_id', label: '1. Migration Config (Pipeline)', type: 'select_config', required: true },
       { name: 'exec_order', label: 'Exec Order', type: 'number', default: 1, required: true },
       { name: 'tgt_schema', label: 'Target Schema', type: 'text', default: 'vendor', required: true },
       { name: 'tgt_table', label: 'Target Table', type: 'text', required: true },
@@ -3859,7 +3984,18 @@ function openUniversalForm(entityType, id = null, existingData = null) {
 
     let inputHtml = '';
     if (f.type === 'textarea') {
-      inputHtml = `<textarea name="${f.name}" class="form-input form-textarea font-mono text-xs" rows="3" ${f.required ? 'required' : ''}>${escapeHtml(String(val || ''))}</textarea>`;
+      let extraTester = '';
+      if (f.name === 'src_precheck_sql' || f.name === 'precheck_sql') {
+        extraTester = `
+          <div class="precheck-test-container">
+            <button type="button" class="btn btn-secondary btn-xs" onclick="testPrecheckQuery('${f.name}')">
+              🧪 Uji Precheck SQL
+            </button>
+            <span id="precheck-status-${f.name}" class="precheck-status-badge text-muted">Belum diuji</span>
+          </div>
+        `;
+      }
+      inputHtml = `<textarea name="${f.name}" class="form-input form-textarea font-mono text-xs" rows="3" ${f.required ? 'required' : ''}>${escapeHtml(String(val || ''))}</textarea>${extraTester}`;
     } else if (f.type === 'boolean') {
       inputHtml = `
         <select name="${f.name}" class="form-input">
@@ -3893,7 +4029,7 @@ function openUniversalForm(entityType, id = null, existingData = null) {
         configOptions = `<option value="${selectedVal || ''}">-- Belum ada Migration Config (Isi manual ID: ${selectedVal || 1}) --</option>`;
       }
       inputHtml = `
-        <select name="${f.name}" class="form-input font-mono" required>
+        <select name="${f.name}" class="form-input" required>
           ${configOptions}
         </select>
       `;
@@ -3935,10 +4071,11 @@ function openUniversalForm(entityType, id = null, existingData = null) {
       const inputClass = isUpper ? 'form-input font-mono uppercase' : 'form-input';
       const inputStyle = isUpper ? 'style="text-transform: uppercase; font-family: monospace; font-weight: bold;"' : '';
       const oninputAttr = isUpper ? 'oninput="this.value = this.value.toUpperCase()"' : '';
+      const listAttr = f.name === 'src_view' ? 'list="datalist-source-views" autocomplete="off"' : (f.name === 'tgt_table' ? 'list="datalist-target-tables" autocomplete="off"' : '');
 
       inputHtml = `
         <input type="${f.type}" name="${f.name}" class="${inputClass}" ${inputStyle} value="${escapeHtml(String(val || ''))}"
-          placeholder="${escapeHtml(f.placeholder || '')}" ${f.required ? 'required' : ''} ${isPkField ? 'readonly' : ''} ${oninputAttr}>
+          placeholder="${escapeHtml(f.placeholder || '')}" ${f.required ? 'required' : ''} ${isPkField ? 'readonly' : ''} ${oninputAttr} ${listAttr}>
       `;
     }
 
@@ -4004,26 +4141,17 @@ function openUniversalForm(entityType, id = null, existingData = null) {
     }
   }
 
-  // Interactive enhancements khusus migration_config form
-  if (entityType === 'migration_config') {
-    const compareGroup = container.querySelector('[name="compare_columns"]')?.closest('.form-group');
-    if (compareGroup && !compareGroup.querySelector('#btn-auto-fill-defaults')) {
-      const helperDiv = document.createElement('div');
-      helperDiv.className = 'flex items-center justify-between mt-1 mb-1.5';
-      helperDiv.innerHTML = `
-        <span class="text-muted" style="font-size: 11px;">💡 Otomatis terisi saat simpan jika dikosongkan</span>
-        <button type="button" id="btn-auto-fill-defaults" class="btn btn-xs btn-indigo flex items-center gap-1" style="font-size: 11px; padding: 2px 8px;">
+  // Interactive enhancements khusus migration_config form: Tombol Isi Otomatis di Footer
+  const footerExtra = document.getElementById('crud-modal-footer-extra');
+  if (footerExtra) {
+    if (entityType === 'migration_config') {
+      footerExtra.innerHTML = `
+        <button type="button" id="btn-auto-fill-defaults" class="btn btn-indigo flex-center gap-1">
           <span>⚡ Isi Otomatis Sekarang</span>
         </button>
       `;
-      const txtArea = compareGroup.querySelector('textarea');
-      if (txtArea) {
-        compareGroup.insertBefore(helperDiv, txtArea);
-      } else {
-        compareGroup.appendChild(helperDiv);
-      }
 
-      const btnAutoFill = helperDiv.querySelector('#btn-auto-fill-defaults');
+      const btnAutoFill = footerExtra.querySelector('#btn-auto-fill-defaults');
       btnAutoFill.addEventListener('click', async () => {
         const formEl = document.getElementById('form-universal-crud');
         const fData = new FormData(formEl);
@@ -4053,9 +4181,12 @@ function openUniversalForm(entityType, id = null, existingData = null) {
           btnAutoFill.innerHTML = '<span>⚡ Isi Otomatis Sekarang</span>';
         }
       });
+    } else {
+      footerExtra.innerHTML = '';
     }
   }
 
+  populateConfigDatalists();
   document.getElementById('modal-config-form').classList.remove('hidden');
 }
 
@@ -4081,6 +4212,22 @@ async function handleCrudSubmit(e) {
   const isEdit = state.config.editingId !== null;
   const entityType = state.config.editingTable;
   const id = state.config.editingId;
+
+  // Point 7: Client-side Staging collision guard
+  if (entityType === 'migration_config' && data.stg_table) {
+    const activeConfigs = state.config.masters?.migration_config || [];
+    const collision = activeConfigs.find((c) => {
+      if (isEdit && String(c.config_id) === String(id)) return false;
+      if (!c.is_active) return false;
+      const sameClient = !data.client_id || !c.client_id || String(c.client_id) === String(data.client_id);
+      const sameEnv = !data.env_id || !c.env_id || String(c.env_id) === String(data.env_id);
+      return c.stg_table && c.stg_table.toLowerCase() === String(data.stg_table).toLowerCase() && sameClient && sameEnv;
+    });
+    if (collision) {
+      alert(`⚠️ Staging table '${data.stg_table}' sudah digunakan oleh Config #${collision.config_id} (${collision.name_config || ''}). Gunakan nama staging table lain.`);
+      return;
+    }
+  }
 
   // Khusus connection: hapus client_id dari payload karena tabel master_connection hanya menyimpan env_id
   if (entityType === 'connection') {
@@ -4137,9 +4284,68 @@ async function handleCrudSubmit(e) {
 }
 
 // =========================================================================
+// UNIVERSAL GENERAL CONFIRMATION DIALOG
+// =========================================================================
+window.openGeneralConfirmModal = function ({
+  title = 'Konfirmasi Aksi',
+  message = 'Apakah Anda yakin ingin melanjutkan tindakan ini?',
+  submessage = '',
+  proceedLabel = 'Lanjutkan',
+  proceedClass = 'btn-primary',
+  onConfirm = null,
+} = {}) {
+  const modal = document.getElementById('modal-general-confirm');
+  if (!modal) return;
+
+  const titleEl = document.getElementById('general-confirm-title');
+  const msgEl = document.getElementById('general-confirm-msg');
+  const submsgEl = document.getElementById('general-confirm-submsg');
+  const proceedBtn = document.getElementById('btn-general-confirm-proceed');
+  const cancelBtn = document.getElementById('btn-general-confirm-cancel');
+  const closeBtn = document.getElementById('btn-close-general-confirm');
+
+  if (titleEl) titleEl.textContent = title;
+  if (msgEl) msgEl.textContent = message;
+  if (submsgEl) {
+    submsgEl.textContent = submessage;
+    submsgEl.style.display = submessage ? 'block' : 'none';
+  }
+
+  if (proceedBtn) {
+    proceedBtn.textContent = proceedLabel;
+    proceedBtn.className = `btn ${proceedClass} btn-sm`;
+    proceedBtn.onclick = () => {
+      modal.classList.add('hidden');
+      if (typeof onConfirm === 'function') {
+        onConfirm();
+      }
+    };
+  }
+
+  const closeModal = () => modal.classList.add('hidden');
+  if (cancelBtn) cancelBtn.onclick = closeModal;
+  if (closeBtn) closeBtn.onclick = closeModal;
+
+  modal.classList.remove('hidden');
+};
+
+// =========================================================================
 // UNIVERSAL DELETE CONFIRMATION DIALOG
 // =========================================================================
 window.openDeleteModal = function (type, id, displayName) {
+  // Point 1: Client-side Dependency guard for migration_config
+  if (type === 'migration_config') {
+    const rules = (state.config.masters?.migration_convert_rule || []).filter((r) => r.config_id == id);
+    const targets = (state.config.masters?.migration_target_config || []).filter((t) => t.config_id == id);
+    if (rules.length > 0 || targets.length > 0) {
+      const parts = [];
+      if (rules.length > 0) parts.push(`${rules.length} Convert Rules`);
+      if (targets.length > 0) parts.push(`${targets.length} Target Configs`);
+      alert(`⚠️ Config #${id} tidak dapat dihapus karena masih memiliki relasi aktif (${parts.join(' & ')}).\nHarap hapus atau pindahkan relasi terkait terlebih dahulu.`);
+      return;
+    }
+  }
+
   state.deleteTarget = { type, id, displayName };
   document.getElementById('delete-modal-msg').innerHTML = `
     Apakah Anda yakin ingin menghapus <strong>${escapeHtml(displayName)}</strong>?
@@ -4168,11 +4374,16 @@ async function executeDeleteConfirm() {
       url = `/api/context/environments/${id}`;
     } else if (type === 'connection') {
       url = `/api/context/connections/${id}`;
+    } else if (type === 'user') {
+      url = `/api/auth/users/${id}`;
+    } else if (type === 'role') {
+      url = `/api/auth/roles/${id}`;
     }
 
-    const res = await fetch(url, { method: 'DELETE' });
+    const isAuthRoute = ['user', 'role'].includes(type);
+    const res = await (isAuthRoute ? authFetch(url, { method: 'DELETE' }) : fetch(url, { method: 'DELETE' }));
     const json = await res.json();
-    if (!json.success) throw new Error(json.error);
+    if (!json.success) throw new Error(json.message || json.error);
 
     alert(`✓ Data berhasil dihapus.`);
     document.getElementById('modal-delete-confirm').classList.add('hidden');
@@ -4183,6 +4394,10 @@ async function executeDeleteConfirm() {
       loadSettingsClientsAndEnvironments();
       loadSettingsConnections();
       loadContextClientsAndEnvironments();
+    } else if (type === 'user') {
+      await loadSysUsers();
+    } else if (type === 'role') {
+      await loadSysRoles();
     } else {
       loadEtlMasters();
     }
@@ -4193,6 +4408,228 @@ async function executeDeleteConfirm() {
     btn.textContent = 'Hapus Permanen';
   }
 }
+
+// =========================================================================
+// MIGRATION CONFIG ENHANCEMENTS (POINTS 1 - 8)
+// =========================================================================
+
+/**
+ * Point 2: Datalist Autocomplete untuk Source Views dan Target Tables
+ */
+async function populateConfigDatalists() {
+  const dlViews = document.getElementById('datalist-source-views');
+  const dlTables = document.getElementById('datalist-target-tables');
+  if (!dlViews || !dlTables) return;
+
+  // 1. Source Views Datalist
+  let views = state.source?.views || [];
+  if (views.length === 0) {
+    try {
+      const res = await fetch('/api/source/views');
+      const json = await res.json();
+      if (json.success && json.data?.views) {
+        views = json.data.views;
+        state.source.views = views;
+      }
+    } catch (_) {}
+  }
+  dlViews.innerHTML = views.map((v) => `<option value="${escapeHtml(v.name)}">${escapeHtml(v.description || '')}</option>`).join('');
+
+  // 2. Target Tables Datalist
+  const knownTables = new Set();
+  (state.config.masters?.migration_config || []).forEach((c) => {
+    if (c.tgt_table) knownTables.add(c.tgt_table);
+  });
+  (state.config.masters?.migration_target_config || []).forEach((t) => {
+    if (t.tgt_table) knownTables.add(t.tgt_table);
+  });
+
+  try {
+    const res = await fetch('/api/tables');
+    const json = await res.json();
+    if (json.success && json.data?.tables) {
+      json.data.tables.forEach((t) => {
+        if (t.name) knownTables.add(t.name);
+      });
+    }
+  } catch (_) {}
+
+  dlTables.innerHTML = Array.from(knownTables).sort().map((tbl) => `<option value="${escapeHtml(tbl)}"></option>`).join('');
+}
+window.populateConfigDatalists = populateConfigDatalists;
+
+/**
+ * Point 3: Drill-Down Cross-Tab dari Main Config ke Rules & Targets
+ */
+window.filterConfigDrillDown = function (subtabKey, configId) {
+  const subtabId = `subtab-cfg-${subtabKey}`;
+  switchConfigSubtab(subtabId);
+  const searchInput = document.getElementById(`search-config-${subtabKey}`);
+  if (searchInput) {
+    searchInput.value = configId;
+  }
+  if (!state.config.tables[subtabKey]) {
+    state.config.tables[subtabKey] = { page: 1, limit: 10, search: '', sortBy: null, sortDir: 'asc' };
+  }
+  state.config.tables[subtabKey].search = String(configId);
+  state.config.tables[subtabKey].page = 1;
+  renderConfigTable(subtabKey);
+  showToast(`🔍 Menampilkan ${subtabKey === 'rules' ? 'Convert Rules' : 'Target Config'} untuk Config #${configId}`, 'info', 2500);
+};
+
+/**
+ * Point 4: Uji Precheck SQL langsung dari modal form
+ */
+window.testPrecheckQuery = async function (fieldName) {
+  const textarea = document.querySelector(`textarea[name="${fieldName}"]`);
+  const statusEl = document.getElementById(`precheck-status-${fieldName}`);
+  if (!textarea) return;
+
+  const sql = textarea.value.trim();
+  if (!sql) {
+    if (statusEl) {
+      statusEl.className = 'precheck-status-badge text-rose';
+      statusEl.textContent = 'Query kosong';
+    }
+    showToast('Silakan isi query SQL Precheck terlebih dahulu.', 'warning');
+    return;
+  }
+
+  if (statusEl) {
+    statusEl.className = 'precheck-status-badge text-amber';
+    statusEl.textContent = '⏳ Menguji ke SQL Server...';
+  }
+
+  try {
+    const res = await fetch('/api/etl/configs/test-precheck', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ querySql: sql }),
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error);
+
+    if (statusEl) {
+      statusEl.className = 'precheck-status-badge text-emerald';
+      statusEl.textContent = `✓ Valid (${json.rowCount} baris, ${json.durationMs}ms)`;
+    }
+    showToast(`✓ Precheck SQL valid! Mengembalikan ${json.rowCount} baris data (${json.durationMs}ms).`, 'success');
+  } catch (err) {
+    if (statusEl) {
+      statusEl.className = 'precheck-status-badge text-rose';
+      statusEl.textContent = `❌ ${err.message.slice(0, 45)}...`;
+    }
+    showToast(`❌ Uji Precheck SQL gagal: ${err.message}`, 'error', 5000);
+  }
+};
+
+/**
+ * Point 5: Duplikat / Clone Migration Config
+ */
+window.cloneConfig = function (configId) {
+  const configs = state.config.masters?.migration_config || [];
+  const src = configs.find((c) => c.config_id == configId);
+  if (!src) {
+    showToast(`Config #${configId} tidak ditemukan.`, 'error');
+    return;
+  }
+  const cloneData = { ...src };
+  delete cloneData.config_id;
+  cloneData.name_config = `${cloneData.name_config || 'Config'} (Copy)`;
+  if (cloneData.stg_table) {
+    cloneData.stg_table = `${cloneData.stg_table}_copy`;
+  }
+  showToast(`📋 Menyalin konfigurasi #${configId} sebagai data baru...`, 'info', 2000);
+  openUniversalForm('migration_config', null, cloneData);
+};
+
+/**
+ * Point 8: Export Master Migration Configs ke File JSON
+ */
+window.exportAllConfigs = async function () {
+  try {
+    let url = '/api/etl/configs/export';
+    const params = [];
+    if (state.selectedClientId) params.push(`clientId=${state.selectedClientId}`);
+    if (state.selectedEnvId) params.push(`envId=${state.selectedEnvId}`);
+    if (params.length > 0) url += `?${params.join('&')}`;
+
+    const res = await fetch(url);
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Gagal export data');
+
+    const jsonStr = JSON.stringify(json, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const downloadUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    a.href = downloadUrl;
+    a.download = `migration_configs_${timestamp}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(downloadUrl);
+
+    const totals = json.totals || {};
+    showToast(`✓ Berhasil mengekspor konfigurasi (${totals.configs || 0} configs, ${totals.rules || 0} rules, ${totals.targets || 0} targets).`, 'success');
+  } catch (err) {
+    showToast(`Gagal export: ${err.message}`, 'error');
+  }
+};
+
+/**
+ * Point 8: Trigger & Handle Import Config JSON
+ */
+window.triggerImportConfigs = function () {
+  const fileInput = document.getElementById('input-import-config-file');
+  if (fileInput) {
+    fileInput.value = '';
+    fileInput.click();
+  }
+};
+
+window.handleImportConfigFile = async function (event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const payload = JSON.parse(e.target.result);
+      if (!payload.data || !payload.data.migration_config) {
+        throw new Error('File tidak memiliki format konfigurasi valid (struktur data.migration_config hilang).');
+      }
+
+      const cfgCount = payload.data.migration_config?.length || 0;
+      const ruleCount = payload.data.migration_convert_rule?.length || 0;
+      const tgtCount = payload.data.migration_target_config?.length || 0;
+      const lkpCount = payload.data.migration_lookup?.length || 0;
+
+      const confirmMsg = `Import konfigurasi dari "${file.name}"?\n- ${cfgCount} Migration Configs\n- ${ruleCount} Convert Rules\n- ${tgtCount} Target Configs\n- ${lkpCount} Lookups\n\nData akan dihubungkan ke Client/Env aktif saat ini. Lanjutkan?`;
+      if (!confirm(confirmMsg)) return;
+
+      showToast('Mengimport data konfigurasi...', 'info');
+      const res = await fetch('/api/etl/configs/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          payload,
+          clientId: state.selectedClientId,
+          envId: state.selectedEnvId,
+        }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || 'Gagal import konfigurasi');
+
+      const imp = json.imported || {};
+      showToast(`✓ Sukses import: ${imp.configs} configs, ${imp.rules} rules, ${imp.targets} targets, ${imp.lookups} lookups!`, 'success', 5000);
+      await loadEtlMasters();
+    } catch (err) {
+      showToast(`Gagal import file: ${err.message}`, 'error', 6000);
+    }
+  };
+  reader.readAsText(file);
+};
 
 // =========================================================================
 // MODUL 3: MIGRATION PROSES (RUNS & LOGS)
@@ -4284,6 +4721,11 @@ async function loadEtlRuns() {
     if (badgePage) badgePage.textContent = `Hal ${curPage} / ${state.process.totalPages}`;
     if (btnPrev) btnPrev.disabled = curPage <= 1;
     if (btnNext) btnNext.disabled = curPage >= state.process.totalPages;
+
+    renderPaginationNumbers('runs-page-numbers', curPage, state.process.totalPages, (newPage) => {
+      state.process.page = newPage;
+      loadEtlRuns();
+    });
 
     if (state.process.runs.length === 0) {
       tbody.innerHTML = `<tr><td colspan="14" class="text-center py-8 text-muted">Belum ada riwayat run di table migration_run untuk environment ini.</td></tr>`;
@@ -4472,6 +4914,11 @@ async function loadEtlStepLogs(runId = null) {
     if (btnPrev) btnPrev.disabled = curPage <= 1;
     if (btnNext) btnNext.disabled = curPage >= sState.totalPages;
 
+    renderPaginationNumbers('steplogs-page-numbers', curPage, sState.totalPages, (newPage) => {
+      sState.page = newPage;
+      loadStepLogs();
+    });
+
     if (list.length === 0) {
       tbody.innerHTML = `<tr><td colspan="12" class="text-center py-8 text-muted">Tidak ada log langkah ${runId ? `untuk Run #${runId}` : ''}.</td></tr>`;
       return;
@@ -4567,6 +5014,11 @@ async function loadEtlErrorLogs(runId = null) {
     if (btnPrev) btnPrev.disabled = curPage <= 1;
     if (btnNext) btnNext.disabled = curPage >= eState.totalPages;
 
+    renderPaginationNumbers('errorlogs-page-numbers', curPage, eState.totalPages, (newPage) => {
+      eState.page = newPage;
+      loadErrorLogs();
+    });
+
     if (list.length === 0) {
       tbody.innerHTML = `<tr><td colspan="10" class="text-center py-8 text-muted">Tidak ada log error ${runId ? `pada Run #${runId}` : ''}.</td></tr>`;
       return;
@@ -4629,12 +5081,118 @@ function renderPipelineMasterRows(pipelines) {
   const masterTbody = document.getElementById('pipeline-master-tbody');
   if (!masterTbody) return;
 
-  if (!pipelines || pipelines.length === 0) {
+  const rawList = pipelines || state.pipeline.pipelines || [];
+  if (!rawList || rawList.length === 0) {
     masterTbody.innerHTML = `<tr><td colspan="14" class="text-center py-8 text-muted">Belum ada data konfigurasi di migration_config untuk environment ini.</td></tr>`;
+    const rangeEl = document.getElementById('info-pipe-master-range');
+    const totalEl = document.getElementById('info-pipe-master-total');
+    if (rangeEl) rangeEl.textContent = '0-0';
+    if (totalEl) totalEl.textContent = '0';
+    const pageNumEl = document.getElementById('pipe-master-page-numbers');
+    if (pageNumEl) pageNumEl.innerHTML = '';
+    const prevBtn = document.getElementById('btn-pipe-master-prev');
+    const nextBtn = document.getElementById('btn-pipe-master-next');
+    if (prevBtn) prevBtn.disabled = true;
+    if (nextBtn) nextBtn.disabled = true;
     return;
   }
 
-  masterTbody.innerHTML = pipelines.map((p) => {
+  // 1. Sorting
+  const sortBy = state.pipeline.masterSortBy || 'configId';
+  const sortDir = state.pipeline.masterSortDir || 'ASC';
+
+  const sorted = [...rawList].sort((a, b) => {
+    let valA, valB;
+    if (sortBy === 'configId') {
+      valA = Number(a.configId) || 0;
+      valB = Number(b.configId) || 0;
+    } else if (sortBy === 'execOrder') {
+      valA = Number(a.execOrder) || 0;
+      valB = Number(b.execOrder) || 0;
+    } else if (sortBy === 'sourceView') {
+      valA = `${a.source?.schema || ''}.${a.source?.view || ''}`.toLowerCase();
+      valB = `${b.source?.schema || ''}.${b.source?.view || ''}`.toLowerCase();
+    } else if (sortBy === 'stagingTable') {
+      valA = (a.staging?.table || '').toLowerCase();
+      valB = (b.staging?.table || '').toLowerCase();
+    } else if (sortBy === 'targetTable') {
+      valA = (a.targets?.[0]?.table || a.target?.table || '').toLowerCase();
+      valB = (b.targets?.[0]?.table || b.target?.table || '').toLowerCase();
+    } else if (sortBy === 'sumSource') {
+      valA = Number(a.targets?.[0]?.sumSource ?? a.source?.rows ?? 0);
+      valB = Number(b.targets?.[0]?.sumSource ?? b.source?.rows ?? 0);
+    } else if (sortBy === 'sumStaging') {
+      valA = Number(a.targets?.[0]?.sumStaging ?? a.staging?.rows ?? 0);
+      valB = Number(b.targets?.[0]?.sumStaging ?? b.staging?.rows ?? 0);
+    } else if (sortBy === 'sumBefore') {
+      valA = Number(a.targets?.[0]?.sumBefore ?? 0);
+      valB = Number(b.targets?.[0]?.sumBefore ?? 0);
+    } else if (sortBy === 'sumAfter') {
+      valA = Number(a.targets?.[0]?.sumAfter ?? a.target?.rows ?? 0);
+      valB = Number(b.targets?.[0]?.sumAfter ?? b.target?.rows ?? 0);
+    } else if (sortBy === 'lastRunId') {
+      valA = Number(a.targets?.[0]?.lastRunId || a.latestRun?.run_id || 0);
+      valB = Number(b.targets?.[0]?.lastRunId || b.latestRun?.run_id || 0);
+    } else if (sortBy === 'status') {
+      valA = a.reconciliation?.sourceToStagingStatus === 'MATCH' ? 1 : 0;
+      valB = b.reconciliation?.sourceToStagingStatus === 'MATCH' ? 1 : 0;
+    } else if (sortBy === 'errors') {
+      valA = Number(a.reconciliation?.errorsLogged || 0);
+      valB = Number(b.reconciliation?.errorsLogged || 0);
+    } else {
+      valA = a[sortBy];
+      valB = b[sortBy];
+    }
+
+    if (valA < valB) return sortDir === 'ASC' ? -1 : 1;
+    if (valA > valB) return sortDir === 'ASC' ? 1 : -1;
+    return 0;
+  });
+
+  // Update header indicators
+  document.querySelectorAll('#pipeline-master-table th.sortable').forEach(th => {
+    const col = th.getAttribute('data-pipe-col');
+    th.classList.remove('sorted-asc', 'sorted-desc');
+    const icon = th.querySelector('.sort-icon');
+    if (col === sortBy) {
+      th.classList.add(sortDir === 'ASC' ? 'sorted-asc' : 'sorted-desc');
+      if (icon) icon.textContent = sortDir === 'ASC' ? '▲' : '▼';
+    } else {
+      if (icon) icon.textContent = '↕';
+    }
+  });
+
+  // 2. Pagination
+  const total = sorted.length;
+  const limit = state.pipeline.masterLimit || 10;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  if (state.pipeline.masterPage > totalPages) {
+    state.pipeline.masterPage = totalPages;
+  }
+  const curPage = state.pipeline.masterPage || 1;
+  const startIdx = (curPage - 1) * limit;
+  const endIdx = Math.min(startIdx + limit, total);
+  const pagedList = sorted.slice(startIdx, endIdx);
+
+  // Update range and total info
+  const rangeEl = document.getElementById('info-pipe-master-range');
+  const totalEl = document.getElementById('info-pipe-master-total');
+  if (rangeEl) rangeEl.textContent = total > 0 ? `${startIdx + 1}-${endIdx}` : '0-0';
+  if (totalEl) totalEl.textContent = formatNumber(total);
+
+  // Render Page Numbers
+  renderPaginationNumbers('pipe-master-page-numbers', curPage, totalPages, (newPage) => {
+    state.pipeline.masterPage = newPage;
+    renderPipelineMasterRows(state.pipeline.pipelines);
+  });
+
+  const prevBtn = document.getElementById('btn-pipe-master-prev');
+  const nextBtn = document.getElementById('btn-pipe-master-next');
+  if (prevBtn) prevBtn.disabled = curPage <= 1;
+  if (nextBtn) nextBtn.disabled = curPage >= totalPages;
+
+  // 3. Render Table Rows
+  masterTbody.innerHTML = pagedList.map((p) => {
     const isSelected = p.configId === state.pipeline.selectedConfigId;
     const targets = (p.targets && p.targets.length > 0) ? p.targets : [{
       schema: p.target?.schema || 'vendor',
@@ -4661,7 +5219,10 @@ function renderPipelineMasterRows(pipelines) {
       const actionBadge = renderActionStatusBadge(t.actionStatus, t.postedAt, t.rolledBackAt);
 
       const firstCols = isFirst ? `
-        <td class="font-mono font-bold text-center pipeline-merge-cell" rowspan="${spanCount}">#${p.configId}</td>
+        <td class="font-mono font-bold text-center pipeline-merge-cell" rowspan="${spanCount}">
+          #${p.configId}
+          ${p.nameConfig ? `<div class="text-xs text-white font-semibold mt-0.5">${escapeHtml(p.nameConfig)}</div>` : ''}
+        </td>
         <td class="font-mono text-center pipeline-merge-cell" rowspan="${spanCount}">${p.execOrder}</td>
         <td class="pipeline-merge-cell" rowspan="${spanCount}"><strong class="text-cyan">[${p.source.schema}].[${p.source.view}]</strong></td>
         <td class="pipeline-merge-cell" rowspan="${spanCount}"><strong class="text-amber">stg_antam.${p.staging.table}</strong></td>
@@ -6474,8 +7035,10 @@ function renderBaDocument() {
   if (sig3Box) sig3Box.style.opacity = showSigs ? '1' : '0';
 
   // Attachment display toggle
+  const attWrapper = document.getElementById('ba-lampiran-wrapper');
   const attBreak = document.getElementById('ba-att-page-break');
   const attContainer = document.getElementById('ba-attachment-page-container');
+  if (attWrapper) attWrapper.style.display = includeAtt ? 'block' : 'none';
   if (attBreak) attBreak.style.display = includeAtt ? 'block' : 'none';
   if (attContainer) attContainer.style.display = includeAtt ? 'flex' : 'none';
 
@@ -6700,6 +7263,90 @@ function escapeHtml(str) {
     .replace(/'/g, '&#039;');
 }
 
+// =========================================================================
+// TOAST NOTIFICATION SYSTEM (POJOK KANAN ATAS)
+// =========================================================================
+function showToast(message, type = 'info', durationMs = 3800) {
+  let container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    container.className = 'toast-container';
+    container.setAttribute('aria-live', 'polite');
+    document.body.appendChild(container);
+  }
+
+  let cleanMsg = String(message || '').trim();
+  let toastType = type;
+  let title = '';
+
+  if (cleanMsg.startsWith('✓') || cleanMsg.startsWith('SUCCESS:')) {
+    toastType = 'success';
+    title = 'Berhasil';
+    cleanMsg = cleanMsg.replace(/^✓\s*|^SUCCESS:\s*/i, '');
+  } else if (cleanMsg.startsWith('⚠️') || cleanMsg.startsWith('WARNING:')) {
+    toastType = 'warning';
+    title = 'Perhatian';
+    cleanMsg = cleanMsg.replace(/^⚠️\s*|^WARNING:\s*/i, '');
+  } else if (cleanMsg.startsWith('❌') || cleanMsg.startsWith('ERROR:') || cleanMsg.startsWith('Gagal') || cleanMsg.startsWith('Error')) {
+    toastType = 'error';
+    title = 'Peringatan Sistem';
+    cleanMsg = cleanMsg.replace(/^❌\s*|^ERROR:\s*/i, '');
+  } else {
+    if (toastType === 'success') title = 'Berhasil';
+    else if (toastType === 'error') title = 'Terjadi Kesalahan';
+    else if (toastType === 'warning') title = 'Perhatian';
+    else title = 'Informasi';
+  }
+
+  const iconMap = {
+    success: '✓',
+    error: '✕',
+    warning: '⚠️',
+    info: 'ℹ️'
+  };
+
+  const item = document.createElement('div');
+  item.className = `toast-item toast-${toastType}`;
+  item.innerHTML = `
+    <div class="toast-icon">${iconMap[toastType] || 'ℹ️'}</div>
+    <div class="toast-content">
+      <div class="toast-title">${escapeHtml(title)}</div>
+      <div class="toast-message">${escapeHtml(cleanMsg)}</div>
+    </div>
+    <button type="button" class="toast-close" title="Tutup">&times;</button>
+  `;
+
+  let isDismissed = false;
+  const dismiss = () => {
+    if (isDismissed) return;
+    isDismissed = true;
+    item.classList.add('toast-hiding');
+    setTimeout(() => {
+      if (item.parentNode) item.parentNode.removeChild(item);
+    }, 280);
+  };
+
+  const closeBtn = item.querySelector('.toast-close');
+  if (closeBtn) closeBtn.addEventListener('click', dismiss);
+
+  container.appendChild(item);
+
+  if (durationMs > 0) {
+    setTimeout(dismiss, durationMs);
+  }
+
+  return item;
+}
+
+window.showToast = showToast;
+window.notify = showToast;
+
+// Proxy alert() browser agar otomatis tampil sebagai toast pojok kanan atas
+window.alert = function (msg) {
+  showToast(msg);
+};
+
 // Global Window Function Bindings for HTML onclick events
 window.switchMainTab = switchMainTab;
 window.openSettingsModal = openSettingsModal;
@@ -6765,21 +7412,24 @@ async function loadSourceConnectionsSelect(envId = null) {
 }
 
 function updateSourceConnectionBadge() {
-  const badgeEl = document.getElementById('source-connection-badge');
-  if (!badgeEl) return;
-
   const current = state.sourceConnectionsList.find(
     (c) => String(c.connection_id) === String(state.selectedSourceConnectionId)
   );
 
   if (current) {
-    badgeEl.textContent = `${current.db_type} • ${current.database_name} (${current.db_schema || 'dbo'})`;
     const veSchema = document.getElementById('ve-schema-name');
     if (veSchema) {
       veSchema.value = current.db_schema || (current.db_type === 'MSSQL' ? 'dbo' : 'public');
     }
-  } else {
-    badgeEl.textContent = 'Semua Koneksi';
+  }
+
+  const badgeEl = document.getElementById('source-connection-badge');
+  if (badgeEl) {
+    if (current) {
+      badgeEl.textContent = `${current.db_type} • ${current.database_name} (${current.db_schema || 'dbo'})`;
+    } else {
+      badgeEl.textContent = 'Semua Koneksi';
+    }
   }
 }
 
@@ -7427,7 +8077,46 @@ function setupSystemAdminEventListeners() {
 
   // Live filter users
   document.getElementById('filter-sys-users')?.addEventListener('input', (e) => {
+    state.system.usersPage = 1;
     filterUsersList(e.target.value.toLowerCase().trim());
+  });
+
+  // Users Table Sorting & Pagination
+  document.querySelectorAll('#table-sys-users th.sortable').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.getAttribute('data-user-col');
+      if (!col) return;
+      if (state.system.usersSortBy === col) {
+        state.system.usersSortDir = state.system.usersSortDir === 'ASC' ? 'DESC' : 'ASC';
+      } else {
+        state.system.usersSortBy = col;
+        state.system.usersSortDir = 'ASC';
+      }
+      state.system.usersPage = 1;
+      const kw = document.getElementById('filter-sys-users')?.value.toLowerCase().trim();
+      filterUsersList(kw);
+    });
+  });
+
+  document.getElementById('limit-sys-users-select')?.addEventListener('change', (e) => {
+    state.system.usersLimit = parseInt(e.target.value, 10) || 10;
+    state.system.usersPage = 1;
+    const kw = document.getElementById('filter-sys-users')?.value.toLowerCase().trim();
+    filterUsersList(kw);
+  });
+
+  document.getElementById('btn-sys-users-prev')?.addEventListener('click', () => {
+    if (state.system.usersPage > 1) {
+      state.system.usersPage--;
+      const kw = document.getElementById('filter-sys-users')?.value.toLowerCase().trim();
+      filterUsersList(kw);
+    }
+  });
+
+  document.getElementById('btn-sys-users-next')?.addEventListener('click', () => {
+    state.system.usersPage++;
+    const kw = document.getElementById('filter-sys-users')?.value.toLowerCase().trim();
+    filterUsersList(kw);
   });
 
   // Role events
@@ -7436,6 +8125,50 @@ function setupSystemAdminEventListeners() {
   document.getElementById('form-sys-role')?.addEventListener('submit', submitRoleForm);
   document.getElementById('btn-close-role-form')?.addEventListener('click', () => document.getElementById('modal-role-form')?.classList.add('hidden'));
   document.getElementById('btn-cancel-role-form')?.addEventListener('click', () => document.getElementById('modal-role-form')?.classList.add('hidden'));
+
+  // Live filter roles
+  document.getElementById('filter-sys-roles')?.addEventListener('input', (e) => {
+    state.system.rolesPage = 1;
+    filterRolesList(e.target.value.toLowerCase().trim());
+  });
+
+  // Roles Table Sorting & Pagination
+  document.querySelectorAll('#table-sys-roles th.sortable').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.getAttribute('data-role-col');
+      if (!col) return;
+      if (state.system.rolesSortBy === col) {
+        state.system.rolesSortDir = state.system.rolesSortDir === 'ASC' ? 'DESC' : 'ASC';
+      } else {
+        state.system.rolesSortBy = col;
+        state.system.rolesSortDir = 'ASC';
+      }
+      state.system.rolesPage = 1;
+      const kw = document.getElementById('filter-sys-roles')?.value.toLowerCase().trim();
+      filterRolesList(kw);
+    });
+  });
+
+  document.getElementById('limit-sys-roles-select')?.addEventListener('change', (e) => {
+    state.system.rolesLimit = parseInt(e.target.value, 10) || 10;
+    state.system.rolesPage = 1;
+    const kw = document.getElementById('filter-sys-roles')?.value.toLowerCase().trim();
+    filterRolesList(kw);
+  });
+
+  document.getElementById('btn-sys-roles-prev')?.addEventListener('click', () => {
+    if (state.system.rolesPage > 1) {
+      state.system.rolesPage--;
+      const kw = document.getElementById('filter-sys-roles')?.value.toLowerCase().trim();
+      filterRolesList(kw);
+    }
+  });
+
+  document.getElementById('btn-sys-roles-next')?.addEventListener('click', () => {
+    state.system.rolesPage++;
+    const kw = document.getElementById('filter-sys-roles')?.value.toLowerCase().trim();
+    filterRolesList(kw);
+  });
 
   // Matrix events
   document.getElementById('select-matrix-role')?.addEventListener('change', (e) => {
@@ -7505,12 +8238,105 @@ function renderSysUsers(users) {
   const tbody = document.getElementById('sys-users-tbody');
   if (!tbody) return;
 
-  if (!users || users.length === 0) {
+  const rawList = users !== undefined ? users : (state.system.users || []);
+  if (!rawList || rawList.length === 0) {
     tbody.innerHTML = '<tr><td colspan="10" class="text-center py-8 text-muted">Tidak ada pengguna terdaftar.</td></tr>';
+    const rangeEl = document.getElementById('sys-users-range');
+    const totalEl = document.getElementById('sys-users-total');
+    if (rangeEl) rangeEl.textContent = '0-0';
+    if (totalEl) totalEl.textContent = '0';
+    const pagesEl = document.getElementById('sys-users-page-numbers');
+    if (pagesEl) pagesEl.innerHTML = '';
+    const btnPrev = document.getElementById('btn-sys-users-prev');
+    const btnNext = document.getElementById('btn-sys-users-next');
+    if (btnPrev) btnPrev.disabled = true;
+    if (btnNext) btnNext.disabled = true;
     return;
   }
 
-  tbody.innerHTML = users.map(u => {
+  // 1. Sorting
+  const sortBy = state.system.usersSortBy || 'user_id';
+  const sortDir = state.system.usersSortDir || 'ASC';
+
+  const sorted = [...rawList].sort((a, b) => {
+    let valA, valB;
+    if (sortBy === 'user_id') {
+      valA = Number(a.user_id) || 0;
+      valB = Number(b.user_id) || 0;
+    } else if (sortBy === 'username') {
+      valA = (a.username || '').toLowerCase();
+      valB = (b.username || '').toLowerCase();
+    } else if (sortBy === 'full_name') {
+      valA = (a.full_name || '').toLowerCase();
+      valB = (b.full_name || '').toLowerCase();
+    } else if (sortBy === 'email') {
+      valA = (a.email || '').toLowerCase();
+      valB = (b.email || '').toLowerCase();
+    } else if (sortBy === 'role_name') {
+      valA = (a.role_name || a.role_code || '').toLowerCase();
+      valB = (b.role_name || b.role_code || '').toLowerCase();
+    } else if (sortBy === 'is_active') {
+      valA = a.is_active ? 1 : 0;
+      valB = b.is_active ? 1 : 0;
+    } else if (sortBy === 'last_login_at') {
+      valA = a.last_login_at ? new Date(a.last_login_at).getTime() : 0;
+      valB = b.last_login_at ? new Date(b.last_login_at).getTime() : 0;
+    } else if (sortBy === 'created_at') {
+      valA = a.created_at ? new Date(a.created_at).getTime() : 0;
+      valB = b.created_at ? new Date(b.created_at).getTime() : 0;
+    } else {
+      valA = a[sortBy];
+      valB = b[sortBy];
+    }
+    if (valA < valB) return sortDir === 'ASC' ? -1 : 1;
+    if (valA > valB) return sortDir === 'ASC' ? 1 : -1;
+    return 0;
+  });
+
+  // Header Sort Indicators
+  document.querySelectorAll('#table-sys-users th.sortable').forEach(th => {
+    const col = th.getAttribute('data-user-col');
+    th.classList.remove('sorted-asc', 'sorted-desc');
+    const icon = th.querySelector('.sort-icon');
+    if (col === sortBy) {
+      th.classList.add(sortDir === 'ASC' ? 'sorted-asc' : 'sorted-desc');
+      if (icon) icon.textContent = sortDir === 'ASC' ? '▲' : '▼';
+    } else {
+      if (icon) icon.textContent = '↕';
+    }
+  });
+
+  // 2. Pagination
+  const total = sorted.length;
+  const limit = state.system.usersLimit || 10;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  if (state.system.usersPage > totalPages) {
+    state.system.usersPage = totalPages;
+  }
+  const curPage = state.system.usersPage || 1;
+  const startIdx = (curPage - 1) * limit;
+  const endIdx = Math.min(startIdx + limit, total);
+  const pagedList = sorted.slice(startIdx, endIdx);
+
+  // Range and Total Info
+  const rangeEl = document.getElementById('sys-users-range');
+  const totalEl = document.getElementById('sys-users-total');
+  if (rangeEl) rangeEl.textContent = total > 0 ? `${startIdx + 1}-${endIdx}` : '0-0';
+  if (totalEl) totalEl.textContent = formatNumber(total);
+
+  // Page Numbers
+  renderPaginationNumbers('sys-users-page-numbers', curPage, totalPages, (newPage) => {
+    state.system.usersPage = newPage;
+    renderSysUsers(users);
+  });
+
+  const btnPrev = document.getElementById('btn-sys-users-prev');
+  const btnNext = document.getElementById('btn-sys-users-next');
+  if (btnPrev) btnPrev.disabled = curPage <= 1;
+  if (btnNext) btnNext.disabled = curPage >= totalPages;
+
+  // 3. Render Rows
+  tbody.innerHTML = pagedList.map(u => {
     const roleBadgeClass = u.role_code === 'SUPERADMIN' 
       ? 'role-tag-superadmin' 
       : u.role_code === 'OPERATOR' ? 'role-tag-operator' : 'role-tag-viewer';
@@ -7553,7 +8379,7 @@ function renderSysUsers(users) {
 
     return `
       <tr>
-        <td class="font-mono text-muted text-xs">${u.user_id}</td>
+        <td class="font-mono text-muted text-xs text-center">${u.user_id}</td>
         <td>
           <div class="flex-center gap-2" style="justify-content: flex-start;">
             <div class="user-avatar" style="width:24px;height:24px;font-size:0.65rem;">
@@ -7564,18 +8390,18 @@ function renderSysUsers(users) {
         </td>
         <td>${escapeHtml(u.full_name || '-')}</td>
         <td class="text-muted text-xs">${escapeHtml(u.email || '-')}</td>
-        <td>
+        <td class="text-center">
           <span class="badge ${roleBadgeClass}">${escapeHtml(u.role_name || u.role_code)}</span>
         </td>
         <td>${tenantBadge}</td>
         <td class="text-center">${statusBadge}</td>
-        <td class="text-xs text-muted">${lastLogin}</td>
-        <td class="text-xs text-muted">${createdAt}</td>
+        <td class="text-center text-xs text-muted font-mono">${lastLogin}</td>
+        <td class="text-center text-xs text-muted font-mono">${createdAt}</td>
         <td class="text-center">
-          <div class="flex-center gap-1">
-            <button class="btn btn-secondary btn-xs" title="Edit Pengguna" onclick="openEditUserModal(${u.user_id})">✏️</button>
-            <button class="btn btn-secondary btn-xs" title="Reset Password" onclick="openResetPwdModal(${u.user_id}, '${escapeHtml(u.username)}')">🔑</button>
-            <button class="btn btn-danger btn-xs" title="Hapus Pengguna" onclick="deleteUser(${u.user_id}, '${escapeHtml(u.username)}')">🗑️</button>
+          <div class="flex-center gap-1-5" style="justify-content: center; flex-wrap: nowrap;">
+            <button class="btn btn-secondary btn-action-pill" title="Edit Pengguna" onclick="openEditUserModal(${u.user_id})">✏️ Edit</button>
+            <button class="btn btn-secondary btn-action-pill" title="Reset Password" onclick="openResetPwdModal(${u.user_id}, '${escapeHtml(u.username)}')">🔑 Reset</button>
+            <button class="btn btn-danger btn-action-pill" title="Hapus Pengguna" onclick="deleteUser(${u.user_id}, '${escapeHtml(u.username)}')">🗑️ Hapus</button>
           </div>
         </td>
       </tr>
@@ -7949,21 +8775,7 @@ async function deleteUser(userId, username) {
     alert('Anda tidak dapat menghapus akun Anda sendiri yang sedang aktif digunakan.');
     return;
   }
-
-  if (!confirm(`Apakah Anda yakin ingin menghapus pengguna "${username}"?`)) {
-    return;
-  }
-
-  try {
-    const res = await authFetch(`/api/auth/users/${userId}`, { method: 'DELETE' });
-    const json = await res.json();
-    if (!json.success) throw new Error(json.message);
-
-    alert(`✓ Pengguna "${username}" berhasil dihapus.`);
-    await loadSysUsers();
-  } catch (err) {
-    alert('Gagal menghapus pengguna: ' + err.message);
-  }
+  openDeleteModal('user', userId, `Pengguna "${username}"`);
 }
 
 // -------------------------------------------------------------------------
@@ -7981,23 +8793,131 @@ async function loadSysRoles() {
 
     state.system.roles = json.data || [];
     populateRoleSelectOptions(state.system.roles);
-    renderSysRoles(state.system.roles);
+    const kw = document.getElementById('filter-sys-roles')?.value.toLowerCase().trim();
+    if (kw) {
+      filterRolesList(kw);
+    } else {
+      renderSysRoles(state.system.roles);
+    }
   } catch (err) {
     console.error('Gagal memuat roles:', err);
     if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-danger">Gagal memuat role: ${err.message}</td></tr>`;
   }
 }
 
+function filterRolesList(keyword) {
+  if (!keyword) {
+    renderSysRoles(state.system.roles);
+    return;
+  }
+  const filtered = (state.system.roles || []).filter(r => {
+    return (r.role_code || '').toLowerCase().includes(keyword) ||
+           (r.role_name || '').toLowerCase().includes(keyword) ||
+           (r.description || '').toLowerCase().includes(keyword);
+  });
+  renderSysRoles(filtered);
+}
+
 function renderSysRoles(roles) {
   const tbody = document.getElementById('sys-roles-tbody');
   if (!tbody) return;
 
-  if (!roles || roles.length === 0) {
+  const rawList = roles !== undefined ? roles : (state.system.roles || []);
+  if (!rawList || rawList.length === 0) {
     tbody.innerHTML = '<tr><td colspan="8" class="text-center py-8 text-muted">Tidak ada role terdaftar.</td></tr>';
+    const rangeEl = document.getElementById('sys-roles-range');
+    const totalEl = document.getElementById('sys-roles-total');
+    if (rangeEl) rangeEl.textContent = '0-0';
+    if (totalEl) totalEl.textContent = '0';
+    const pagesEl = document.getElementById('sys-roles-page-numbers');
+    if (pagesEl) pagesEl.innerHTML = '';
+    const btnPrev = document.getElementById('btn-sys-roles-prev');
+    const btnNext = document.getElementById('btn-sys-roles-next');
+    if (btnPrev) btnPrev.disabled = true;
+    if (btnNext) btnNext.disabled = true;
     return;
   }
 
-  tbody.innerHTML = roles.map(r => {
+  // 1. Sorting
+  const sortBy = state.system.rolesSortBy || 'role_id';
+  const sortDir = state.system.rolesSortDir || 'ASC';
+
+  const sorted = [...rawList].sort((a, b) => {
+    let valA, valB;
+    if (sortBy === 'role_id') {
+      valA = Number(a.role_id) || 0;
+      valB = Number(b.role_id) || 0;
+    } else if (sortBy === 'role_code') {
+      valA = (a.role_code || '').toLowerCase();
+      valB = (b.role_code || '').toLowerCase();
+    } else if (sortBy === 'role_name') {
+      valA = (a.role_name || '').toLowerCase();
+      valB = (b.role_name || '').toLowerCase();
+    } else if (sortBy === 'description') {
+      valA = (a.description || '').toLowerCase();
+      valB = (b.description || '').toLowerCase();
+    } else if (sortBy === 'user_count') {
+      valA = Number(a.user_count) || 0;
+      valB = Number(b.user_count) || 0;
+    } else if (sortBy === 'is_active') {
+      valA = a.is_active ? 1 : 0;
+      valB = b.is_active ? 1 : 0;
+    } else if (sortBy === 'created_at') {
+      valA = a.created_at ? new Date(a.created_at).getTime() : 0;
+      valB = b.created_at ? new Date(b.created_at).getTime() : 0;
+    } else {
+      valA = a[sortBy];
+      valB = b[sortBy];
+    }
+    if (valA < valB) return sortDir === 'ASC' ? -1 : 1;
+    if (valA > valB) return sortDir === 'ASC' ? 1 : -1;
+    return 0;
+  });
+
+  // Header Sort Indicators
+  document.querySelectorAll('#table-sys-roles th.sortable').forEach(th => {
+    const col = th.getAttribute('data-role-col');
+    th.classList.remove('sorted-asc', 'sorted-desc');
+    const icon = th.querySelector('.sort-icon');
+    if (col === sortBy) {
+      th.classList.add(sortDir === 'ASC' ? 'sorted-asc' : 'sorted-desc');
+      if (icon) icon.textContent = sortDir === 'ASC' ? '▲' : '▼';
+    } else {
+      if (icon) icon.textContent = '↕';
+    }
+  });
+
+  // 2. Pagination
+  const total = sorted.length;
+  const limit = state.system.rolesLimit || 10;
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  if (state.system.rolesPage > totalPages) {
+    state.system.rolesPage = totalPages;
+  }
+  const curPage = state.system.rolesPage || 1;
+  const startIdx = (curPage - 1) * limit;
+  const endIdx = Math.min(startIdx + limit, total);
+  const pagedList = sorted.slice(startIdx, endIdx);
+
+  // Range and Total Info
+  const rangeEl = document.getElementById('sys-roles-range');
+  const totalEl = document.getElementById('sys-roles-total');
+  if (rangeEl) rangeEl.textContent = total > 0 ? `${startIdx + 1}-${endIdx}` : '0-0';
+  if (totalEl) totalEl.textContent = formatNumber(total);
+
+  // Page Numbers
+  renderPaginationNumbers('sys-roles-page-numbers', curPage, totalPages, (newPage) => {
+    state.system.rolesPage = newPage;
+    renderSysRoles(roles);
+  });
+
+  const btnPrev = document.getElementById('btn-sys-roles-prev');
+  const btnNext = document.getElementById('btn-sys-roles-next');
+  if (btnPrev) btnPrev.disabled = curPage <= 1;
+  if (btnNext) btnNext.disabled = curPage >= totalPages;
+
+  // 3. Render Rows
+  tbody.innerHTML = pagedList.map(r => {
     const isProtected = r.role_code === 'SUPERADMIN';
     const statusBadge = r.is_active 
       ? '<span class="badge badge-success">Aktif</span>' 
@@ -8009,7 +8929,7 @@ function renderSysRoles(roles) {
 
     return `
       <tr>
-        <td class="font-mono text-muted text-xs">${r.role_id}</td>
+        <td class="font-mono text-muted text-xs text-center">${r.role_id}</td>
         <td>
           <span class="font-mono font-bold text-cyan">${escapeHtml(r.role_code)}</span>
         </td>
@@ -8019,11 +8939,11 @@ function renderSysRoles(roles) {
           <span class="badge badge-neutral font-mono">${r.user_count || 0} user</span>
         </td>
         <td class="text-center">${statusBadge}</td>
-        <td class="text-xs text-muted">${createdAt}</td>
+        <td class="text-center text-xs text-muted font-mono">${createdAt}</td>
         <td class="text-center">
-          <div class="flex-center gap-1">
-            <button class="btn btn-secondary btn-xs" title="Edit Role" onclick="openEditRoleModal(${r.role_id})">✏️</button>
-            <button class="btn btn-danger btn-xs" title="Hapus Role" onclick="deleteRole(${r.role_id}, '${escapeHtml(r.role_name)}')" ${isProtected ? 'disabled style="opacity:0.35;cursor:not-allowed;"' : ''}>🗑️</button>
+          <div class="flex-center gap-1-5" style="justify-content: center; flex-wrap: nowrap;">
+            <button class="btn btn-secondary btn-action-pill" title="Edit Role" onclick="openEditRoleModal(${r.role_id})">✏️ Edit</button>
+            <button class="btn btn-danger btn-action-pill" title="Hapus Role" onclick="deleteRole(${r.role_id}, '${escapeHtml(r.role_name)}')" ${isProtected ? 'disabled style="opacity:0.35;cursor:not-allowed;"' : ''}>🗑️ Hapus</button>
           </div>
         </td>
       </tr>
@@ -8104,20 +9024,7 @@ async function submitRoleForm(event) {
 }
 
 async function deleteRole(roleId, roleName) {
-  if (!confirm(`Apakah Anda yakin ingin menghapus role "${roleName}"?\nUser yang memiliki role ini tidak akan dapat login.`)) {
-    return;
-  }
-
-  try {
-    const res = await authFetch(`/api/auth/roles/${roleId}`, { method: 'DELETE' });
-    const json = await res.json();
-    if (!json.success) throw new Error(json.message);
-
-    alert(`✓ Role "${roleName}" berhasil dihapus.`);
-    await loadSysRoles();
-  } catch (err) {
-    alert('Gagal menghapus role: ' + err.message);
-  }
+  openDeleteModal('role', roleId, `Role "${roleName}" (Semua hak akses user dengan role ini akan terhapus)`);
 }
 
 // -------------------------------------------------------------------------
@@ -8279,144 +9186,193 @@ function loadUserguideView() {
 }
 
 function initUserguide() {
-  const searchInput = document.getElementById('userguide-search-input');
-  const chipButtons = document.querySelectorAll('#tab-userguide .guide-chip');
-  const navItems = document.querySelectorAll('#tab-userguide .guide-nav-item');
-  const cards = document.querySelectorAll('#tab-userguide .userguide-card');
-  const faqQuestions = document.querySelectorAll('#tab-userguide .faq-question');
-
-  let activeCategory = 'all';
-  let searchQuery = '';
-
-  function applyFilter() {
-    const q = searchQuery.toLowerCase().trim();
-    let visibleCount = 0;
-
-    cards.forEach(card => {
-      const cardCategory = card.getAttribute('data-category') || '';
-      const cardText = card.innerText.toLowerCase();
-      
-      const matchesCategory = (activeCategory === 'all' || cardCategory.includes(activeCategory));
-      const matchesSearch = (!q || cardText.includes(q));
-
-      if (matchesCategory && matchesSearch) {
-        card.style.display = '';
-        visibleCount++;
-      } else {
-        card.style.display = 'none';
-      }
-    });
-
-    // Indikator jika tidak ada yang cocok
-    let emptyMsg = document.getElementById('userguide-empty-msg');
-    if (visibleCount === 0) {
-      if (!emptyMsg) {
-        emptyMsg = document.createElement('div');
-        emptyMsg.id = 'userguide-empty-msg';
-        emptyMsg.className = 'userguide-card';
-        emptyMsg.style.padding = '2rem';
-        emptyMsg.style.textAlign = 'center';
-        emptyMsg.style.color = '#94a3b8';
-        emptyMsg.innerHTML = `
-          <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">🔍</div>
-          <div style="font-weight: 700; font-size: 1rem; color: #f1f5f9; margin-bottom: 0.25rem;">Tidak Ditemukan Topik Panduan</div>
-          <div style="font-size: 0.85rem;">Coba gunakan kata kunci pencarian lain atau pilih kategori Semua Bab.</div>
-          <button class="btn btn-sm btn-secondary" style="margin-top: 1rem;" onclick="resetUserguideFilter()">Reset Filter</button>
-        `;
-        const contentContainer = document.querySelector('#tab-userguide .userguide-content');
-        if (contentContainer) contentContainer.appendChild(emptyMsg);
-      }
-      emptyMsg.style.display = '';
-    } else if (emptyMsg) {
-      emptyMsg.style.display = 'none';
-    }
-  }
-
-  // Real-time Search Handler
-  if (searchInput) {
-    searchInput.addEventListener('input', (e) => {
-      searchQuery = e.target.value;
-      applyFilter();
-    });
-  }
-
-  // Filter Chip Handler
-  chipButtons.forEach(chip => {
-    chip.addEventListener('click', () => {
-      chipButtons.forEach(c => c.classList.remove('active'));
-      chip.classList.add('active');
-      activeCategory = chip.getAttribute('data-filter') || 'all';
-      applyFilter();
-    });
-  });
-
-  // Sidebar Links Smooth Scroll & Temporary Highlight
-  navItems.forEach(item => {
-    item.addEventListener('click', (e) => {
+  // Bind left nav clicks
+  const leftNavLinks = document.querySelectorAll('#userguide-left-nav a');
+  leftNavLinks.forEach(link => {
+    link.addEventListener('click', (e) => {
       e.preventDefault();
-      const targetId = item.getAttribute('href')?.replace('#', '');
-      if (!targetId) return;
-
-      const targetEl = document.getElementById(targetId);
-      if (targetEl) {
-        // Jika sedang disembunyikan oleh filter, reset filter agar target tampil
-        if (targetEl.style.display === 'none') {
-          activeCategory = 'all';
-          searchQuery = '';
-          if (searchInput) searchInput.value = '';
-          chipButtons.forEach(c => c.classList.toggle('active', c.getAttribute('data-filter') === 'all'));
-          applyFilter();
-        }
-
-        // Update active class on nav
-        navItems.forEach(n => n.classList.remove('active'));
-        item.classList.add('active');
-
-        // Scroll to card
-        targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-
-        // Highlight visual pulse
-        targetEl.classList.add('highlight');
-        setTimeout(() => {
-          targetEl.classList.remove('highlight');
-        }, 1800);
+      const href = link.getAttribute('href');
+      if (!href) return;
+      const target = document.querySelector(href);
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        leftNavLinks.forEach(l => {
+          l.classList.remove('bg-primary-container', 'text-on-primary-container', 'font-semibold');
+          l.classList.add('text-on-surface-variant');
+        });
+        link.classList.remove('text-on-surface-variant');
+        link.classList.add('bg-primary-container', 'text-on-primary-container', 'font-semibold');
       }
     });
   });
 
-  // Interactive FAQ Accordion
-  faqQuestions.forEach(q => {
-    q.addEventListener('click', () => {
-      const parent = q.closest('.faq-item');
-      if (!parent) return;
-      const answer = parent.querySelector('.faq-answer');
-      if (answer) {
-        const isHidden = answer.style.display === 'none';
-        answer.style.display = isHidden ? 'block' : 'none';
-        const icon = q.querySelector('span:last-child');
-        if (icon) {
-          icon.textContent = isHidden ? '▲' : '▼';
-        }
+  // Bind right TOC clicks
+  const tocLinks = document.querySelectorAll('#toc-nav .toc-link');
+  tocLinks.forEach(link => {
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      const href = link.getAttribute('href');
+      if (!href) return;
+      const target = document.querySelector(href);
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        tocLinks.forEach(l => {
+          l.classList.remove('text-primary', 'bg-surface-container-low', 'font-semibold');
+          l.classList.add('text-on-surface-variant');
+        });
+        link.classList.remove('text-on-surface-variant');
+        link.classList.add('text-primary', 'bg-surface-container-low', 'font-semibold');
       }
     });
   });
 
-  // Quick Action Buttons Inside Guide Cards
-  document.querySelectorAll('#tab-userguide [data-nav-target]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const targetTab = btn.getAttribute('data-nav-target');
-      if (targetTab) {
-        switchMainTab(targetTab);
-      }
-    });
+  // Back to top scroll listener
+  window.addEventListener('scroll', () => {
+    const btn = document.getElementById('userguide-back-to-top');
+    if (!btn) return;
+    if (window.scrollY > 300) {
+      btn.classList.remove('opacity-0', 'pointer-events-none');
+      btn.classList.add('opacity-100');
+    } else {
+      btn.classList.add('opacity-0', 'pointer-events-none');
+      btn.classList.remove('opacity-100');
+    }
   });
 }
 
-function resetUserguideFilter() {
-  const searchInput = document.getElementById('userguide-search-input');
-  if (searchInput) searchInput.value = '';
-  const allChip = document.querySelector('#tab-userguide .guide-chip[data-filter="all"]');
-  if (allChip) allChip.click();
+function scrollToTopUserguide() {
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function toggleAccordion(id) {
+  const content = document.getElementById('content-' + id);
+  const icon = document.getElementById('icon-' + id);
+  if (!content) return;
+  const isHidden = content.classList.contains('hidden');
+  if (isHidden) {
+    content.classList.remove('hidden');
+    if (icon) icon.innerText = 'expand_less';
+  } else {
+    content.classList.add('hidden');
+    if (icon) icon.innerText = 'expand_more';
+  }
+}
+
+function inspectViewMock(viewName) {
+  const titleElem = document.getElementById('inspect-target-title');
+  const snippetElem = document.getElementById('code-snippet-ddl');
+  if (titleElem) titleElem.innerText = viewName;
+  if (snippetElem) {
+    snippetElem.innerText = `SELECT 
+    v.vendor_id, 
+    v.vendor_code, 
+    v.vendor_name, 
+    v.tax_number, 
+    v.is_active, 
+    v.created_at
+FROM antam_scm.dbo.${viewName} v 
+WHERE v.is_deleted = 0;`;
+  }
+  const container = document.getElementById('inspector-preview');
+  if (container) {
+    container.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    container.classList.add('ring-2', 'ring-primary');
+    setTimeout(() => container.classList.remove('ring-2', 'ring-primary'), 1200);
+  }
+  if (typeof showToast === 'function') {
+    showToast(`Menampilkan skema DDL untuk: ${viewName}`, 'info');
+  }
+}
+
+function copySqlCode() {
+  const code = document.getElementById('code-snippet-ddl');
+  if (code) {
+    navigator.clipboard.writeText(code.innerText);
+    if (typeof showToast === 'function') {
+      showToast('Query SQL berhasil disalin ke clipboard!', 'success');
+    } else {
+      alert('Query SQL berhasil disalin ke clipboard!');
+    }
+  }
+}
+
+function copyDocLink() {
+  navigator.clipboard.writeText(window.location.href);
+  const btn = document.getElementById('btn-copy-link');
+  if (btn) {
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<span class="material-symbols-outlined text-[17px]">check</span> Berhasil Disalin';
+    setTimeout(() => { btn.innerHTML = orig; }, 2000);
+  }
+  if (typeof showToast === 'function') {
+    showToast('Tautan dokumen panduan berhasil disalin!', 'success');
+  }
+}
+
+function downloadPdfMock() {
+  if (typeof showToast === 'function') {
+    showToast('Membuka dialog cetak PDF Panduan & SOP...', 'info');
+  }
+  setTimeout(() => window.print(), 300);
+}
+
+function generateBaPdf() {
+  if (typeof openBeritaAcaraModal === 'function') {
+    openBeritaAcaraModal();
+  } else if (typeof showToast === 'function') {
+    showToast('Membuka generator Berita Acara resmi format PDF...', 'info');
+  }
+}
+
+function toggleModalSettings() {
+  if (typeof openSettingsModal === 'function') {
+    openSettingsModal();
+  } else {
+    alert('Membuka dialog Master System Settings.');
+  }
+}
+
+function setGuideFilter(type) {
+  const chips = document.querySelectorAll('#guide-chips .guide-chip');
+  chips.forEach(c => {
+    c.classList.remove('bg-primary', 'text-on-primary', 'font-bold');
+    c.classList.add('bg-surface-container-lowest', 'text-on-surface');
+  });
+  if (event && event.currentTarget) {
+    event.currentTarget.classList.remove('bg-surface-container-lowest', 'text-on-surface');
+    event.currentTarget.classList.add('bg-primary', 'text-on-primary', 'font-bold');
+  }
+
+  // Target bab mapping
+  const targetMap = {
+    'all': 'bab-1',
+    'flows': 'bab-6',
+    'config': 'bab-5',
+    'ba': 'bab-7',
+    'troubleshoot': 'bab-10'
+  };
+
+  const targetId = targetMap[type] || 'bab-1';
+  const el = document.getElementById(targetId);
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    el.classList.add('ring-2', 'ring-primary');
+    setTimeout(() => el.classList.remove('ring-2', 'ring-primary'), 1500);
+  }
+}
+
+function filterGuideTopics() {
+  const input = document.getElementById('guide-filter-input');
+  if (!input) return;
+  const q = input.value.toLowerCase().trim();
+  const headings = document.querySelectorAll('#tab-userguide h2, #tab-userguide h3, #tab-userguide h4');
+  headings.forEach(h => {
+    if (q.length > 2 && h.innerText.toLowerCase().includes(q)) {
+      h.classList.add('text-primary');
+    } else {
+      h.classList.remove('text-primary');
+    }
+  });
 }
 
 function printUserguide() {
@@ -8444,7 +9400,17 @@ window.deselectAllTenants = deselectAllTenants;
 window.isCurrentUserAdmin = isCurrentUserAdmin;
 window.applyAdminSettingsButtonVisibility = applyAdminSettingsButtonVisibility;
 window.loadUserguideView = loadUserguideView;
-window.resetUserguideFilter = resetUserguideFilter;
+window.initUserguide = initUserguide;
 window.printUserguide = printUserguide;
+window.toggleAccordion = toggleAccordion;
+window.inspectViewMock = inspectViewMock;
+window.copySqlCode = copySqlCode;
+window.copyDocLink = copyDocLink;
+window.downloadPdfMock = downloadPdfMock;
+window.generateBaPdf = generateBaPdf;
+window.toggleModalSettings = toggleModalSettings;
+window.scrollToTopUserguide = scrollToTopUserguide;
+window.setGuideFilter = setGuideFilter;
+window.filterGuideTopics = filterGuideTopics;
 
 

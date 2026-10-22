@@ -1,6 +1,6 @@
 # 🚀 Migration Command Center (SQL Server ➔ PostgreSQL)
 
-Aplikasi web modern berbasis **Node.js** untuk mengaudit, memantau, dan merekonsiliasi proses migrasi data dari **SQL Server (`antam_scm.dbo`)** melalui **ETL Apache Hop / PostgreSQL (`db_procsi.etl_antam`)** hingga ke tabel **Staging (`stg_antam`)** dan **Target (`vendor`)**.
+Aplikasi web modern berbasis **Node.js** untuk mengaudit, memantau, dan merekonsiliasi proses migrasi data dari **SQL Server (`antam_scm.dbo`)** melalui **ETL Apache Hop / PostgreSQL (`db_procsi.mc_center`)** hingga ke tabel **Staging (`stg_antam`)** dan **Target (`vendor`)**.
 
 ---
 
@@ -11,7 +11,7 @@ Aplikasi web modern berbasis **Node.js** untuk mengaudit, memantau, dan merekons
 - Ringkasan total baris (*row count*) untuk setiap view secara real-time.
 - **Data Inspector**: Menampilkan isi record aktual langsung dari view SQL Server dengan paginasi dan tipe data kolom.
 
-### 2. ⚙️ Monitoring Config & Jalannya Proses ETL (`db_procsi.etl_antam`)
+### 2. ⚙️ Monitoring Config & Jalannya Proses ETL (`db_procsi.mc_center`)
 - **Master Config**:
   - `migration_config`: Konfigurasi mapping sumber `src_view` ➔ staging `stg_table` ➔ target `tgt_table`, kunci PK, seed ID, dan precheck SQL.
   - `migration_convert_rule`: Aturan konversi kolom, lookup, normalisasi, dan nilai default.

@@ -2,15 +2,17 @@ const { Pool } = require('pg');
 require('dotenv').config();
 
 const config = {
-  host: process.env.PG_HOST || 'localhost',
-  port: parseInt(process.env.PG_PORT, 10) || 5432,
-  user: process.env.PG_USER || 'postgres',
-  password: process.env.PG_PASSWORD || '',
-  database: process.env.PG_DATABASE || 'postgres',
+  host: process.env.APP_DB_HOST || process.env.PG_HOST || 'localhost',
+  port: parseInt(process.env.APP_DB_PORT || process.env.PG_PORT, 10) || 5432,
+  user: process.env.APP_DB_USER || process.env.PG_USER || 'postgres',
+  password: process.env.APP_DB_PASSWORD || process.env.PG_PASSWORD || '',
+  database: process.env.APP_DB_NAME || process.env.PG_DATABASE || 'postgres',
   connectionTimeoutMillis: parseInt(process.env.PG_CONNECTION_TIMEOUT_MILLIS, 10) || 10000,
-  max: 10,
+  max: parseInt(process.env.APP_DB_MAX_POOL, 10) || 10,
   idleTimeoutMillis: 30000,
 };
+
+const DB_CONTROL_SCHEMA = process.env.APP_DB_SCHEMA || 'mc_center';
 
 let pool = null;
 
@@ -55,6 +57,7 @@ async function queryPostgres(text, params = []) {
 
 module.exports = {
   pgConfig: config,
+  DB_CONTROL_SCHEMA,
   getPostgresPool,
   checkPostgresConnection,
   queryPostgres,

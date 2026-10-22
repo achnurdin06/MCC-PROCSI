@@ -60,19 +60,19 @@ class PipelineService {
           config_id, name_config, exec_order, src_schema, src_view,
           tgt_schema, tgt_table, stg_table, pk_columns, compare_columns,
           id_column, id_width, id_seed, src_precheck_sql, is_active
-        FROM etl_antam.migration_config
+        FROM mc_center.migration_config
         ${cfgWhere}
         ORDER BY exec_order, config_id
       `, cfgParams),
       queryPostgres(`
         SELECT target_config_id, config_id, exec_order, tgt_schema, tgt_table, pk_columns, is_active
-        FROM etl_antam.migration_target_config
+        FROM mc_center.migration_target_config
         WHERE is_active = true
         ORDER BY config_id, exec_order, target_config_id
       `),
       queryPostgres(`
         SELECT log_id, run_id, config_id, step_name, rows_before, rows_after, message, start_time
-        FROM etl_antam.migration_step_log
+        FROM mc_center.migration_step_log
         WHERE step_name = 'POST_TARGET'
         ORDER BY log_id DESC
       `),
@@ -81,18 +81,18 @@ class PipelineService {
           run_id, run_ts, start_time, end_time, status, hop_host, note, main_workflow, config_id,
           is_posted, posted_at, post_type, is_rolled_back, rolled_back_at,
           ROUND(EXTRACT(EPOCH FROM (end_time - start_time))::numeric, 2) AS duration_seconds
-        FROM etl_antam.migration_run
+        FROM mc_center.migration_run
         ${cfgWhere}
         ORDER BY run_id DESC
       `, cfgParams),
       queryPostgres(`
         SELECT config_id, run_id, COUNT(*)::int AS total
-        FROM etl_antam.migration_error_log
+        FROM mc_center.migration_error_log
         GROUP BY config_id, run_id
       `),
       queryPostgres(`
         SELECT DISTINCT ON (config_id) *
-        FROM etl_antam.migration_step_log
+        FROM mc_center.migration_step_log
         ORDER BY config_id, log_id DESC
       `)
     ]);
@@ -414,17 +414,17 @@ class PipelineService {
 
     const idStr = String(id);
     const [configRes, rulesRes, targetsRes, stepLogsRes, errorLogsRes, runsRes] = await Promise.all([
-      queryPostgres('SELECT * FROM etl_antam.migration_config WHERE config_id = $1', [id]),
-      queryPostgres('SELECT * FROM etl_antam.migration_convert_rule WHERE config_id = $1 ORDER BY rule_id', [id]),
-      queryPostgres('SELECT * FROM etl_antam.migration_target_config WHERE config_id = $1 ORDER BY exec_order', [id]),
-      queryPostgres('SELECT * FROM etl_antam.migration_step_log WHERE config_id = $1 ORDER BY log_id DESC LIMIT 15', [id]),
-      queryPostgres('SELECT * FROM etl_antam.migration_error_log WHERE config_id = $1 ORDER BY error_id DESC LIMIT 15', [id]),
+      queryPostgres('SELECT * FROM mc_center.migration_config WHERE config_id = $1', [id]),
+      queryPostgres('SELECT * FROM mc_center.migration_convert_rule WHERE config_id = $1 ORDER BY rule_id', [id]),
+      queryPostgres('SELECT * FROM mc_center.migration_target_config WHERE config_id = $1 ORDER BY exec_order', [id]),
+      queryPostgres('SELECT * FROM mc_center.migration_step_log WHERE config_id = $1 ORDER BY log_id DESC LIMIT 15', [id]),
+      queryPostgres('SELECT * FROM mc_center.migration_error_log WHERE config_id = $1 ORDER BY error_id DESC LIMIT 15', [id]),
       queryPostgres(`
         SELECT 
           run_id, run_ts, start_time, end_time, status, hop_host, note, main_workflow, config_id,
           is_posted, posted_at, post_type, is_rolled_back, rolled_back_at,
           ROUND(EXTRACT(EPOCH FROM (end_time - start_time))::numeric, 2) AS duration_seconds
-        FROM etl_antam.migration_run
+        FROM mc_center.migration_run
         WHERE config_id = $1 OR config_id LIKE $2
         ORDER BY run_id DESC
         LIMIT 10
@@ -453,7 +453,7 @@ class PipelineService {
 
     // Ambil info config
     const cfgRes = await queryPostgres(
-      `SELECT * FROM etl_antam.migration_config WHERE config_id = $1`,
+      `SELECT * FROM mc_center.migration_config WHERE config_id = $1`,
       [parseInt(configId, 10)]
     );
     const cfg = cfgRes.rows[0];
@@ -718,7 +718,7 @@ class PipelineService {
     let rules = [];
     try {
       const rulesRes = await queryPostgres(
-        `SELECT * FROM etl_antam.migration_convert_rule WHERE config_id = $1 ORDER BY rule_id`,
+        `SELECT * FROM mc_center.migration_convert_rule WHERE config_id = $1 ORDER BY rule_id`,
         [cfg.config_id]
       );
       rules = rulesRes.rows || [];
@@ -798,7 +798,7 @@ class PipelineService {
     if (ids.length === 0) throw new Error('configId tidak valid.');
 
     const cfgRes = await queryPostgres(
-      'SELECT * FROM etl_antam.migration_config WHERE config_id = ANY($1::int[]) ORDER BY exec_order, config_id',
+      'SELECT * FROM mc_center.migration_config WHERE config_id = ANY($1::int[]) ORDER BY exec_order, config_id',
       [ids]
     );
     const configs = cfgRes.rows;
@@ -859,7 +859,7 @@ class PipelineService {
 
     // 1. Ambil info konfigurasi utama
     const cfgRes = await queryPostgres(
-      `SELECT * FROM etl_antam.migration_config WHERE config_id = $1`,
+      `SELECT * FROM mc_center.migration_config WHERE config_id = $1`,
       [cid]
     );
     const cfg = cfgRes.rows[0];
@@ -869,7 +869,7 @@ class PipelineService {
     const allRunsRes = await queryPostgres(`
       SELECT run_id, run_ts, start_time, end_time, status, is_posted, posted_at, is_rolled_back, rolled_back_at, note, config_id,
              ROUND(EXTRACT(EPOCH FROM (end_time - start_time))::numeric, 2) AS duration_seconds
-      FROM etl_antam.migration_run
+      FROM mc_center.migration_run
       ORDER BY run_id DESC
       LIMIT 100
     `);
@@ -891,7 +891,7 @@ class PipelineService {
     // Fallback: periksa migration_step_log untuk config_id ini jika tidak ditemukan di migration_run
     if (!selectedRun) {
       const lastStepRun = await queryPostgres(
-        `SELECT run_id FROM etl_antam.migration_step_log WHERE config_id = $1 ORDER BY log_id DESC LIMIT 1`,
+        `SELECT run_id FROM mc_center.migration_step_log WHERE config_id = $1 ORDER BY log_id DESC LIMIT 1`,
         [cid]
       );
       if (lastStepRun.rows[0]?.run_id) {
@@ -906,14 +906,14 @@ class PipelineService {
 
     // 3. Ambil convert rules, target configs, error logs & step logs KHUSUS SESI RUN INI
     const [rulesRes, targetsRes, errorLogsRes, stepLogsRes] = await Promise.all([
-      queryPostgres(`SELECT * FROM etl_antam.migration_convert_rule WHERE config_id = $1 ORDER BY rule_id`, [cid]),
-      queryPostgres(`SELECT * FROM etl_antam.migration_target_config WHERE config_id = $1 ORDER BY exec_order`, [cid]),
+      queryPostgres(`SELECT * FROM mc_center.migration_convert_rule WHERE config_id = $1 ORDER BY rule_id`, [cid]),
+      queryPostgres(`SELECT * FROM mc_center.migration_target_config WHERE config_id = $1 ORDER BY exec_order`, [cid]),
       effectiveRunId
-        ? queryPostgres(`SELECT * FROM etl_antam.migration_error_log WHERE config_id = $1 AND run_id = $2 ORDER BY error_id DESC LIMIT 20`, [cid, effectiveRunId])
+        ? queryPostgres(`SELECT * FROM mc_center.migration_error_log WHERE config_id = $1 AND run_id = $2 ORDER BY error_id DESC LIMIT 20`, [cid, effectiveRunId])
         : { rows: [] },
       effectiveRunId
-        ? queryPostgres(`SELECT * FROM etl_antam.migration_step_log WHERE config_id = $1 AND run_id = $2 ORDER BY log_id DESC LIMIT 20`, [cid, effectiveRunId])
-        : queryPostgres(`SELECT * FROM etl_antam.migration_step_log WHERE config_id = $1 ORDER BY log_id DESC LIMIT 10`, [cid]),
+        ? queryPostgres(`SELECT * FROM mc_center.migration_step_log WHERE config_id = $1 AND run_id = $2 ORDER BY log_id DESC LIMIT 20`, [cid, effectiveRunId])
+        : queryPostgres(`SELECT * FROM mc_center.migration_step_log WHERE config_id = $1 ORDER BY log_id DESC LIMIT 10`, [cid]),
     ]);
 
     const rules = rulesRes.rows;
@@ -921,7 +921,7 @@ class PipelineService {
     const errorLogs = errorLogsRes.rows;
     let stepLogs = stepLogsRes.rows;
     if (stepLogs.length === 0) {
-      const fallbackStep = await queryPostgres(`SELECT * FROM etl_antam.migration_step_log WHERE config_id = $1 ORDER BY log_id DESC LIMIT 10`, [cid]);
+      const fallbackStep = await queryPostgres(`SELECT * FROM mc_center.migration_step_log WHERE config_id = $1 ORDER BY log_id DESC LIMIT 10`, [cid]);
       stepLogs = fallbackStep.rows;
     }
     const latestRun = selectedRun;

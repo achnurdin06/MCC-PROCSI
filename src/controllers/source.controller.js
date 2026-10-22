@@ -3,10 +3,11 @@ const sourceService = require('../services/source.service');
 class SourceController {
   async getViewsSummary(req, res) {
     try {
-      const { connection_id, client_id, env_id } = req.query;
+      const { connection_id, client_id, env_id, refresh } = req.query;
       const data = await sourceService.getDboViewsSummary(connection_id, {
         clientId: client_id ? parseInt(client_id, 10) : null,
         envId: env_id ? parseInt(env_id, 10) : null,
+        refresh: refresh === 'true' || refresh === '1',
       });
       return res.json({ success: true, data });
     } catch (err) {
