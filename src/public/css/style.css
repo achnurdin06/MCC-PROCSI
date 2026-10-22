@@ -2481,7 +2481,7 @@ tr.view-row-clickable:hover {
 .col-precheck { min-width: 200px; max-width: 300px; }
 .col-num { min-width: 65px; width: 75px; text-align: center; }
 .col-status { min-width: 90px; width: 95px; text-align: center; }
-.col-action { min-width: 130px; width: 140px; }
+.col-action { min-width: 190px; width: auto; white-space: nowrap; }
 
 /* Text Wrap & Code Block Containers */
 .wrap-col {
@@ -5942,3 +5942,28 @@ textarea.form-input {
 #table-source-views-full td.col-name span {
   color: #0f172a !important;
 }
+
+/* Kolom Aksi Tidak Menumpuk (Daftar Views di dbo) */
+#table-source-views-full th.col-action,
+#table-source-views-full td.col-action {
+  min-width: 195px !important;
+  width: 200px !important;
+  white-space: nowrap !important;
+  text-align: center !important;
+}
+
+#table-source-views-full .source-action-group {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 0.375rem !important;
+  white-space: nowrap !important;
+}
+
+#table-source-views-full .source-action-group .btn {
+  white-space: nowrap !important;
+  flex-shrink: 0 !important;
+}
+

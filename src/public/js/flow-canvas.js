@@ -1176,7 +1176,7 @@ class FlowCanvasStudio {
   /**
    * Buka Modal Form Parameter Eksekusi (Bug #1 Fix: Memuat parameter secara instan & reliabel)
    */
-  async openExecutionParamsModal() {
+  async openExecutionParamsModal(preselectedConfigId = null) {
     const modal = document.getElementById('modal-flow-execute-params');
     const body = document.getElementById('modal-flow-params-body');
     const subtitle = document.getElementById('modal-flow-params-subtitle');
@@ -1252,8 +1252,10 @@ class FlowCanvasStudio {
           cfgOptionsHtml = configs.map((c, idx) => {
             const postedRunId = postedMap.get(parseInt(c.config_id, 10));
             const badge = postedRunId ? `<span class="badge text-xs ml-2" style="background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; font-weight: 700; padding: 3px 8px; border-radius: 4px; font-size: 11px;">⚠️ Diposting (Run #${postedRunId})</span>` : '';
-            const isChecked = idx === 0 ? 'checked' : '';
-            const isSelectedClass = idx === 0 ? 'is-selected' : '';
+            const isChecked = preselectedConfigId 
+              ? (String(c.config_id) === String(preselectedConfigId) ? 'checked' : '')
+              : (idx === 0 ? 'checked' : '');
+            const isSelectedClass = isChecked ? 'is-selected' : '';
             const labelText = `#${c.config_id} - ${c.src_schema ? c.src_schema + '.' : ''}${c.src_view || c.src_name || 'view'} ➔ ${c.tgt_schema ? c.tgt_schema + '.' : ''}${c.tgt_table || 'table'}`;
             const shortLabel = `#${c.config_id} ${c.tgt_table || c.src_view || 'Config'}`;
 
