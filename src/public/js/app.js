@@ -236,17 +236,26 @@ function setupEventListeners() {
   });
 
   // Toggle Canvas Console Panel Height (Expand / Collapse)
+  window.toggleCanvasBottomPanel = function(e) {
+    if (e && e.stopPropagation) e.stopPropagation();
+    const panel = document.getElementById('canvas-bottom-panel');
+    if (panel) {
+      panel.classList.toggle('expanded');
+      const isExp = panel.classList.contains('expanded');
+      const icon = document.getElementById('canvas-panel-toggle-icon');
+      if (icon) icon.textContent = isExp ? '↘️' : '↕️';
+      if (isExp) {
+        panel.dataset.prevHeight = panel.style.height || '260px';
+        panel.style.height = '480px';
+      } else {
+        panel.style.height = panel.dataset.prevHeight && panel.dataset.prevHeight !== '480px' ? panel.dataset.prevHeight : '260px';
+      }
+    }
+  };
+
   const btnTogglePanel = document.getElementById('btn-toggle-canvas-panel-height');
   if (btnTogglePanel) {
-    btnTogglePanel.addEventListener('click', () => {
-      const panel = document.getElementById('canvas-bottom-panel');
-      if (panel) {
-        panel.classList.toggle('expanded');
-        const isExp = panel.classList.contains('expanded');
-        const icon = document.getElementById('canvas-panel-toggle-icon');
-        if (icon) icon.textContent = isExp ? '↘️' : '↕️';
-      }
-    });
+    btnTogglePanel.onclick = window.toggleCanvasBottomPanel;
   }
 
   // Setting Subtabs
@@ -285,8 +294,8 @@ function setupEventListeners() {
     });
   }
 
-  // Refresh All (Live Health & Reload Current Tab)
-  document.getElementById('btn-refresh-all').addEventListener('click', async () => {
+  // Refresh All (Live Health & Reload Current Tab - Optional Chaining)
+  document.getElementById('btn-refresh-all')?.addEventListener('click', async () => {
     resetVolatileStateAndUI();
     await resolveEnvironmentConnections(state.selectedEnvId);
     if (window.flowCanvasStudio) {
@@ -568,7 +577,10 @@ function setupEventListeners() {
 
   // Tab 3: Process Controls & Pagination
   setupQuickFlowActions();
-  document.getElementById('btn-refresh-runs').addEventListener('click', () => loadEtlRuns());
+  document.getElementById('btn-refresh-runs').addEventListener('click', () => {
+    loadEtlOverview();
+    loadEtlRuns();
+  });
 
   const filterRunsStatus = document.getElementById('filter-runs-status');
   if (filterRunsStatus) {
@@ -1375,13 +1387,18 @@ async function checkHealth() {
     state.health = json;
 
     const data = json.data || json;
+    const mssqlTitle = document.getElementById('mssql-title');
+    const pgTitle = document.getElementById('pg-title');
+
     const m = data.sqlserver || data.mssql;
     if (m && m.connected) {
       mssqlBadge.className = 'db-badge connected';
-      mssqlMeta.textContent = `${m.database} • ${m.latencyMs}ms`;
+      if (mssqlTitle) mssqlTitle.textContent = `${m.database || 'antam_scm'} (Source)`;
+      mssqlMeta.textContent = `${m.latencyMs}ms`;
       mssqlMeta.title = `Host: ${m.host || 'SQL Server'} (Connected)`;
     } else {
       mssqlBadge.className = 'db-badge error';
+      if (mssqlTitle) mssqlTitle.textContent = `${m?.database || 'antam_scm'} (Source)`;
       const errText = m?.error ? (m.error.length > 25 ? m.error.slice(0, 22) + '...' : m.error) : 'Disconnected';
       mssqlMeta.textContent = errText;
       mssqlMeta.title = m?.error || 'SQL Server Disconnected';
@@ -1390,10 +1407,12 @@ async function checkHealth() {
     const p = data.postgres;
     if (p && p.connected) {
       pgBadge.className = 'db-badge connected';
-      pgMeta.textContent = `${p.database} • ${p.latencyMs}ms`;
+      if (pgTitle) pgTitle.textContent = `${p.database || 'db_procsi'} (Target)`;
+      pgMeta.textContent = `${p.latencyMs}ms`;
       pgMeta.title = `Host: ${p.host || 'PostgreSQL'} (Connected)`;
     } else {
       pgBadge.className = 'db-badge error';
+      if (pgTitle) pgTitle.textContent = `${p?.database || 'db_procsi'} (Target)`;
       const errText = p?.error ? (p.error.length > 25 ? p.error.slice(0, 22) + '...' : p.error) : 'Disconnected';
       pgMeta.textContent = errText;
       pgMeta.title = p?.error || 'PostgreSQL Disconnected';
@@ -1548,16 +1567,20 @@ function updateHeaderConnectionUI(source, target) {
   // 2. Badges Status Database Header Kanan Atas
   const mssqlBadge = document.getElementById('mssql-status');
   const mssqlMeta = document.getElementById('mssql-meta');
+  const mssqlTitle = document.getElementById('mssql-title');
   const pgBadge = document.getElementById('pg-status');
   const pgMeta = document.getElementById('pg-meta');
+  const pgTitle = document.getElementById('pg-title');
 
   if (mssqlBadge && mssqlMeta) {
     if (source && source.connected) {
       mssqlBadge.className = 'db-badge connected';
-      mssqlMeta.textContent = `${source.database} • ${source.latencyMs}ms`;
+      if (mssqlTitle) mssqlTitle.textContent = `${source.database || 'antam_scm'} (Source)`;
+      mssqlMeta.textContent = `${source.latencyMs}ms`;
       mssqlMeta.title = `Host: ${source.host}:${source.port} (${source.version || 'Connected'})`;
     } else {
       mssqlBadge.className = 'db-badge error';
+      if (mssqlTitle) mssqlTitle.textContent = `${source?.database || 'antam_scm'} (Source)`;
       const errStr = source ? (source.error ? (source.error.length > 25 ? source.error.slice(0, 22) + '...' : source.error) : 'Disconnected') : 'No Source Conn';
       mssqlMeta.textContent = errStr;
       mssqlMeta.title = source?.error || 'Tidak terhubung';
@@ -1567,10 +1590,12 @@ function updateHeaderConnectionUI(source, target) {
   if (pgBadge && pgMeta) {
     if (target && target.connected) {
       pgBadge.className = 'db-badge connected';
-      pgMeta.textContent = `${target.database} • ${target.latencyMs}ms`;
+      if (pgTitle) pgTitle.textContent = `${target.database || 'db_procsi'} (Target)`;
+      pgMeta.textContent = `${target.latencyMs}ms`;
       pgMeta.title = `Host: ${target.host}:${target.port} (${target.version || 'Connected'})`;
     } else {
       pgBadge.className = 'db-badge error';
+      if (pgTitle) pgTitle.textContent = `${target?.database || 'db_procsi'} (Target)`;
       const errStr = target ? (target.error ? (target.error.length > 25 ? target.error.slice(0, 22) + '...' : target.error) : 'Disconnected') : 'No Target Conn';
       pgMeta.textContent = errStr;
       pgMeta.title = target?.error || 'Tidak terhubung';
@@ -3721,7 +3746,7 @@ function renderConfigTable(tableKey) {
         <td>${formatSqlSnippet(t.precheck_sql)}</td>
         <td>${formatSqlSnippet(t.postcheck_sql)}</td>
         <td>${formatSqlSnippet(t.rollback_sql)}</td>
-        <td class="text-center"><span class="badge ${t.is_active !== false ? 'badge-success' : 'badge-danger'}">Active</span></td>
+        <td class="text-center"><span class="badge ${t.is_active ? 'badge-success' : 'badge-danger'}">${t.is_active ? 'Active' : 'Inactive'}</span></td>
         <td class="sticky-action-col">
           <div class="flex-gap-2 justify-center">
             <button class="btn btn-secondary btn-sm" onclick="openEditConfigModal('migration_target_config', ${t.target_config_id})">Edit</button>
@@ -3832,10 +3857,11 @@ const FORM_DEFINITIONS = {
       { name: 'tgt_schema', label: 'Target Schema', type: 'text', default: 'vendor', required: true },
       { name: 'tgt_table', label: 'Target Table', type: 'text', required: true },
       { name: 'pk_columns', label: 'PK Columns', type: 'text', default: 'id', required: true },
-      { name: 'mapping_sql', label: 'Mapping SQL', type: 'textarea', required: true },
+      { name: 'mapping_sql', label: 'Mapping SQL', type: 'textarea', placeholder: 'Otomatis digenerate jika dikosongkan...' },
       { name: 'precheck_sql', label: 'Precheck SQL', type: 'textarea' },
       { name: 'postcheck_sql', label: 'Postcheck SQL', type: 'textarea' },
-      { name: 'rollback_sql', label: 'Rollback SQL', type: 'textarea' },
+      { name: 'rollback_sql', label: 'Rollback SQL', type: 'textarea', placeholder: 'Otomatis digenerate jika dikosongkan...' },
+      { name: 'is_active', label: 'Status Aktif', type: 'boolean', default: true },
     ],
   },
   migration_lookup: {
@@ -4179,6 +4205,48 @@ function openUniversalForm(entityType, id = null, existingData = null) {
         } finally {
           btnAutoFill.disabled = false;
           btnAutoFill.innerHTML = '<span>⚡ Isi Otomatis Sekarang</span>';
+        }
+      });
+    } else if (entityType === 'migration_target_config') {
+      footerExtra.innerHTML = `
+        <button type="button" id="btn-auto-fill-target-sql" class="btn btn-indigo flex-center gap-1">
+          <span>⚡ Generate Mapping & Rollback SQL</span>
+        </button>
+      `;
+
+      const btnAutoTarget = footerExtra.querySelector('#btn-auto-fill-target-sql');
+      btnAutoTarget.addEventListener('click', async () => {
+        const formEl = document.getElementById('form-universal-crud');
+        const fData = new FormData(formEl);
+        const configId = (fData.get('config_id') || '').trim();
+        const tgtTable = (fData.get('tgt_table') || '').trim();
+        if (!configId) {
+          alert('Silakan pilih "Migration Config" terlebih dahulu.');
+          return;
+        }
+        if (!tgtTable) {
+          alert('Silakan isi kolom "Target Table" terlebih dahulu.');
+          return;
+        }
+        btnAutoTarget.disabled = true;
+        btnAutoTarget.textContent = 'Mengenerate SQL...';
+        try {
+          const res = await fetch(`/api/etl/configs/migration_target_config/defaults?config_id=${encodeURIComponent(configId)}&tgt_schema=${encodeURIComponent(fData.get('tgt_schema') || 'vendor')}&tgt_table=${encodeURIComponent(tgtTable)}&pk_columns=${encodeURIComponent(fData.get('pk_columns') || 'id')}`);
+          const json = await res.json();
+          if (json.success) {
+            const mapEl = formEl.querySelector('[name="mapping_sql"]');
+            const rollEl = formEl.querySelector('[name="rollback_sql"]');
+            if (mapEl && json.mapping_sql) mapEl.value = json.mapping_sql;
+            if (rollEl && json.rollback_sql) rollEl.value = json.rollback_sql;
+            alert('✓ Mapping SQL dan Rollback SQL berhasil digenerate otomatis!');
+          } else {
+            alert('Gagal generate SQL: ' + (json.error || 'Terjadi kesalahan'));
+          }
+        } catch (err) {
+          alert('Gagal generate SQL: ' + err.message);
+        } finally {
+          btnAutoTarget.disabled = false;
+          btnAutoTarget.innerHTML = '<span>⚡ Generate Mapping & Rollback SQL</span>';
         }
       });
     } else {
@@ -4840,7 +4908,14 @@ async function loadEtlRuns() {
                 <button class="btn btn-warning btn-sm" onclick="resumeWorkflow(${run.run_id}, '${isPostFailed ? 'flow_2_post' : (run.main_workflow || 'flow_1_staging')}', '${run.config_id || ''}')" title="${isPostFailed ? 'Lanjutkan eksekusi posting Flow 2 untuk sesi ini' : 'Lanjutkan proses pada sesi Run #' + run.run_id}">
                   ▶️ ${isPostFailed ? 'Lanjutkan Post (Flow 2)' : 'Lanjutkan'}
                 </button>
-              ` : ''}
+                <button class="btn btn-danger btn-sm" onclick="rerunWorkflow('${run.main_workflow || 'flow_1_staging'}', '${run.config_id || ''}', ${run.run_id})" title="Jalankan ulang alur ini dari awal">
+                  🔄 Run Ulang
+                </button>
+              ` : `
+                <button class="btn btn-secondary btn-sm" onclick="rerunWorkflow('${run.main_workflow || 'flow_1_staging'}', '${run.config_id || ''}', ${run.run_id})" title="Eksekusi ulang alur untuk konfigurasi sesi ini">
+                  🔄 Run Ulang
+                </button>
+              `}
             </div>
           </td>
         </tr>
@@ -4851,44 +4926,128 @@ async function loadEtlRuns() {
   }
 }
 
-window.resumeWorkflow = async function (runId, workflowId, configId) {
-  const confirmed = confirm(`Lanjutkan proses pada Run ID #${runId}?\nSistem akan melanjutkan eksekusi sesi ini tanpa membuat entri riwayat baru.`);
-  if (!confirmed) return;
-
-  if (state.activeTab !== 'tab-canvas') {
-    switchMainTab('tab-canvas');
-  }
-
-  if (window.flowCanvasStudio) {
-    if (workflowId) {
-      window.flowCanvasStudio.loadPreset(workflowId);
+/**
+ * Dialog Konfirmasi Eksekusi Ulang / Lanjutkan Alur (Task 1)
+ */
+window.openRerunConfirmModal = function (opts = {}) {
+  const modal = document.getElementById('modal-rerun-confirm');
+  if (!modal) {
+    if (confirm(opts.message || 'Apakah Anda yakin ingin mengeksekusi alur ini?')) {
+      if (typeof opts.onProceed === 'function') opts.onProceed();
     }
-    setTimeout(async () => {
-      try {
-        await window.flowCanvasStudio.resumeFlow(runId, workflowId, configId);
-      } catch (err) {
-        if (typeof showToast === 'function') {
-          showToast(`Gagal melanjutkan alur: ${err.message}`, 'error');
-        } else {
-          alert(`Gagal melanjutkan alur: ${err.message}`);
-        }
-      }
-    }, 200);
+    return;
   }
+
+  const titleEl = document.getElementById('rerun-modal-title');
+  const msgEl = document.getElementById('rerun-modal-msg');
+  const detailsEl = document.getElementById('rerun-modal-details');
+  const btnProceed = document.getElementById('btn-rerun-proceed');
+  const btnLabel = document.getElementById('rerun-modal-btn-label');
+  const btnCancel = document.getElementById('btn-rerun-cancel');
+  const btnClose = document.getElementById('btn-close-rerun-modal');
+
+  if (titleEl) titleEl.textContent = opts.title || (opts.isResume ? 'Konfirmasi Lanjutkan Sesi' : 'Konfirmasi Eksekusi Ulang Alur');
+  if (msgEl) msgEl.textContent = opts.message || (opts.isResume ? `Apakah Anda yakin ingin melanjutkan eksekusi pada Run #${opts.runId}?` : `Apakah Anda yakin ingin mengeksekusi ulang alur ini?`);
+  if (btnLabel) btnLabel.textContent = opts.btnLabel || (opts.isResume ? 'Ya, Lanjutkan' : 'Ya, Jalankan Ulang');
+
+  if (detailsEl) {
+    detailsEl.innerHTML = `
+      <div><strong>Workflow:</strong> <span class="text-cyan font-bold">${escapeHtml(opts.workflowId || 'flow_1_staging')}</span></div>
+      ${opts.runId ? `<div><strong>Run ID Sesi:</strong> <span class="text-amber font-bold">#${opts.runId}</span></div>` : ''}
+      ${opts.configId ? `<div><strong>Target Config:</strong> <span class="text-emerald font-bold">#${escapeHtml(String(opts.configId))}</span></div>` : ''}
+      <div class="mt-2 text-xs" style="color: #94a3b8; border-top: 1px dashed rgba(148, 163, 184, 0.2); padding-top: 4px;">
+        ${opts.isResume 
+          ? '⚠️ Mode Resume: Proses akan melanjutkan tahapan yang tersisa tanpa membuat ID sesi baru.' 
+          : 'ℹ️ Parameter alur akan disiapkan di Flow Canvas Studio untuk eksekusi baru.'}
+      </div>
+    `;
+  }
+
+  modal.classList.remove('hidden');
+
+  let cleanedUp = false;
+  const cleanup = () => {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    btnProceed?.removeEventListener('click', onConfirm);
+    btnCancel?.removeEventListener('click', onDismiss);
+    btnClose?.removeEventListener('click', onDismiss);
+  };
+
+  const onDismiss = () => {
+    modal.classList.add('hidden');
+    cleanup();
+  };
+
+  const onConfirm = () => {
+    modal.classList.add('hidden');
+    cleanup();
+    if (typeof opts.onProceed === 'function') {
+      opts.onProceed();
+    }
+  };
+
+  btnProceed?.addEventListener('click', onConfirm);
+  btnCancel?.addEventListener('click', onDismiss);
+  btnClose?.addEventListener('click', onDismiss);
 };
 
-window.rerunWorkflow = function (workflowId, configId) {
-  if (state.activeTab !== 'tab-canvas') {
-    switchMainTab('tab-canvas');
-  }
-  if (window.flowCanvasStudio) {
-    if (workflowId) {
-      window.flowCanvasStudio.loadPreset(workflowId);
+window.resumeWorkflow = function (runId, workflowId, configId) {
+  openRerunConfirmModal({
+    title: 'Konfirmasi Lanjutkan Sesi',
+    message: `Lanjutkan proses pada Run ID #${runId}?`,
+    workflowId,
+    configId,
+    runId,
+    isResume: true,
+    btnLabel: 'Ya, Lanjutkan',
+    onProceed: () => {
+      if (state.activeTab !== 'tab-canvas') {
+        switchMainTab('tab-canvas');
+      }
+      if (window.flowCanvasStudio) {
+        if (workflowId) {
+          window.flowCanvasStudio.loadPreset(workflowId);
+        }
+        setTimeout(async () => {
+          try {
+            await window.flowCanvasStudio.resumeFlow(runId, workflowId, configId);
+          } catch (err) {
+            if (typeof showToast === 'function') {
+              showToast(`Gagal melanjutkan alur: ${err.message}`, 'error');
+            } else {
+              alert(`Gagal melanjutkan alur: ${err.message}`);
+            }
+          }
+        }, 200);
+      }
     }
-    setTimeout(() => {
-      window.flowCanvasStudio.openExecutionParamsModal(configId || null);
-    }, 150);
-  }
+  });
+};
+
+window.rerunWorkflow = function (workflowId, configId, runId = null) {
+  openRerunConfirmModal({
+    title: 'Konfirmasi Run Ulang Alur',
+    message: `Jalankan ulang alur "${workflowId || 'flow_1_staging'}" untuk konfigurasi #${configId || '?'}?`,
+    workflowId,
+    configId,
+    runId,
+    isResume: false,
+    btnLabel: 'Ya, Jalankan Ulang',
+    onProceed: () => {
+      if (state.activeTab !== 'tab-canvas') {
+        switchMainTab('tab-canvas');
+      }
+      if (window.flowCanvasStudio) {
+        if (workflowId) {
+          window.flowCanvasStudio.loadPreset(workflowId);
+        }
+        setTimeout(() => {
+          window.flowCanvasStudio.openExecutionParamsModal(configId || null);
+        }, 150);
+      }
+    }
+  });
 };
 
 window.filterLogsByRun = function (runId) {

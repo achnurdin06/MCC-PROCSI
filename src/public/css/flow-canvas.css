@@ -1034,7 +1034,7 @@
 }
 
 .canvas-console.expanded {
-  height: 480px;
+  height: 480px !important;
 }
 
 /* Resizer Handle Bar (Geser Vertikal ke Atas / Bawah) */
@@ -2119,6 +2119,36 @@
 #modal-flow-execute-params .btn-secondary:hover {
   background: #f1f5f9;
   color: #1e293b;
+}
+
+/* ==========================================================================
+   HIDE / SHOW VISUAL CANVAS STUDIO TOGGLE (TASK 3)
+   ========================================================================== */
+.canvas-studio-container.studio-collapsed .canvas-workspace {
+  display: none !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  overflow: hidden !important;
+}
+
+.canvas-studio-container.studio-collapsed .canvas-console {
+  flex: 1 1 0 !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  max-height: none !important;
+  border-top: none !important;
+}
+
+.canvas-studio-container.studio-collapsed .canvas-console-resizer {
+  display: none !important;
+  height: 0 !important;
+  pointer-events: none !important;
+}
+
+.canvas-studio-container.studio-collapsed #btn-canvas-toggle-studio {
+  background: rgba(56, 189, 248, 0.2) !important;
+  border-color: #38bdf8 !important;
+  color: #38bdf8 !important;
 }
 
 

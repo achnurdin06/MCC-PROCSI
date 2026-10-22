@@ -1915,6 +1915,33 @@ class DagEngineService extends EventEmitter {
           });
         }
 
+        // Update status migration_run menjadi RUNNING pada tahap Flow 2
+        try {
+          await queryPostgres(`
+            UPDATE mc_center.migration_run
+            SET main_workflow = 'flow_2_post',
+                status = 'RUNNING',
+                note = 'Sedang mengeksekusi Flow 2 (Posting Target)...'
+            WHERE run_id = $1
+          `, [currentRunId]);
+        } catch (statusErr) {
+          console.warn(`[DAG-ENGINE] Warning update status RUNNING Run #${currentRunId}:`, statusErr.message);
+        }
+
+        // Bersihkan log kegagalan POST sebelumnya jika sesi ini dijalankan ulang (resume/retry)
+        try {
+          await queryPostgres(`
+            DELETE FROM mc_center.migration_error_log 
+            WHERE run_id = $1 AND (step_name LIKE 'POST%' OR step_name = 'FLOW_EXECUTION' OR pipeline_name = 'flow_2_post')
+          `, [currentRunId]);
+          await queryPostgres(`
+            DELETE FROM mc_center.migration_step_log 
+            WHERE run_id = $1 AND (step_name LIKE 'POST%' OR step_name = 'FLOW_EXECUTION') AND status = 'FAILED'
+          `, [currentRunId]);
+        } catch (cleanErr) {
+          console.warn(`[DAG-ENGINE] Warning pembersihan log lama Run #${currentRunId}:`, cleanErr.message);
+        }
+
         const context = {
           runId: currentRunId,
           primaryRunId: actualRunId,
@@ -2286,6 +2313,19 @@ class DagEngineService extends EventEmitter {
             runIndex: rIdx + 1,
             totalRuns
           });
+        }
+
+        // Update status migration_run menjadi RUNNING pada tahap Flow 3 Rollback
+        try {
+          await queryPostgres(`
+            UPDATE mc_center.migration_run
+            SET main_workflow = 'flow_3_rollback',
+                status = 'RUNNING',
+                note = 'Sedang mengeksekusi Flow 3 (Rollback Target)...'
+            WHERE run_id = $1
+          `, [currentRunId]);
+        } catch (rbStatusErr) {
+          console.warn(`[DAG-ENGINE] Warning update status RUNNING Rollback Run #${currentRunId}:`, rbStatusErr.message);
         }
 
         const context = {
@@ -2811,7 +2851,7 @@ class DagEngineService extends EventEmitter {
         const errLogRes = await queryPostgres(`
           SELECT error_id, step_name, error_code, error_message, error_field
           FROM mc_center.migration_error_log
-          WHERE run_id = $1
+          WHERE run_id = $1 AND (step_name LIKE 'POST%' OR step_name = 'FLOW_EXECUTION' OR pipeline_name = 'flow_2_post')
           ORDER BY error_id DESC LIMIT 5
         `, [runId]);
 
