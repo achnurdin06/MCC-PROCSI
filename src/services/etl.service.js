@@ -1369,7 +1369,9 @@ class EtlService {
       }
     }
 
-    const keys = Object.keys(data).filter((k) => meta.autoPk ? k !== meta.pk : true);
+    const keys = Object.keys(data)
+      .filter((k) => meta.autoPk ? k !== meta.pk : true)
+      .filter((k) => sanitizeIdentifier(k) === k);
     if (keys.length === 0) throw new Error('Tidak ada data kolom yang dikirim.');
 
     const values = keys.map((k) => (typeof data[k] === "string" && data[k].trim() === "" ? null : data[k]));
@@ -1429,7 +1431,9 @@ class EtlService {
       }
     }
 
-    const keys = Object.keys(data).filter((k) => k !== meta.pk);
+    const keys = Object.keys(data)
+      .filter((k) => k !== meta.pk)
+      .filter((k) => sanitizeIdentifier(k) === k);
     if (keys.length === 0) throw new Error('Tidak ada kolom yang diubah.');
 
     const setClauses = keys.map((k, i) => `"${k}" = $${i + 1}`).join(', ');
