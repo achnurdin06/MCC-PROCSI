@@ -4825,8 +4825,8 @@ async function loadEtlRuns() {
                 Lihat Logs
               </button>
               ${(isFailed && !isSuperseded) ? `
-                <button class="btn btn-danger btn-sm" onclick="rerunWorkflow('${run.main_workflow || 'flow_1_staging'}', '${run.config_id || ''}')" title="Sesi berstatus FAILED (belum digantikan). Klik untuk eksekusi ulang alur ini">
-                  🔄 Run Ulang
+                <button class="btn btn-warning btn-sm" onclick="resumeWorkflow(${run.run_id}, '${run.main_workflow || 'flow_1_staging'}', '${run.config_id || ''}')" title="Lanjutkan proses pada sesi Run #${run.run_id} tanpa membuat entri baru">
+                  ▶️ Lanjutkan
                 </button>
               ` : ''}
             </div>
@@ -4838,6 +4838,32 @@ async function loadEtlRuns() {
     tbody.innerHTML = `<tr><td colspan="14" class="text-center py-8 text-rose">${err.message}</td></tr>`;
   }
 }
+
+window.resumeWorkflow = async function (runId, workflowId, configId) {
+  const confirmed = confirm(`Lanjutkan proses pada Run ID #${runId}?\nSistem akan melanjutkan eksekusi sesi ini tanpa membuat entri riwayat baru.`);
+  if (!confirmed) return;
+
+  if (state.activeTab !== 'tab-canvas') {
+    switchMainTab('tab-canvas');
+  }
+
+  if (window.flowCanvasStudio) {
+    if (workflowId) {
+      window.flowCanvasStudio.loadPreset(workflowId);
+    }
+    setTimeout(async () => {
+      try {
+        await window.flowCanvasStudio.resumeFlow(runId, workflowId, configId);
+      } catch (err) {
+        if (typeof showToast === 'function') {
+          showToast(`Gagal melanjutkan alur: ${err.message}`, 'error');
+        } else {
+          alert(`Gagal melanjutkan alur: ${err.message}`);
+        }
+      }
+    }, 200);
+  }
+};
 
 window.rerunWorkflow = function (workflowId, configId) {
   if (state.activeTab !== 'tab-canvas') {

@@ -1986,6 +1986,76 @@ class FlowCanvasStudio {
   }
 
   /**
+   * Lanjutkan eksekusi alur pada Run ID yang sama (Resume in-place tanpa baris baru)
+   */
+  async resumeFlow(runId, workflowId = 'flow_1_staging', configId = null) {
+    if (this.isSubmitting) return;
+    this.isSubmitting = true;
+
+    const runBtn = document.getElementById('btn-flow-run');
+    if (runBtn) runBtn.disabled = true;
+
+    try {
+      // Reset visual state
+      if (Array.isArray(this.currentNodes)) {
+        this.currentNodes.forEach(n => this.setNodeVisualState(n.id, 'idle', 'Siap'));
+      }
+      if (Array.isArray(this.currentEdges)) {
+        this.currentEdges.forEach(e => this.setEdgeVisualState(e.source, e.target, 'idle'));
+      }
+
+      const ctx = this.getActiveContext();
+      let parsedConfigIds = null;
+      if (configId) {
+        parsedConfigIds = String(configId).includes(',')
+          ? String(configId).split(',').map(x => parseInt(x.trim(), 10)).filter(n => !isNaN(n))
+          : [parseInt(configId, 10)];
+      }
+
+      this.showLiveBanner(`Melanjutkan eksekusi Run ID #${runId} [${ctx.clientCode || 'ANTAM'} - ${ctx.envCode || 'DEV'}]...`, 'RUNNING');
+      this.logConsole('INFO', `Melanjutkan sesi migrasi Run ID #${runId} tanpa membuat record baru...`);
+
+      const payload = {
+        flowId: workflowId || this.currentPresetId || 'flow_1_staging',
+        runId: parseInt(runId, 10),
+        configId: parsedConfigIds,
+        clientId: ctx.clientId,
+        envId: ctx.envId,
+        clientCode: ctx.clientCode,
+        envCode: ctx.envCode,
+        customNodes: this.currentNodes,
+        customEdges: this.currentEdges,
+        params: {}
+      };
+
+      const res = await fetch('/api/flows/execute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      const json = await res.json();
+      if (!json.success) {
+        throw new Error(json.error || 'Gagal melanjutkan eksekusi alur.');
+      }
+
+      this.activeRunId = parseInt(runId, 10);
+      this.updateLiveBannerTitle(`Run ID #${this.activeRunId} - Alur Sedang Dilanjutkan`);
+      this.logConsole('SUCCESS', `Sesi migrasi #${this.activeRunId} aktif dilanjutkan. Membuka streaming SSE...`);
+      this.connectEventStream(this.activeRunId);
+
+    } catch (err) {
+      console.error('Error saat melanjutkan eksekusi alur:', err);
+      this.logConsole('ERROR', `Gagal melanjutkan alur: ${err.message}`);
+      this.showErrorOnBanner(err.message);
+      if (runBtn) runBtn.disabled = false;
+      throw err;
+    } finally {
+      this.isSubmitting = false;
+    }
+  }
+
+  /**
    * Koneksi Server-Sent Events (SSE) untuk live streaming progres simpul
    */
   connectEventStream(runId) {

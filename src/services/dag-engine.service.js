@@ -1114,6 +1114,26 @@ class DagEngineService extends EventEmitter {
       if (!isNaN(num)) targetConfigIds = [num];
     }
 
+    // Resolusi target CONFIG_ID untuk mode RESUME (jika runId diberikan dan targetConfigIds belum terisi)
+    if (runId && flowId !== 'flow_2_post' && flowId !== 'flow_3_rollback' && targetConfigIds.length === 0) {
+      const existingRunRes = await queryPostgres(
+        'SELECT config_id, client_id, env_id FROM mc_center.migration_run WHERE run_id = $1',
+        [parseInt(runId, 10)]
+      );
+      if (existingRunRes.rows.length > 0 && existingRunRes.rows[0].config_id) {
+        const rawCfg = existingRunRes.rows[0].config_id;
+        if (rawCfg.toUpperCase() !== 'ALL') {
+          targetConfigIds = String(rawCfg).split(',').map(x => parseInt(x.trim(), 10)).filter(n => !isNaN(n));
+        }
+        if (!clientId && existingRunRes.rows[0].client_id) {
+          clientId = existingRunRes.rows[0].client_id;
+        }
+        if (!envId && existingRunRes.rows[0].env_id) {
+          envId = existingRunRes.rows[0].env_id;
+        }
+      }
+    }
+
     const isBatchAll = targetConfigIds.length === 0;
     let targetConfigs = [];
 
@@ -1213,7 +1233,15 @@ class DagEngineService extends EventEmitter {
       isMultiRun = targetRuns.length > 1;
 
       // Ambil metadata konfigurasi untuk seluruh targetRuns jika belum terisi
-      const runConfigIds = targetRuns.map(r => parseInt(String(r.config_id).replace(/[^0-9]/g, ''), 10)).filter(n => !isNaN(n));
+      const runConfigIds = [];
+      targetRuns.forEach(r => {
+        if (r.config_id) {
+          String(r.config_id).split(',').forEach(x => {
+            const n = parseInt(x.trim(), 10);
+            if (!isNaN(n) && !runConfigIds.includes(n)) runConfigIds.push(n);
+          });
+        }
+      });
       if (runConfigIds.length > 0) {
         const cfgRes = await queryPostgres(`
           SELECT config_id, name_config, exec_order, src_schema, src_view, tgt_schema, tgt_table, stg_table, is_active
@@ -1282,7 +1310,15 @@ class DagEngineService extends EventEmitter {
       isMultiRollback = targetRollbackRuns.length > 1;
 
       // Ambil metadata konfigurasi untuk targetRollbackRuns
-      const runConfigIds = targetRollbackRuns.map(r => parseInt(String(r.config_id).replace(/[^0-9]/g, ''), 10)).filter(n => !isNaN(n));
+      const runConfigIds = [];
+      targetRollbackRuns.forEach(r => {
+        if (r.config_id) {
+          String(r.config_id).split(',').forEach(x => {
+            const n = parseInt(x.trim(), 10);
+            if (!isNaN(n) && !runConfigIds.includes(n)) runConfigIds.push(n);
+          });
+        }
+      });
       if (runConfigIds.length > 0) {
         const cfgRes = await queryPostgres(`
           SELECT config_id, name_config, exec_order, src_schema, src_view, tgt_schema, tgt_table, stg_table, is_active
@@ -1349,7 +1385,7 @@ class DagEngineService extends EventEmitter {
       }
     }
 
-    // 3. Inisialisasi atau gunakan runId eksisting
+    // 3. Inisialisasi atau gunakan runId eksisting (Resume Mode)
     let currentRun;
     try {
       if (flowId === 'flow_2_post') {
@@ -1360,6 +1396,20 @@ class DagEngineService extends EventEmitter {
         const res = await queryPostgres('SELECT * FROM mc_center.migration_run WHERE run_id = $1', [parseInt(runId, 10)]);
         if (res.rows.length === 0) throw new Error(`Run ID ${runId} tidak ditemukan.`);
         currentRun = res.rows[0];
+
+        // Reset status migration_run kembali ke RUNNING untuk sesi yang dilanjutkan (in-place resume)
+        await queryPostgres(`
+          UPDATE mc_center.migration_run
+          SET status = 'RUNNING',
+              end_time = NULL,
+              note = 'Melanjutkan proses (Resumed)...'
+          WHERE run_id = $1
+        `, [parseInt(runId, 10)]);
+
+        // Bersihkan buffer event SSE lama agar streaming client mulai segar
+        if (this.runEvents) {
+          this.runEvents.delete(String(runId));
+        }
       } else {
         currentRun = await dbDispatcher.initRun({
           configId: targetConfigs.map(c => c.config_id).join(','),
@@ -1383,7 +1433,11 @@ class DagEngineService extends EventEmitter {
         await queryPostgres(`
           UPDATE mc_center.migration_run
           SET note = '⚠️ KADALUARSA (SUPERSEDED): Data staging telah digantikan oleh sesi baru Run #' || $2
-          WHERE (config_id = ANY($1::text[]) OR config_id = 'ALL')
+          WHERE (
+            config_id = ANY($1::text[]) 
+            OR config_id = 'ALL'
+            OR (string_to_array(config_id, ',') && $1::text[])
+          )
             AND run_id < $2
             AND (is_posted IS FALSE OR is_posted IS NULL)
         `, [targetIds, actualRunId]);
@@ -1830,9 +1884,13 @@ class DagEngineService extends EventEmitter {
       for (let rIdx = 0; rIdx < targetRuns.length; rIdx++) {
         const currentRun = targetRuns[rIdx];
         const currentRunId = currentRun.run_id;
-        const currentConfigId = currentRun.config_id 
-          ? parseInt(String(currentRun.config_id).replace(/[^0-9]/g, ''), 10) 
-          : (targetConfigs[0]?.config_id || 1);
+        
+        // Ekstrak daftar config_id yang terkandung dalam sesi ini (misal '15,19' -> [15, 19])
+        const runConfigIds = String(currentRun.config_id).includes(',')
+          ? String(currentRun.config_id).split(',').map(x => parseInt(x.trim(), 10)).filter(n => !isNaN(n))
+          : [parseInt(String(currentRun.config_id).trim(), 10)].filter(n => !isNaN(n));
+        
+        const currentConfigId = runConfigIds[0] || (targetConfigs[0]?.config_id || 1);
 
         const currentCfg = targetConfigs.find(c => c.config_id === currentConfigId) || {
           config_id: currentConfigId,
@@ -1924,7 +1982,23 @@ class DagEngineService extends EventEmitter {
             await new Promise(r => setTimeout(r, 180));
 
             const nodeStartTime = Date.now();
-            const result = await this.executeNode(node, context);
+            let result;
+            const isConfigSpecificNode = ['PRECHECK_TARGET', 'POST_TARGETS', 'RECONCILIATION_AUDIT'].includes(node.type);
+            if (isConfigSpecificNode && runConfigIds.length > 1) {
+              const subResults = [];
+              for (const cfgId of runConfigIds) {
+                const subCfg = targetConfigs.find(c => c.config_id === cfgId) || {
+                  config_id: cfgId,
+                  name_config: `Config #${cfgId}`
+                };
+                const subContext = { ...context, configId: cfgId, config: subCfg };
+                const res = await this.executeNode(node, subContext);
+                subResults.push(res);
+              }
+              result = { message: `Berhasil untuk seluruh konfigurasi (${runConfigIds.map(id => '#' + id).join(', ')})`, subResults };
+            } else {
+              result = await this.executeNode(node, context);
+            }
             const nodeElapsed = Date.now() - nodeStartTime;
 
             context.nodeResults[node.id] = { status: 'SUCCESS', elapsed: nodeElapsed, ...result };
@@ -2012,7 +2086,13 @@ class DagEngineService extends EventEmitter {
           // Bersihkan data target yang sempat ter-insert oleh Run ID ini agar tidak meninggalkan orphan/dirty rows
           try {
             console.warn(`[DAG-ENGINE] Mengisolasi galat: Menjalankan safe auto-rollback untuk Run #${currentRunId}...`);
-            await dbDispatcher.rollbackAllTargets(currentRunId, currentConfigId);
+            for (const cfgId of runConfigIds) {
+              try {
+                await dbDispatcher.rollbackAllTargets(currentRunId, cfgId);
+              } catch (singleRbErr) {
+                console.warn(`[DAG-ENGINE] Rollback config #${cfgId} warning:`, singleRbErr.message);
+              }
+            }
             console.log(`[DAG-ENGINE] Safe auto-rollback untuk Run #${currentRunId} berhasil.`);
           } catch (rbErr) {
             console.error(`[DAG-ENGINE] Gagal auto-rollback Run #${currentRunId}:`, rbErr.message);
@@ -2174,9 +2254,13 @@ class DagEngineService extends EventEmitter {
       for (let rIdx = 0; rIdx < targetRuns.length; rIdx++) {
         const currentRun = targetRuns[rIdx];
         const currentRunId = currentRun.run_id;
-        const currentConfigId = currentRun.config_id 
-          ? parseInt(String(currentRun.config_id).replace(/[^0-9]/g, ''), 10) 
-          : (targetConfigs[0]?.config_id || 1);
+        
+        // Ekstrak daftar config_id yang terkandung dalam sesi ini (misal '15,19' -> [15, 19])
+        const runConfigIds = String(currentRun.config_id).includes(',')
+          ? String(currentRun.config_id).split(',').map(x => parseInt(x.trim(), 10)).filter(n => !isNaN(n))
+          : [parseInt(String(currentRun.config_id).trim(), 10)].filter(n => !isNaN(n));
+        
+        const currentConfigId = runConfigIds[0] || (targetConfigs[0]?.config_id || 1);
 
         const currentCfg = targetConfigs.find(c => c.config_id === currentConfigId) || {
           config_id: currentConfigId,
@@ -2255,7 +2339,23 @@ class DagEngineService extends EventEmitter {
             await new Promise(r => setTimeout(r, 180));
 
             const nodeStartTime = Date.now();
-            const result = await this.executeNode(node, context);
+            let result;
+            const isConfigSpecificRbNode = ['ROLLBACK_TARGETS', 'RECONCILIATION_AUDIT'].includes(node.type);
+            if (isConfigSpecificRbNode && runConfigIds.length > 1) {
+              const subResults = [];
+              for (const cfgId of runConfigIds) {
+                const subCfg = targetConfigs.find(c => c.config_id === cfgId) || {
+                  config_id: cfgId,
+                  name_config: `Config #${cfgId}`
+                };
+                const subContext = { ...context, configId: cfgId, config: subCfg };
+                const res = await this.executeNode(node, subContext);
+                subResults.push(res);
+              }
+              result = { summary: `Rollback berhasil untuk seluruh konfigurasi (${runConfigIds.map(id => '#' + id).join(', ')})`, subResults };
+            } else {
+              result = await this.executeNode(node, context);
+            }
             const nodeElapsed = Date.now() - nodeStartTime;
 
             context.nodeResults[node.id] = { status: 'SUCCESS', elapsed: nodeElapsed, ...result };
