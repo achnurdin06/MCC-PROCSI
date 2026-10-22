@@ -114,6 +114,7 @@ class EtlService {
         ALTER TABLE IF EXISTS mc_center.migration_lookup ADD COLUMN IF NOT EXISTS env_id INTEGER;
         ALTER TABLE IF EXISTS mc_center.migration_run ADD COLUMN IF NOT EXISTS client_id INTEGER;
         ALTER TABLE IF EXISTS mc_center.migration_run ADD COLUMN IF NOT EXISTS env_id INTEGER;
+        ALTER TABLE IF EXISTS mc_center.migration_run ALTER COLUMN start_time SET DEFAULT now();
 
         -- User Multi-Tenancy columns & tables
         ALTER TABLE IF EXISTS mc_center.sys_users ADD COLUMN IF NOT EXISTS client_id INTEGER REFERENCES mc_center.master_client(client_id) ON DELETE SET NULL;

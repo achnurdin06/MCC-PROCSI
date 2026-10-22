@@ -2345,7 +2345,7 @@ function renderSourceViewsTable() {
           </td>
           <td class="col-mig-config">${migConfigBadge}</td>
           <td class="col-action">
-            <div class="flex-gap-2 flex-wrap" style="justify-content: center;">
+            <div class="source-action-group">
               <button class="btn btn-primary btn-xs" onclick="openSourceInspectorModal('${v.name}')" title="Buka dialog data inspector, skema kolom, dan DDL">🔍 Detail</button>
               <button class="btn btn-secondary btn-xs" onclick="openViewEditor('${v.name}')" title="Edit query view di SQL Server">✏️ Edit</button>
               ${v.isMigrationConfigured
@@ -4820,9 +4820,16 @@ async function loadEtlRuns() {
           <td class="font-mono text-muted" style="font-size: 0.75rem;">${run.hop_host || '-'}</td>
           <td style="max-width: 250px; ${noteStyle}" title="${escapeHtml(run.note || '')}">${escapeHtml(run.note || '-')}</td>
           <td>
-            <button class="btn btn-secondary btn-sm" onclick="filterLogsByRun(${run.run_id})">
-              Lihat Logs
-            </button>
+            <div class="flex-gap-2" style="white-space: nowrap; justify-content: center;">
+              <button class="btn btn-secondary btn-sm" onclick="filterLogsByRun(${run.run_id})" title="Lihat detail log langkah dan error sesi ini">
+                Lihat Logs
+              </button>
+              ${(isFailed && !isSuperseded) ? `
+                <button class="btn btn-danger btn-sm" onclick="rerunWorkflow('${run.main_workflow || 'flow_1_staging'}', '${run.config_id || ''}')" title="Sesi berstatus FAILED (belum digantikan). Klik untuk eksekusi ulang alur ini">
+                  🔄 Run Ulang
+                </button>
+              ` : ''}
+            </div>
           </td>
         </tr>
       `;
@@ -4831,6 +4838,20 @@ async function loadEtlRuns() {
     tbody.innerHTML = `<tr><td colspan="14" class="text-center py-8 text-rose">${err.message}</td></tr>`;
   }
 }
+
+window.rerunWorkflow = function (workflowId, configId) {
+  if (state.activeTab !== 'tab-canvas') {
+    switchMainTab('tab-canvas');
+  }
+  if (window.flowCanvasStudio) {
+    if (workflowId) {
+      window.flowCanvasStudio.loadPreset(workflowId);
+    }
+    setTimeout(() => {
+      window.flowCanvasStudio.openExecutionParamsModal(configId || null);
+    }, 150);
+  }
+};
 
 window.filterLogsByRun = function (runId) {
   state.process.selectedRunId = runId;

@@ -94,14 +94,15 @@ class DbDispatcherService {
 
     const insertSql = `
       INSERT INTO mc_center.migration_run (
-        run_ts, hop_host, main_workflow, config_id,
+        run_ts, start_time, hop_host, main_workflow, config_id,
         client_id, env_id, client, environment, status
       )
       VALUES (
         to_char(now() AT TIME ZONE 'Asia/Jakarta', 'YYYYMMDD_HH24MI'),
+        now(),
         $1, $2, $3, $4, $5, $6, $7, 'RUNNING'
       )
-      RETURNING run_id, run_ts, config_id, client_id, env_id, client, environment, status
+      RETURNING run_id, run_ts, start_time, config_id, client_id, env_id, client, environment, status
     `;
 
     const res = await queryPostgres(insertSql, [
@@ -205,12 +206,23 @@ class DbDispatcherService {
         )
       `, [runId, configId || null, stepName, errorCode, errorMessage, errorDetail]);
     } catch (err) {
-      // Fallback jika stored procedure fail error
-      await queryPostgres(`
-        UPDATE mc_center.migration_run
-        SET status = 'FAILED', note = COALESCE(note, '') || ' | ' || $2
-        WHERE run_id = $1
-      `, [runId, `FAILED at ${stepName}: ${errorMessage}`]);
+      console.warn('[DB-DISPATCHER] pr_fail warning:', err.message);
+    } finally {
+      // Pastikan status migration_run dan end_time selalu diperbarui menjadi FAILED
+      try {
+        await queryPostgres(`
+          UPDATE mc_center.migration_run
+          SET status = 'FAILED',
+              end_time = COALESCE(end_time, now()),
+              note = CASE 
+                WHEN note IS NULL OR note = '' THEN $2
+                ELSE note || ' | ' || $2
+              END
+          WHERE run_id = $1 AND (status = 'RUNNING' OR status IS NULL)
+        `, [runId, `FAILED at ${stepName}: ${errorMessage}`]);
+      } catch (updErr) {
+        console.error('[DB-DISPATCHER] Gagal update status FAILED pada migration_run:', updErr.message);
+      }
     }
   }
 
