@@ -4870,9 +4870,12 @@ async function loadEtlRuns() {
         statusBadge = `<span class="badge ${badgeClass}">${run.status}</span>`;
       }
 
-      // Posting Badge
+      // Posting & Rollback Badges
+      const isPurgeFlow = run.main_workflow === 'flow_4_purge' || run.main_workflow?.includes('purge');
       let postBadge = '';
-      if (run.is_posted) {
+      if (isPurgeFlow) {
+        postBadge = `<span class="text-muted text-xs font-mono">-</span>`;
+      } else if (run.is_posted) {
         postBadge = `<span class="badge badge-success font-bold">✓ Sudah Post (${escapeHtml(run.post_type || 'auto')})</span>`;
       } else if (isCancelled) {
         postBadge = `<span class="badge" style="background: #f1f5f9; color: #94a3b8; border: 1px dashed #cbd5e1; font-weight: 600;" title="Sesi dibatalkan, tidak diposting">Batal</span>`;
@@ -4880,15 +4883,22 @@ async function loadEtlRuns() {
         postBadge = `<span class="badge" style="background: #f1f5f9; color: #94a3b8; border: 1px dashed #cbd5e1; font-weight: 600;" title="Data staging telah digantikan oleh sesi baru, tidak diposting">Batal / Usang</span>`;
       } else if (isPostFailed) {
         postBadge = `<span class="badge badge-danger font-bold" title="Gagal saat posting ke tabel target">✕ Gagal Post (Flow 2)</span>`;
-      } else if (isSuccess) {
+      } else if (isSuccess && (run.main_workflow === 'flow_1_staging' || !run.main_workflow)) {
         postBadge = `<span class="badge font-bold" style="background: #e0f2fe; color: #0284c7; border: 1px solid #7dd3fc;" title="Data staging valid, siap diposting ke target (Flow 2)">Siap Post (Flow 2)</span>`;
       } else {
-        postBadge = `<span class="badge badge-neutral">Belum</span>`;
+        postBadge = `<span class="text-muted text-xs font-mono">-</span>`;
       }
 
-      const rollbackBadge = run.is_rolled_back
-        ? `<span class="badge badge-danger">⚠️ Rolled Back</span>`
-        : `<span class="badge badge-neutral">Normal</span>`;
+      let rollbackBadge = '';
+      if (isPurgeFlow) {
+        rollbackBadge = `<span class="text-muted text-xs font-mono">-</span>`;
+      } else if (run.is_rolled_back) {
+        rollbackBadge = `<span class="badge badge-danger">⚠️ Rolled Back</span>`;
+      } else if (run.is_posted) {
+        rollbackBadge = `<span class="badge badge-neutral">Normal</span>`;
+      } else {
+        rollbackBadge = `<span class="text-muted text-xs font-mono">-</span>`;
+      }
 
       const clientBadge = run.client_code
         ? `<span class="badge badge-info font-mono font-bold" title="${escapeHtml(run.client_name || '')}">${escapeHtml(run.client_code)}</span>`
@@ -4910,11 +4920,13 @@ async function loadEtlRuns() {
 
       const rowBgStyle = (isSuperseded || isCancelled)
         ? 'opacity: 0.7; background-color: rgba(241, 245, 249, 0.4);' 
-        : (!run.is_posted && isSuccess ? 'background-color: rgba(240, 253, 244, 0.35);' : '');
+        : (!run.is_posted && isSuccess && !isPurgeFlow ? 'background-color: rgba(240, 253, 244, 0.35);' : '');
 
       let workflowDisplay = `<span class="font-mono text-cyan" style="font-size: 0.75rem;">${run.main_workflow || '-'}</span>`;
       if (run.main_workflow === 'flow_2_post') {
         workflowDisplay = `<span class="badge badge-purple font-mono font-bold" title="Tahap 2: Posting Target">flow_2_post</span>`;
+      } else if (run.main_workflow === 'flow_4_purge') {
+        workflowDisplay = `<span class="badge badge-warning font-mono font-bold" title="Tahap 4: Purge Target">flow_4_purge</span>`;
       } else if (isPostFailed) {
         workflowDisplay = `<span class="font-mono text-cyan" style="font-size: 0.75rem;">flow_1</span><span class="text-xs font-bold" style="color: #ef4444;"> ➔ flow_2</span>`;
       }
