@@ -5355,6 +5355,9 @@ function renderActionStatusBadge(actionStatus, postedAt, rolledBackAt) {
     const titleStr = postedAt ? `Sudah diposting ke target (${formatDate(postedAt)})` : 'Sudah diposting ke target vendor';
     return `<span class="badge badge-success font-bold" title="${titleStr}" style="font-size: 0.78rem;">🚀 Posted</span>`;
   }
+  if (actionStatus === 'STAGING') {
+    return `<span class="badge badge-info font-bold" title="Tahap Staging selesai sukses, siap untuk diposting ke target" style="font-size: 0.78rem;">📥 Staging</span>`;
+  }
   if (actionStatus === 'NOT_POSTED' || actionStatus === 'NO_POSTED' || actionStatus === 'STAGING_ONLY') {
     return `<span class="badge badge-warning font-bold" title="Tidak ada baris data yang diposting ke target" style="font-size: 0.78rem;">📦 No Posted</span>`;
   }
@@ -5497,10 +5500,11 @@ function renderPipelineMasterRows(pipelines) {
     let statusBadge = '';
     const srcCount = Number(p.source?.rows ?? 0);
     const stgCount = Number(p.staging?.rows ?? 0);
-    const isAnyNotPosted = targets.some(t => t.actionStatus === 'NOT_POSTED' || t.actionStatus === 'NO_POSTED' || t.actionStatus === 'STAGING_ONLY');
+    const isAnyNotPosted = targets.some(t => t.actionStatus === 'NOT_POSTED' || t.actionStatus === 'NO_POSTED');
+    const isStagingOnly = targets.every(t => t.actionStatus === 'STAGING');
     const isAllPosted = targets.every(t => t.actionStatus === 'POSTED');
 
-    if (isMatch && isAllPosted) {
+    if (isMatch && (isAllPosted || isStagingOnly)) {
       statusBadge = `<span class="badge badge-success font-bold" style="font-size: 0.78rem;">✓ 100% Match</span>`;
     } else if (stgCount === 0 || (isAnyNotPosted && targets.every(t => (t.sumAfter ?? 0) === (t.sumBefore ?? 0)))) {
       statusBadge = `<span class="badge badge-danger font-bold" style="font-size: 0.78rem;">0% Match</span>`;
