@@ -1355,36 +1355,8 @@ class DagEngineService extends EventEmitter {
       );
     }
 
-    // 2b. Guard Siklus Migrasi (Bug #2 & Screening Looping): Cek apakah Config ini sudah pernah diselesaikan dan diposting
-    if (flowId === 'flow_1_staging') {
-      const targetIds = targetConfigs.map(c => String(c.config_id));
-      const activePostedRuns = await queryPostgres(`
-        SELECT run_id, run_ts, config_id, status, is_posted, posted_at, post_type, is_rolled_back
-        FROM mc_center.migration_run
-        WHERE config_id = ANY($1::text[])
-          AND is_posted = true 
-          AND (is_rolled_back IS FALSE OR is_rolled_back IS NULL)
-        ORDER BY run_id DESC
-      `, [targetIds]);
-
-      if (activePostedRuns.rows.length > 0) {
-        await dbDispatcher.releaseLock(lockKey);
-        if (!isMultiBatch) {
-          const prev = activePostedRuns.rows[0];
-          throw new Error(
-            `Siklus migrasi untuk Config #${targetConfigs[0].config_id} sudah pernah diselesaikan dan diposting ke tabel target pada Run ID #${prev.run_id} (${prev.run_ts}). ` +
-            `Eksekusi alur dihentikan untuk mencegah inkonsistensi data. ` +
-            `Silakan lakukan Rollback pada Run ID #${prev.run_id} terlebih dahulu jika ingin mengulang siklus migrasi.`
-          );
-        } else {
-          const postedList = activePostedRuns.rows.map(r => `Config #${r.config_id} (Run #${r.run_id})`).join(', ');
-          throw new Error(
-            `Siklus migrasi batch dihentikan! Konfigurasi berikut sudah pernah diposting ke target dan belum di-rollback: ${postedList}. ` +
-            `Silakan lakukan Rollback pada Run terkait sebelum menjalankan alur batch seluruh konfigurasi.`
-          );
-        }
-      }
-    }
+    // 2b. Mode Incremental Delta: Flow 1 diizinkan berjalan berulang kali untuk mendeteksi data baru (delta).
+    // Proteksi duplikasi & integritas data dijamin oleh Two-Gate Protection (fn_check_delta) dan audit ledger.
 
     // 3. Inisialisasi atau gunakan runId eksisting (Resume Mode)
     let currentRun;
@@ -2669,25 +2641,8 @@ class DagEngineService extends EventEmitter {
           throw new Error(`Query precheck sumber menemukan ${violations} pelanggaran integritas data.`);
         }
 
-        // Pengecekan Target: Guard Siklus Selesai pada simpul Precheck (Bug #2)
-        const activePostedRun = await queryPostgres(`
-          SELECT run_id, run_ts, is_posted, posted_at, is_rolled_back
-          FROM mc_center.migration_run
-          WHERE config_id = $1 
-            AND is_posted = true 
-            AND (is_rolled_back IS FALSE OR is_rolled_back IS NULL)
-            AND run_id != $2
-          ORDER BY run_id DESC
-          LIMIT 1
-        `, [String(configId), parseInt(runId, 10)]);
-
-        if (activePostedRun.rows.length > 0) {
-          const prev = activePostedRun.rows[0];
-          throw new Error(
-            `Siklus migrasi untuk Config #${configId} sudah pernah diselesaikan dan diposting ke tabel target pada Run ID #${prev.run_id} (${prev.run_ts}). ` +
-            `Eksekusi dihentikan. Silakan lakukan Rollback pada Run ID #${prev.run_id} terlebih dahulu jika ingin mengulang siklus migrasi.`
-          );
-        }
+        // Mode Incremental Delta: Flow 1 diizinkan berjalan berulang kali untuk mendeteksi data baru (delta).
+        // Validasi duplikasi & perbedaan delta ditangani secara otomatis oleh simpul DELTA_CHECK (fn_check_delta).
 
         context.rowsSrc = await ingestionService.countSourceRows(srcSchema, srcView);
         return { 
