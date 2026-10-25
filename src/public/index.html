@@ -1739,11 +1739,11 @@
                   <th class="sortable text-center" data-pipe-col="sumStaging">sum staging <span class="sort-icon">↕</span></th>
                   <th class="sortable text-center" data-pipe-col="sumBefore">sum before target <span class="sort-icon">↕</span></th>
                   <th class="sortable text-center" data-pipe-col="sumAfter">sum after target <span class="sort-icon">↕</span></th>
-                  <th class="sortable text-center" data-pipe-col="lastRunId">Sesi &amp; Run ID Terakhir <span class="sort-icon">↕</span></th>
+                  <th class="sortable text-center" data-pipe-col="lastRunId">Run ID Terakhir <span class="sort-icon">↕</span></th>
                   <th class="text-center">Status Action</th>
                   <th class="sortable text-center" data-pipe-col="status">Status Alur <span class="sort-icon">↕</span></th>
                   <th class="sortable text-center" data-pipe-col="errors">Errors Logged <span class="sort-icon">↕</span></th>
-                  <th class="text-center" style="width: 200px;">Aksi</th>
+                  <th class="text-center" style="width: 140px;">Aksi</th>
                 </tr>
               </thead>
               <tbody id="pipeline-master-tbody">
@@ -4571,17 +4571,6 @@ WHERE v.is_deleted = 0;</code></pre>
         </div>
 
         <div class="modal-body p-4" style="max-height: calc(88vh - 140px); overflow-y: auto;">
-          <!-- Sesi Info Banner -->
-          <div id="pipeline-modal-session-bar" class="p-3 mb-3 rounded border flex-between items-center" style="background: rgba(15, 23, 42, 0.03); border: 1px solid rgba(148, 163, 184, 0.25);">
-            <div class="flex items-center gap-2">
-              <span class="badge badge-info font-bold text-xs">📜 Status Sesi Terkini</span>
-              <span id="pipeline-modal-session-desc" class="text-xs text-muted">Memuat informasi sesi...</span>
-            </div>
-            <button type="button" class="btn btn-secondary btn-xs" id="btn-pipeline-modal-open-history" style="color: #0284c7; font-weight: 600;">
-              📜 Buka Riwayat Sesi
-            </button>
-          </div>
-
           <!-- 3-Tier Visual Flow Diagram -->
           <div class="pipeline-hero-card mb-4" style="margin-bottom: 1.25rem;">
             <div id="pipeline-flow-diagram" class="pipeline-flow">
@@ -4667,65 +4656,6 @@ WHERE v.is_deleted = 0;</code></pre>
       </div>
     </div>
 
-    <!-- ============================================================== -->
-    <!-- MODAL: RIWAYAT SESI MIGRASI (RUN HISTORY PER CONFIG)           -->
-    <!-- ============================================================== -->
-    <div id="modal-config-run-history" class="modal-overlay hidden">
-      <div class="modal-box modal-wide" style="max-width: 1250px; width: 95%;">
-        <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-subtle); padding-bottom: 0.85rem;">
-          <div>
-            <div style="display: inline-flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
-              <span class="badge badge-primary text-xs" id="cfg-history-modal-badge">Config #1</span>
-              <span class="badge badge-info text-xs">📜 Riwayat Sesi Migrasi</span>
-              <span class="badge badge-neutral text-xs" id="cfg-history-modal-target">Target: -</span>
-            </div>
-            <h3 class="modal-title" id="cfg-history-modal-title">Riwayat Sesi Migrasi: Config #1</h3>
-            <p class="modal-subtitle">Kronologi seluruh sesi eksekusi (Nomor Sesi, Run ID, Alur, Status Posting, dan Rincian Baris Data)</p>
-          </div>
-          <button id="btn-close-cfg-history" class="modal-close" title="Tutup Dialog" style="font-size: 1.5rem; line-height: 1; padding: 0.25rem 0.5rem;">&times;</button>
-        </div>
-
-        <div class="modal-body p-4" style="max-height: calc(85vh - 140px); overflow-y: auto;">
-          <!-- Summary Banner -->
-          <div class="p-3 mb-4 rounded border flex-between flex-wrap gap-2" style="background: rgba(14, 165, 233, 0.05); border: 1px solid rgba(14, 165, 233, 0.25);">
-            <div>
-              <span class="font-bold text-cyan text-sm" id="cfg-history-summary-title">Total 0 Sesi Migrasi Tercatat</span>
-              <div class="text-xs text-muted mt-0.5" id="cfg-history-summary-desc">Menampilkan sesi terbaru hingga terlama untuk pelacakan audit data.</div>
-            </div>
-            <div class="flex items-center gap-2">
-              <span class="badge badge-success text-xs font-bold" id="cfg-history-badge-active">Sesi Terakhir: -</span>
-            </div>
-          </div>
-
-          <!-- History Table -->
-          <div class="table-container">
-            <table class="data-table" id="table-cfg-history">
-              <thead>
-                <tr>
-                  <th class="text-center" style="width: 85px;">Sesi</th>
-                  <th class="text-center" style="width: 85px;">Run ID</th>
-                  <th>Alur / Workflow</th>
-                  <th>Waktu Eksekusi</th>
-                  <th class="text-center">Durasi</th>
-                  <th class="text-center">Status Sesi</th>
-                  <th class="text-center">Posting Target</th>
-                  <th>Ringkasan Baris / Catatan Audit</th>
-                  <th class="text-center" style="width: 100px;">Aksi</th>
-                </tr>
-              </thead>
-              <tbody id="table-cfg-history-tbody">
-                <tr><td colspan="9" class="text-center py-8 text-muted">Memuat riwayat sesi...</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="modal-footer flex-between">
-          <span class="text-xs text-muted">💡 Data sesi bersumber langsung dari audit log tabel kontrol <code>mc_center.migration_run</code></span>
-          <button id="btn-close-cfg-history-footer" class="btn btn-secondary btn-sm">Tutup</button>
-        </div>
-      </div>
-    </div>
 
     <!-- ============================================================== -->
     <!-- MODAL: PIPELINE COMPARE (KOMPARASI 3-TIER KOLOM & STATUS SUKSES)-->

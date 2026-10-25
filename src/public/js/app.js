@@ -872,15 +872,6 @@ function setupEventListeners() {
     btnClosePipelineInspectorFooter.addEventListener('click', () => closePipelineInspectorModal());
   }
 
-  // Modal Riwayat Sesi Migrasi Konfigurasi
-  const btnCloseCfgHistory = document.getElementById('btn-close-cfg-history');
-  if (btnCloseCfgHistory) {
-    btnCloseCfgHistory.addEventListener('click', () => closeConfigRunHistoryModal());
-  }
-  const btnCloseCfgHistoryFooter = document.getElementById('btn-close-cfg-history-footer');
-  if (btnCloseCfgHistoryFooter) {
-    btnCloseCfgHistoryFooter.addEventListener('click', () => closeConfigRunHistoryModal());
-  }
 
   // Modal CRUD Universal
   document.getElementById('btn-close-crud-modal').addEventListener('click', () => {
@@ -1041,7 +1032,6 @@ function setupEventListeners() {
     if (e.key === 'Escape') {
       const modalIds = [
         'modal-general-confirm',
-        'modal-config-run-history',
         'modal-pipeline-compare',
         'modal-pipeline-inspector',
         'modal-source-inspector',
@@ -5365,8 +5355,8 @@ function renderActionStatusBadge(actionStatus, postedAt, rolledBackAt) {
     const titleStr = postedAt ? `Sudah diposting ke target (${formatDate(postedAt)})` : 'Sudah diposting ke target vendor';
     return `<span class="badge badge-success font-bold" title="${titleStr}" style="font-size: 0.78rem;">🚀 Posted</span>`;
   }
-  if (actionStatus === 'STAGING_ONLY') {
-    return `<span class="badge badge-warning font-bold" title="Data berada di tahap staging, belum diposting ke target" style="font-size: 0.78rem;">📦 Staging</span>`;
+  if (actionStatus === 'NOT_POSTED' || actionStatus === 'NO_POSTED' || actionStatus === 'STAGING_ONLY') {
+    return `<span class="badge badge-warning font-bold" title="Tidak ada baris data yang diposting ke target" style="font-size: 0.78rem;">📦 No Posted</span>`;
   }
   if (actionStatus === 'ROLLED_BACK') {
     const titleStr = rolledBackAt ? `Data di-rollback dari target (${formatDate(rolledBackAt)})` : 'Data di-rollback dari target';
@@ -5504,9 +5494,28 @@ function renderPipelineMasterRows(pipelines) {
     }];
     const spanCount = targets.length;
     const isMatch = p.reconciliation?.sourceToStagingStatus === 'MATCH';
-    const statusBadge = isMatch
-      ? `<span class="badge badge-success font-bold" style="font-size: 0.78rem;">✓ 100% Match</span>`
-      : `<span class="badge badge-warning font-bold" style="font-size: 0.78rem;">⏳ Selisih</span>`;
+    let statusBadge = '';
+    const srcCount = Number(p.source?.rows ?? 0);
+    const stgCount = Number(p.staging?.rows ?? 0);
+    const isAnyNotPosted = targets.some(t => t.actionStatus === 'NOT_POSTED' || t.actionStatus === 'NO_POSTED' || t.actionStatus === 'STAGING_ONLY');
+    const isAllPosted = targets.every(t => t.actionStatus === 'POSTED');
+
+    if (isMatch && isAllPosted) {
+      statusBadge = `<span class="badge badge-success font-bold" style="font-size: 0.78rem;">✓ 100% Match</span>`;
+    } else if (stgCount === 0 || (isAnyNotPosted && targets.every(t => (t.sumAfter ?? 0) === (t.sumBefore ?? 0)))) {
+      statusBadge = `<span class="badge badge-danger font-bold" style="font-size: 0.78rem;">0% Match</span>`;
+    } else if (srcCount > 0) {
+      const pct = Math.min(100, Math.max(0, Math.round((stgCount / srcCount) * 100)));
+      if (pct === 0) {
+        statusBadge = `<span class="badge badge-danger font-bold" style="font-size: 0.78rem;">0% Match</span>`;
+      } else if (pct === 100) {
+        statusBadge = `<span class="badge badge-success font-bold" style="font-size: 0.78rem;">✓ 100% Match</span>`;
+      } else {
+        statusBadge = `<span class="badge badge-warning font-bold" style="font-size: 0.78rem;">⏳ ${pct}% Match</span>`;
+      }
+    } else {
+      statusBadge = `<span class="badge badge-warning font-bold" style="font-size: 0.78rem;">⏳ Selisih</span>`;
+    }
 
     const errorCount = p.reconciliation?.errorsLogged || 0;
     const errorClass = errorCount > 0 ? 'text-rose font-bold' : 'text-muted';
@@ -5534,19 +5543,12 @@ function renderPipelineMasterRows(pipelines) {
           <td class="font-mono text-center font-bold text-emerald">${t.sumStaging !== null && t.sumStaging !== undefined ? formatNumber(t.sumStaging) : (p.staging.rows !== undefined ? formatNumber(p.staging.rows) : '-')}</td>
           <td class="font-mono text-center font-bold text-emerald">${t.sumBefore !== null && t.sumBefore !== undefined ? formatNumber(t.sumBefore) : '<span class="text-muted">-</span>'}</td>
           <td class="font-mono text-center font-bold text-emerald">${t.sumAfter !== null && t.sumAfter !== undefined ? formatNumber(t.sumAfter) : '<span class="text-muted">-</span>'}</td>
-          <td class="font-mono text-center font-bold text-emerald">
-            ${t.lastRunId ? `
-              <button class="btn btn-xs font-mono font-bold" onclick="openConfigRunHistoryModal(${p.configId})" style="background: rgba(14, 165, 233, 0.12); color: #0284c7; border: 1px solid rgba(14, 165, 233, 0.35); border-radius: 4px; padding: 2px 7px; cursor: pointer;" title="Klik untuk melihat seluruh riwayat sesi migrasi Config #${p.configId}">
-                ${p.latestRun?.session_num ? `Sesi #${p.latestRun.session_num} ` : ''}(#${t.lastRunId})
-              </button>
-            ` : '<span class="text-muted">-</span>'}
-          </td>
+          <td class="font-mono text-center font-bold text-emerald">${t.lastRunId ? t.lastRunId : '-'}</td>
           <td class="text-center">${actionBadge}</td>
           <td class="text-center">${statusBadge}</td>
           <td class="text-center"><span class="${errorClass}">${errorText}</span></td>
           <td class="text-center">
             <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
-              <button class="btn btn-secondary btn-xs" style="color: #0284c7; border-color: rgba(2, 132, 199, 0.35);" onclick="openConfigRunHistoryModal(${p.configId})" title="Lihat kronologi seluruh sesi migrasi konfigurasi ini">📜 Riwayat</button>
               <button class="btn btn-secondary btn-xs" onclick="openPipelineInspectorModal(${p.configId}, '${t.table}')" title="Buka dialog peninjauan alur &amp; data tahap">Tinjau</button>
               <button class="btn btn-compare-pipeline btn-xs" onclick="openPipelineCompareModal(${p.configId}, '${t.table}', ${t.lastRunId ? `'${t.lastRunId}'` : 'null'})" title="Komparasi kolom 3-Tier &amp; evaluasi sukses migrasi (Run: #${t.lastRunId || '-'})">⚖️ Compare</button>
             </div>
@@ -5694,21 +5696,6 @@ window.selectPipelineConfig = function (configId, targetTableName) {
     </div>
   `;
 
-  // Sesi Info Banner di dalam modal
-  const sessBarDesc = document.getElementById('pipeline-modal-session-desc');
-  if (sessBarDesc) {
-    if (p.latestRun) {
-      sessBarDesc.innerHTML = `Sesi Aktif: <strong class="text-cyan font-bold">Sesi #${p.latestRun.session_num || 1}</strong> (Run ID: <strong class="font-mono">#${p.latestRun.run_id}</strong>) &bull; Workflow: <span class="badge badge-neutral text-xs font-mono">${escapeHtml(p.latestRun.main_workflow || '-')}</span> &bull; Status: <span class="badge ${p.latestRun.status === 'SUCCESS' ? 'badge-success' : (p.latestRun.status === 'FAILED' ? 'badge-danger' : 'badge-neutral')} text-xs font-bold">${p.latestRun.status}</span>`;
-    } else {
-      sessBarDesc.textContent = 'Belum pernah dieksekusi dalam sesi migrasi.';
-    }
-  }
-
-  const btnOpenHistFromModal = document.getElementById('btn-pipeline-modal-open-history');
-  if (btnOpenHistFromModal) {
-    btnOpenHistFromModal.onclick = () => openConfigRunHistoryModal(configId);
-  }
-
   // Hubungkan tombol Cetak Berita Acara di dalam modal dengan config terpilih
   const btnOpenBa = document.getElementById('btn-open-ba');
   if (btnOpenBa) {
@@ -5717,151 +5704,6 @@ window.selectPipelineConfig = function (configId, targetTableName) {
 
   state.pipeline.page = 1;
   loadPipelineStageData();
-};
-
-window.openConfigRunHistoryModal = function (configId) {
-  const p = (state.pipeline.pipelines || []).find((x) => x.configId === configId);
-  if (!p) {
-    showToast('Konfigurasi tidak ditemukan', 'warning');
-    return;
-  }
-
-  const modal = document.getElementById('modal-config-run-history');
-  if (!modal) return;
-
-  const cfgBadge = document.getElementById('cfg-history-modal-badge');
-  const srcBadge = document.getElementById('cfg-history-modal-src');
-  const stgBadge = document.getElementById('cfg-history-modal-stg');
-  const tgtBadge = document.getElementById('cfg-history-modal-target');
-  const titleEl = document.getElementById('cfg-history-modal-title');
-  const summaryTitle = document.getElementById('cfg-history-summary-title');
-  const summaryDesc = document.getElementById('cfg-history-summary-desc');
-  const badgeActive = document.getElementById('cfg-history-badge-active');
-  const tbody = document.getElementById('table-cfg-history-tbody');
-
-  if (cfgBadge) cfgBadge.textContent = `Config #${p.configId}`;
-  if (srcBadge) srcBadge.textContent = `Source: [${p.source?.schema || 'dbo'}].[${p.source?.view || '-'}]`;
-  if (stgBadge) stgBadge.textContent = `Staging: stg_antam.${p.staging?.table || '-'}`;
-  if (tgtBadge) tgtBadge.textContent = `Target: ${p.target?.schema || 'vendor'}.${p.target?.table || '-'}`;
-  if (titleEl) titleEl.textContent = `Riwayat Sesi Migrasi: Config #${p.configId}${p.nameConfig ? ' - ' + p.nameConfig : ''}`;
-
-  const history = p.runHistory || [];
-  if (summaryTitle) summaryTitle.textContent = `Total ${history.length} Sesi Migrasi Tercatat`;
-  if (summaryDesc) {
-    summaryDesc.textContent = history.length > 0
-      ? `Kronologi eksekusi dari Sesi #${history[0]?.session_num || history.length} (terbaru) hingga Sesi #1 (awal mula migrasi).`
-      : 'Belum ada riwayat sesi eksekusi yang tercatat untuk konfigurasi ini.';
-  }
-  if (badgeActive) {
-    badgeActive.textContent = p.latestRun
-      ? `Sesi Terkini: Sesi #${p.latestRun.session_num || history[0]?.session_num || 1} (Run #${p.latestRun.run_id})`
-      : 'Belum ada sesi';
-  }
-
-  if (!history || history.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="9" class="text-center py-8 text-muted">Belum ada riwayat sesi migrasi untuk konfigurasi ini di migration_run.</td></tr>`;
-  } else {
-    tbody.innerHTML = history.map((r, idx) => {
-      const isLatest = idx === 0;
-      const isCancelled = r.status === 'CANCELLED';
-      const isFailed = r.status === 'FAILED';
-      const isSuccess = r.status === 'SUCCESS' || r.status === 'COMPLETED';
-
-      // Sesi Badge
-      const sessionBadge = isLatest
-        ? `<div style="display: flex; flex-direction: column; align-items: center; gap: 2px;">
-             <span class="badge badge-primary font-mono font-bold" style="font-size: 0.78rem;">Sesi #${r.session_num}</span>
-             <span class="badge badge-success font-bold" style="font-size: 0.65rem; padding: 1px 4px;">TERKINI</span>
-           </div>`
-        : `<span class="badge badge-neutral font-mono font-bold" style="font-size: 0.78rem;">Sesi #${r.session_num}</span>`;
-
-      // Workflow Badge
-      let wfBadge = `<span class="badge badge-neutral font-mono text-xs">${escapeHtml(r.main_workflow || '-')}</span>`;
-      if (r.main_workflow === 'flow_1_staging') {
-        wfBadge = `<span class="badge badge-amber text-xs font-semibold" title="Flow 1: Staging ETL">flow_1_staging</span>`;
-      } else if (r.main_workflow === 'flow_2_post') {
-        wfBadge = `<span class="badge badge-purple text-xs font-semibold" title="Flow 2: Posting ke Target">flow_2_post</span>`;
-      } else if (r.main_workflow === 'flow_3_rollback') {
-        wfBadge = `<span class="badge badge-danger text-xs font-semibold" title="Flow 3: Rollback Data Target">flow_3_rollback</span>`;
-      } else if (r.main_workflow === 'flow_4_purge') {
-        wfBadge = `<span class="badge badge-neutral text-xs font-semibold" style="border: 1px solid #94a3b8;" title="Flow 4: Purge & Reset">flow_4_purge</span>`;
-      }
-
-      // Status Badge
-      let statusBadge = '';
-      if (isCancelled) {
-        statusBadge = `<span class="badge" style="background: rgba(148, 163, 184, 0.2); color: #64748b; border: 1px solid #94a3b8; font-weight: 700;">🚫 CANCELLED</span>`;
-      } else if (isFailed) {
-        statusBadge = `<span class="badge badge-danger font-bold text-xs">✕ FAILED</span>`;
-      } else if (isSuccess) {
-        statusBadge = `<span class="badge badge-success font-bold text-xs">✓ SUCCESS</span>`;
-      } else {
-        statusBadge = `<span class="badge badge-info font-bold text-xs">${escapeHtml(r.status || 'RUNNING')}</span>`;
-      }
-
-      // Posting Target Badge
-      let postBadge = '';
-      if (r.is_posted) {
-        postBadge = `<span class="badge badge-success font-bold text-xs" style="font-size: 0.72rem;">✓ POSTED</span>
-          ${r.post_type ? `<div class="text-2xs text-muted font-mono mt-0.5">${escapeHtml(r.post_type)}</div>` : ''}`;
-      } else if (r.is_rolled_back) {
-        postBadge = `<span class="badge badge-danger font-bold text-xs" style="font-size: 0.72rem;">↩ ROLLED BACK</span>`;
-      } else {
-        postBadge = `<span class="badge badge-neutral text-xs font-mono" style="font-size: 0.7rem;">STAGING ONLY</span>`;
-      }
-
-      // Note / Audit Info
-      let noteContent = '-';
-      if (r.note) {
-        const isSuperseded = r.note.toUpperCase().includes('SUPERSEDED') || r.note.toUpperCase().includes('KADALUARSA');
-        if (isSuperseded) {
-          noteContent = `<span class="text-muted text-xs italic" title="${escapeHtml(r.note)}">${escapeHtml(r.note)}</span>`;
-        } else if (r.note.includes('+0 baris diposting')) {
-          noteContent = `<span class="text-amber font-semibold text-xs" title="${escapeHtml(r.note)}">⚠️ Selesai tanpa penambahan baris: ${escapeHtml(r.note)}</span>`;
-        } else if (r.note.includes('diposting')) {
-          noteContent = `<span class="text-emerald font-semibold text-xs" title="${escapeHtml(r.note)}">${escapeHtml(r.note)}</span>`;
-        } else if (r.note.includes('dihapus') || r.note.includes('rollback')) {
-          noteContent = `<span class="text-rose font-semibold text-xs" title="${escapeHtml(r.note)}">${escapeHtml(r.note)}</span>`;
-        } else {
-          noteContent = `<span class="text-xs text-secondary" title="${escapeHtml(r.note)}">${escapeHtml(r.note)}</span>`;
-        }
-      }
-
-      const rowBg = isLatest ? 'background-color: rgba(14, 165, 233, 0.04);' : (isCancelled ? 'opacity: 0.75;' : '');
-
-      return `
-        <tr style="${rowBg}">
-          <td class="text-center">${sessionBadge}</td>
-          <td class="font-mono font-bold text-center text-cyan">#${r.run_id}</td>
-          <td>${wfBadge}</td>
-          <td class="font-mono text-muted text-xs">${formatDate(r.start_time)}</td>
-          <td class="font-mono text-center text-xs">${r.duration_seconds !== null && r.duration_seconds !== undefined ? r.duration_seconds + 's' : '-'}</td>
-          <td class="text-center">${statusBadge}</td>
-          <td class="text-center">${postBadge}</td>
-          <td style="max-width: 320px;">${noteContent}</td>
-          <td class="text-center">
-            <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
-              <button class="btn btn-secondary btn-xs" onclick="closeConfigRunHistoryModal(); filterLogsByRun(${r.run_id});" title="Lihat log eksekusi Run #${r.run_id} di Tab Visual Canvas">
-                🔍 Logs
-              </button>
-              <button class="btn btn-compare-pipeline btn-xs" onclick="closeConfigRunHistoryModal(); openPipelineCompareModal(${p.configId}, '${p.target?.table || ''}', '${r.run_id}');" title="Komparasi 3-Tier untuk Run #${r.run_id}">
-                ⚖️
-              </button>
-            </div>
-          </td>
-        </tr>
-      `;
-    }).join('');
-  }
-
-  modal.classList.remove('hidden');
-};
-
-window.closeConfigRunHistoryModal = function () {
-  const modal = document.getElementById('modal-config-run-history');
-  if (modal) {
-    modal.classList.add('hidden');
-  }
 };
 
 async function loadPipelineStageData() {

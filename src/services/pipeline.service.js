@@ -197,7 +197,7 @@ class PipelineService {
           actionStatus = 'POSTED';
         }
 
-        if (actionStatus === 'POSTED' && tTable && (!matchedLog || matchedLog.rows_after === null)) {
+        if (tTable && (!matchedLog || matchedLog.rows_after === null)) {
           const key = `"${tSchema}"."${tTable}"`;
           if (!fallbackTargetMap.has(key)) {
             fallbackTargetMap.set(key, null);
@@ -239,30 +239,6 @@ class PipelineService {
         const ids = r.config_id.split(',').map((s) => s.trim());
         return ids.includes(idStr);
       }) || null;
-
-      const configRuns = allRuns.filter((r) => {
-        if (!r.config_id) return false;
-        const ids = String(r.config_id).split(',').map((s) => s.trim());
-        return ids.includes(idStr);
-      });
-
-      const totalConfigSessions = configRuns.length;
-      const runHistory = configRuns.map((r, idx) => ({
-        session_num: totalConfigSessions - idx,
-        run_id: r.run_id,
-        run_ts: r.run_ts,
-        start_time: r.start_time,
-        end_time: r.end_time,
-        duration_seconds: r.duration_seconds,
-        status: r.status,
-        main_workflow: r.main_workflow,
-        is_posted: r.is_posted,
-        posted_at: r.posted_at,
-        post_type: r.post_type,
-        is_rolled_back: r.is_rolled_back,
-        rolled_back_at: r.rolled_back_at,
-        note: r.note,
-      }));
 
       const errorsCount = matchedRun ? (errorMap.get(`${cfg.config_id}_${matchedRun.run_id}`) || 0) : 0;
       const lastStep = lastStepMap.get(cfg.config_id) || null;
@@ -319,29 +295,42 @@ class PipelineService {
           } else if (matchedRun.is_posted) {
             actionStatus = 'POSTED';
           } else {
-            actionStatus = 'STAGING_ONLY';
+            actionStatus = 'NOT_POSTED';
           }
         } else if (matchedLog) {
           actionStatus = 'POSTED';
         } else if (stgRows !== null && stgRows > 0) {
-          actionStatus = 'STAGING_ONLY';
+          actionStatus = 'NOT_POSTED';
         }
 
         let sumAfter = null;
         let sumBefore = null;
 
-        if (actionStatus === 'POSTED') {
-          sumAfter = (matchedLog && matchedLog.rows_after !== null && matchedLog.rows_after !== undefined)
-            ? parseInt(matchedLog.rows_after, 10)
-            : (fallbackTargetMap.get(`"${tSchema}"."${tTable}"`) ?? null);
+        // Ambil baris target: prioritaskan matchedLog (record audit aktual), fallback ke query count tabel target
+        if (matchedLog && matchedLog.rows_after !== null && matchedLog.rows_after !== undefined) {
+          sumAfter = parseInt(matchedLog.rows_after, 10);
+        } else {
+          sumAfter = fallbackTargetMap.get(`"${tSchema}"."${tTable}"`) ?? null;
+        }
 
-          sumBefore = (matchedLog && matchedLog.rows_before !== null && matchedLog.rows_before !== undefined)
-            ? parseInt(matchedLog.rows_before, 10)
-            : null;
+        if (matchedLog && matchedLog.rows_before !== null && matchedLog.rows_before !== undefined) {
+          sumBefore = parseInt(matchedLog.rows_before, 10);
+        } else if (sumAfter !== null && stgRows !== null && actionStatus === 'POSTED') {
+          sumBefore = Math.max(0, sumAfter - stgRows);
+        } else if (sumAfter !== null) {
+          sumBefore = sumAfter;
+        }
 
-          if (sumBefore === null && sumAfter !== null && stgRows !== null) {
-            sumBefore = Math.max(0, sumAfter - stgRows);
-          }
+        // Koreksi Status Action jika tidak ada penambahan baris data baru ke target (+0 baris):
+        // Jika sesudah == sebelum (selisih 0) atau note run / pesan log menyatakan +0 baris ter-insert
+        if (actionStatus === 'POSTED' && sumBefore !== null && sumAfter !== null && sumAfter === sumBefore) {
+          actionStatus = 'NOT_POSTED';
+        }
+        if (matchedRun?.note && (matchedRun.note.includes('+0 baris diposting') || matchedRun.note.includes('ter-insert=0'))) {
+          actionStatus = 'NOT_POSTED';
+        }
+        if (matchedLog?.message && (matchedLog.message.includes('Selisih=+0 baris') || matchedLog.message.includes('ter-insert=0'))) {
+          actionStatus = 'NOT_POSTED';
         }
 
         const lastRunId = matchedRun?.run_id || matchedLog?.run_id || null;
@@ -402,11 +391,7 @@ class PipelineService {
           errorsLogged: errorsCount,
           lastStep
         },
-        latestRun: matchedRun ? {
-          ...matchedRun,
-          session_num: configRuns.length - configRuns.findIndex(r => r.run_id === matchedRun.run_id)
-        } : (allRuns[0] ? { ...allRuns[0], session_num: 1 } : null),
-        runHistory,
+        latestRun: matchedRun || allRuns[0] || null,
         metadata: {
           pkColumns: cfg.pk_columns,
           compareColumns: cfg.compare_columns,
