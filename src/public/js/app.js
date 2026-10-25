@@ -5355,10 +5355,10 @@ function renderActionStatusBadge(actionStatus, postedAt, rolledBackAt) {
     const titleStr = postedAt ? `Sudah diposting ke target (${formatDate(postedAt)})` : 'Sudah diposting ke target vendor';
     return `<span class="badge badge-success font-bold" title="${titleStr}" style="font-size: 0.78rem;">🚀 Posted</span>`;
   }
-  if (actionStatus === 'STAGING') {
-    return `<span class="badge badge-info font-bold" title="Tahap Staging selesai sukses, siap untuk diposting ke target" style="font-size: 0.78rem;">📥 Staging</span>`;
+  if (actionStatus === 'STAGING' || actionStatus === 'STAGING_ONLY' || actionStatus === 'STAGING ONLY') {
+    return `<span class="badge badge-info font-bold" title="Tahap Staging selesai sukses, siap untuk diposting ke target" style="font-size: 0.78rem;">📥 Staging Only</span>`;
   }
-  if (actionStatus === 'NOT_POSTED' || actionStatus === 'NO_POSTED' || actionStatus === 'STAGING_ONLY') {
+  if (actionStatus === 'NOT_POSTED' || actionStatus === 'NO_POSTED') {
     return `<span class="badge badge-warning font-bold" title="Tidak ada baris data yang diposting ke target" style="font-size: 0.78rem;">📦 No Posted</span>`;
   }
   if (actionStatus === 'ROLLED_BACK') {
@@ -5501,7 +5501,7 @@ function renderPipelineMasterRows(pipelines) {
     const srcCount = Number(p.source?.rows ?? 0);
     const stgCount = Number(p.staging?.rows ?? 0);
     const isAnyNotPosted = targets.some(t => t.actionStatus === 'NOT_POSTED' || t.actionStatus === 'NO_POSTED');
-    const isStagingOnly = targets.every(t => t.actionStatus === 'STAGING');
+    const isStagingOnly = targets.every(t => t.actionStatus === 'STAGING' || t.actionStatus === 'STAGING_ONLY' || t.actionStatus === 'STAGING ONLY');
     const isAllPosted = targets.every(t => t.actionStatus === 'POSTED');
 
     if (isMatch && (isAllPosted || isStagingOnly)) {

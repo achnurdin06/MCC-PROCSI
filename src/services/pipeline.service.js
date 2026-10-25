@@ -192,7 +192,7 @@ class PipelineService {
 
         let actionStatus = 'NONE';
         if (matchedRun) {
-          actionStatus = matchedRun.is_rolled_back ? 'ROLLED_BACK' : (matchedRun.is_posted ? 'POSTED' : 'STAGING_ONLY');
+          actionStatus = matchedRun.is_rolled_back ? 'ROLLED_BACK' : (matchedRun.is_posted ? 'POSTED' : 'STAGING ONLY');
         } else if (matchedLog) {
           actionStatus = 'POSTED';
         }
@@ -295,14 +295,14 @@ class PipelineService {
           } else if (matchedRun.is_posted) {
             actionStatus = 'POSTED';
           } else if (matchedRun.main_workflow === 'flow_1_staging' || matchedRun.note?.includes('Flow 1') || (!matchedRun.is_posted && matchedRun.status === 'SUCCESS')) {
-            actionStatus = 'STAGING';
+            actionStatus = 'STAGING ONLY';
           } else {
             actionStatus = 'NOT_POSTED';
           }
         } else if (matchedLog) {
           actionStatus = 'POSTED';
         } else if (stgRows !== null && stgRows > 0) {
-          actionStatus = 'STAGING';
+          actionStatus = 'STAGING ONLY';
         }
 
         let sumAfter = null;
