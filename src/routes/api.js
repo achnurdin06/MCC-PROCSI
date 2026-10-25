@@ -115,6 +115,7 @@ router.get('/reconciliation/config-details', requireAuth, (req, res) => pipeline
 router.get('/reconciliation/stage-data', requireAuth, (req, res) => pipelineController.getPipelineStageData(req, res));
 router.get('/reconciliation/compare', requireAuth, (req, res) => pipelineController.comparePipelineConfig(req, res));
 router.get('/reconciliation/berita-acara', requireAuth, (req, res) => pipelineController.getBeritaAcara(req, res));
+router.get('/reconciliation/staging-history', requireAuth, (req, res) => pipelineController.getStagingHistory(req, res));
 
 const flowCanvasController = require('../controllers/flow-canvas.controller');
 

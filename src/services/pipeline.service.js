@@ -1429,7 +1429,53 @@ class PipelineService {
       latestRun: selectedRun,
     };
   }
+
+  /**
+   * Mengambil riwayat data staging dari stg_antam.staging_data_history
+   * Mendukung filter runId, configId, deltaStatus, pagination
+   */
+  async getStagingHistory(filters = {}) {
+    const { runId, configId, deltaStatus, limit = 100, offset = 0 } = filters;
+    const conditions = [];
+    const params = [];
+
+    if (runId) {
+      params.push(parseInt(runId, 10));
+      conditions.push(`run_id = $${params.length}`);
+    }
+    if (configId) {
+      params.push(parseInt(configId, 10));
+      conditions.push(`config_id = $${params.length}`);
+    }
+    if (deltaStatus) {
+      params.push(deltaStatus);
+      conditions.push(`delta_status = $${params.length}`);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const lim = Math.min(parseInt(limit, 10) || 100, 1000);
+    const off = parseInt(offset, 10) || 0;
+
+    const [countRes, rowsRes] = await Promise.all([
+      queryPostgres(`SELECT count(*) as total FROM stg_antam.staging_data_history ${whereClause}`, params),
+      queryPostgres(`
+        SELECT history_id, run_id, config_id, table_name, business_key_columns, business_key_value, delta_status, payload, staged_at
+        FROM stg_antam.staging_data_history
+        ${whereClause}
+        ORDER BY history_id DESC
+        LIMIT ${lim} OFFSET ${off}
+      `, params)
+    ]);
+
+    return {
+      total: parseInt(countRes.rows[0]?.total || 0, 10),
+      limit: lim,
+      offset: off,
+      rows: rowsRes.rows
+    };
+  }
 }
 
 module.exports = new PipelineService();
+
 

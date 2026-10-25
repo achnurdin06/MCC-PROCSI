@@ -67,6 +67,17 @@ class PipelineController {
       return res.status(500).json({ success: false, error: err.message });
     }
   }
+
+  async getStagingHistory(req, res) {
+    try {
+      const { runId, configId, deltaStatus, limit, offset } = req.query;
+      const data = await pipelineService.getStagingHistory({ runId, configId, deltaStatus, limit, offset });
+      return res.json({ success: true, data });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  }
 }
 
 module.exports = new PipelineController();
+
