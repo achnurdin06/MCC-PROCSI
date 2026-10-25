@@ -2740,22 +2740,54 @@ class DagEngineService extends EventEmitter {
         return { converted: true };
       }
 
-      // 6. Delta Check
+      // 6. Delta Check & Duplicate Guard
       case 'DELTA_CHECK': {
         const ok = await dbDispatcher.checkDelta(runId, configId);
-        if (!ok) throw new Error(`fn_check_delta gagal menghitung delta selisih data untuk config #${configId}.`);
+        if (!ok) {
+          let specificErr = null;
+          try {
+            const errRes = await queryPostgres(`
+              SELECT error_code, error_message FROM mc_center.migration_error_log
+              WHERE run_id = $1 AND config_id = $2
+              ORDER BY error_id DESC LIMIT 1
+            `, [parseInt(runId, 10), parseInt(configId, 10)]);
+            if (errRes.rows.length > 0) {
+              specificErr = `${errRes.rows[0].error_code}: ${errRes.rows[0].error_message}`;
+            } else {
+              const stepErr = await queryPostgres(`
+                SELECT message FROM mc_center.migration_step_log
+                WHERE run_id = $1 AND config_id = $2 AND step_name = 'DELTA' AND status = 'FAILED'
+                ORDER BY log_id DESC LIMIT 1
+              `, [parseInt(runId, 10), parseInt(configId, 10)]);
+              if (stepErr.rows.length > 0) {
+                specificErr = stepErr.rows[0].message;
+              }
+            }
+          } catch (_) {}
+
+          throw new Error(specificErr || `fn_check_delta gagal menghitung delta selisih data untuk config #${configId}.`);
+        }
 
         let rowsNew = 0;
+        let rowsStg = 0;
         try {
-          const runRes = await queryPostgres('SELECT rows_new FROM mc_center.migration_run WHERE run_id = $1', [parseInt(runId, 10)]);
-          rowsNew = parseInt(runRes.rows[0]?.rows_new || 0, 10);
+          const stepRes = await queryPostgres(`
+            SELECT rows_new, rows_stg FROM mc_center.migration_step_log 
+            WHERE run_id = $1 AND config_id = $2 AND step_name = 'DELTA' AND status = 'OK'
+            ORDER BY log_id DESC LIMIT 1
+          `, [parseInt(runId, 10), parseInt(configId, 10)]);
+          if (stepRes.rows.length > 0) {
+            rowsNew = parseInt(stepRes.rows[0].rows_new || 0, 10);
+            rowsStg = parseInt(stepRes.rows[0].rows_stg || 0, 10);
+          }
           context.rowsNew = rowsNew;
         } catch (_) {}
 
         return { 
           deltaCompleted: true,
           rowsNew,
-          message: `Analisis delta selesai: data staging terverifikasi (${rowsNew} baris baru terdeteksi).`
+          rowsStg,
+          message: `Analisis delta selesai: data staging terverifikasi (${rowsNew} baris baru terdeteksi dari total ${rowsStg} baris staging).`
         };
       }
 
