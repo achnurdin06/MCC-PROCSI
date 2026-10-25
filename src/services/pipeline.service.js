@@ -294,13 +294,15 @@ class PipelineService {
             actionStatus = 'ROLLED_BACK';
           } else if (matchedRun.is_posted) {
             actionStatus = 'POSTED';
+          } else if (matchedRun.main_workflow === 'flow_1_staging' || matchedRun.note?.includes('Flow 1') || (!matchedRun.is_posted && matchedRun.status === 'SUCCESS')) {
+            actionStatus = 'STAGING';
           } else {
             actionStatus = 'NOT_POSTED';
           }
         } else if (matchedLog) {
           actionStatus = 'POSTED';
         } else if (stgRows !== null && stgRows > 0) {
-          actionStatus = 'NOT_POSTED';
+          actionStatus = 'STAGING';
         }
 
         let sumAfter = null;
@@ -321,15 +323,15 @@ class PipelineService {
           sumBefore = sumAfter;
         }
 
-        // Koreksi Status Action jika tidak ada penambahan baris data baru ke target (+0 baris):
-        // Jika sesudah == sebelum (selisih 0) atau note run / pesan log menyatakan +0 baris ter-insert
+        // Koreksi Status Action jika tidak ada penambahan baris data baru ke target (+0 baris) saat proses POSTING:
+        // Jika sesudah == sebelum (selisih 0) atau note run / pesan log menyatakan +0 baris ter-insert pada saat POSTING
         if (actionStatus === 'POSTED' && sumBefore !== null && sumAfter !== null && sumAfter === sumBefore) {
           actionStatus = 'NOT_POSTED';
         }
-        if (matchedRun?.note && (matchedRun.note.includes('+0 baris diposting') || matchedRun.note.includes('ter-insert=0'))) {
+        if (actionStatus === 'POSTED' && matchedRun?.note && (matchedRun.note.includes('+0 baris diposting') || matchedRun.note.includes('ter-insert=0'))) {
           actionStatus = 'NOT_POSTED';
         }
-        if (matchedLog?.message && (matchedLog.message.includes('Selisih=+0 baris') || matchedLog.message.includes('ter-insert=0'))) {
+        if (actionStatus === 'POSTED' && matchedLog?.message && (matchedLog.message.includes('Selisih=+0 baris') || matchedLog.message.includes('ter-insert=0'))) {
           actionStatus = 'NOT_POSTED';
         }
 
