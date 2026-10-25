@@ -291,6 +291,20 @@ class EtlController {
     }
   }
 
+  async cancelRun(req, res) {
+    try {
+      const { runId } = req.params;
+      const updatedRun = await etlService.cancelMigrationRun(runId);
+      return res.json({
+        success: true,
+        data: updatedRun,
+        message: `Sesi Run #${runId} berhasil dibatalkan.`,
+      });
+    } catch (err) {
+      return res.status(400).json({ success: false, error: err.message });
+    }
+  }
+
   async getStepLogs(req, res) {
     try {
       const { runId, limit, page, status, sortBy, sortDir, clientId, envId } = req.query;

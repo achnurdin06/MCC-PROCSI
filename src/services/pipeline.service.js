@@ -240,6 +240,30 @@ class PipelineService {
         return ids.includes(idStr);
       }) || null;
 
+      const configRuns = allRuns.filter((r) => {
+        if (!r.config_id) return false;
+        const ids = String(r.config_id).split(',').map((s) => s.trim());
+        return ids.includes(idStr);
+      });
+
+      const totalConfigSessions = configRuns.length;
+      const runHistory = configRuns.map((r, idx) => ({
+        session_num: totalConfigSessions - idx,
+        run_id: r.run_id,
+        run_ts: r.run_ts,
+        start_time: r.start_time,
+        end_time: r.end_time,
+        duration_seconds: r.duration_seconds,
+        status: r.status,
+        main_workflow: r.main_workflow,
+        is_posted: r.is_posted,
+        posted_at: r.posted_at,
+        post_type: r.post_type,
+        is_rolled_back: r.is_rolled_back,
+        rolled_back_at: r.rolled_back_at,
+        note: r.note,
+      }));
+
       const errorsCount = matchedRun ? (errorMap.get(`${cfg.config_id}_${matchedRun.run_id}`) || 0) : 0;
       const lastStep = lastStepMap.get(cfg.config_id) || null;
 
@@ -378,7 +402,11 @@ class PipelineService {
           errorsLogged: errorsCount,
           lastStep
         },
-        latestRun: matchedRun || allRuns[0] || null,
+        latestRun: matchedRun ? {
+          ...matchedRun,
+          session_num: configRuns.length - configRuns.findIndex(r => r.run_id === matchedRun.run_id)
+        } : (allRuns[0] ? { ...allRuns[0], session_num: 1 } : null),
+        runHistory,
         metadata: {
           pkColumns: cfg.pk_columns,
           compareColumns: cfg.compare_columns,
