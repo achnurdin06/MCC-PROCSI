@@ -163,6 +163,17 @@ class PipelineService {
         return ids.includes(idStr);
       }) || null;
 
+      const matchedMigrationRun = allRuns.find((r) => {
+        if (!r.config_id) return false;
+        if (r.main_workflow === 'flow_4_purge' || r.main_workflow?.includes('purge')) return false;
+        const ids = r.config_id.split(',').map((s) => s.trim());
+        return ids.includes(idStr);
+      }) || null;
+
+      const runForActionPre = (matchedRun && (matchedRun.main_workflow === 'flow_4_purge' || matchedRun.main_workflow?.includes('purge')))
+        ? (matchedMigrationRun || matchedRun)
+        : matchedRun;
+
       let cfgTargets = allTargetConfigs.filter((t) => t.config_id === cfg.config_id);
       if (cfgTargets.length === 0) {
         cfgTargets = [{
@@ -191,8 +202,8 @@ class PipelineService {
         );
 
         let actionStatus = 'NONE';
-        if (matchedRun) {
-          actionStatus = matchedRun.is_rolled_back ? 'ROLLED_BACK' : (matchedRun.is_posted ? 'POSTED' : 'STAGING ONLY');
+        if (runForActionPre) {
+          actionStatus = runForActionPre.is_rolled_back ? 'ROLLED_BACK' : (runForActionPre.is_posted ? 'POSTED' : 'STAGING ONLY');
         } else if (matchedLog) {
           actionStatus = 'POSTED';
         }
@@ -240,7 +251,20 @@ class PipelineService {
         return ids.includes(idStr);
       }) || null;
 
-      const errorsCount = matchedRun ? (errorMap.get(`${cfg.config_id}_${matchedRun.run_id}`) || 0) : 0;
+      // Cari sesi migrasi terakhir yang BUKAN flow_4_purge (misal Flow 1 Staging, Flow 2 Post, Flow 3 Rollback)
+      const matchedMigrationRun = allRuns.find((r) => {
+        if (!r.config_id) return false;
+        if (r.main_workflow === 'flow_4_purge' || r.main_workflow?.includes('purge')) return false;
+        const ids = r.config_id.split(',').map((s) => s.trim());
+        return ids.includes(idStr);
+      }) || null;
+
+      // Ketika proses flow_4_purge, actionStatus tetap dengan status terakhir pada hasil migrasi
+      const runForAction = (matchedRun && (matchedRun.main_workflow === 'flow_4_purge' || matchedRun.main_workflow?.includes('purge')))
+        ? (matchedMigrationRun || matchedRun)
+        : matchedRun;
+
+      const errorsCount = runForAction ? (errorMap.get(`${cfg.config_id}_${runForAction.run_id}`) || 0) : 0;
       const lastStep = lastStepMap.get(cfg.config_id) || null;
 
       let stage1Status = 'UNKNOWN';
@@ -274,7 +298,7 @@ class PipelineService {
 
         const matchedLog = allPostStepLogs.find((sl) =>
           sl.config_id === cfg.config_id &&
-          (matchedRun ? sl.run_id === matchedRun.run_id : true) &&
+          (runForAction ? sl.run_id === runForAction.run_id : true) &&
           sl.message && tTable &&
           sl.message.toLowerCase().includes(tTable.toLowerCase())
         ) || allPostStepLogs.find((sl) =>
@@ -287,14 +311,14 @@ class PipelineService {
         let postedAt = null;
         let rolledBackAt = null;
 
-        if (matchedRun) {
-          postedAt = matchedRun.posted_at;
-          rolledBackAt = matchedRun.rolled_back_at;
-          if (matchedRun.is_rolled_back) {
+        if (runForAction) {
+          postedAt = runForAction.posted_at;
+          rolledBackAt = runForAction.rolled_back_at;
+          if (runForAction.is_rolled_back) {
             actionStatus = 'ROLLED_BACK';
-          } else if (matchedRun.is_posted) {
+          } else if (runForAction.is_posted) {
             actionStatus = 'POSTED';
-          } else if (matchedRun.main_workflow === 'flow_1_staging' || matchedRun.note?.includes('Flow 1') || (!matchedRun.is_posted && matchedRun.status === 'SUCCESS')) {
+          } else if (runForAction.main_workflow === 'flow_1_staging' || runForAction.note?.includes('Flow 1') || (!runForAction.is_posted && runForAction.status === 'SUCCESS')) {
             actionStatus = 'STAGING ONLY';
           } else {
             actionStatus = 'NOT_POSTED';
@@ -324,18 +348,21 @@ class PipelineService {
         }
 
         // Koreksi Status Action jika tidak ada penambahan baris data baru ke target (+0 baris) saat proses POSTING:
-        // Jika sesudah == sebelum (selisih 0) atau note run / pesan log menyatakan +0 baris ter-insert pada saat POSTING
-        if (actionStatus === 'POSTED' && sumBefore !== null && sumAfter !== null && sumAfter === sumBefore) {
-          actionStatus = 'NOT_POSTED';
-        }
-        if (actionStatus === 'POSTED' && matchedRun?.note && (matchedRun.note.includes('+0 baris diposting') || matchedRun.note.includes('ter-insert=0'))) {
-          actionStatus = 'NOT_POSTED';
-        }
-        if (actionStatus === 'POSTED' && matchedLog?.message && (matchedLog.message.includes('Selisih=+0 baris') || matchedLog.message.includes('ter-insert=0'))) {
-          actionStatus = 'NOT_POSTED';
+        // HANYA jika sesi adalah proses POSTING aktual (BUKAN flow_4_purge)
+        const isPurgeRun = matchedRun && (matchedRun.main_workflow === 'flow_4_purge' || matchedRun.main_workflow?.includes('purge'));
+        if (!isPurgeRun) {
+          if (actionStatus === 'POSTED' && sumBefore !== null && sumAfter !== null && sumAfter === sumBefore) {
+            actionStatus = 'NOT_POSTED';
+          }
+          if (actionStatus === 'POSTED' && matchedRun?.note && (matchedRun.note.includes('+0 baris diposting') || matchedRun.note.includes('ter-insert=0'))) {
+            actionStatus = 'NOT_POSTED';
+          }
+          if (actionStatus === 'POSTED' && matchedLog?.message && (matchedLog.message.includes('Selisih=+0 baris') || matchedLog.message.includes('ter-insert=0'))) {
+            actionStatus = 'NOT_POSTED';
+          }
         }
 
-        const lastRunId = matchedRun?.run_id || matchedLog?.run_id || null;
+        const lastRunId = runForAction?.run_id || matchedRun?.run_id || matchedLog?.run_id || null;
 
         resolvedTargets.push({
           targetConfigId: t.target_config_id,
@@ -393,7 +420,7 @@ class PipelineService {
           errorsLogged: errorsCount,
           lastStep
         },
-        latestRun: matchedRun || allRuns[0] || null,
+        latestRun: runForAction || matchedRun || allRuns[0] || null,
         metadata: {
           pkColumns: cfg.pk_columns,
           compareColumns: cfg.compare_columns,
@@ -901,7 +928,7 @@ class PipelineService {
       selectedRun = allRunsRes.rows.find((r) => String(r.run_id) === String(runId)) || null;
     }
     if (!selectedRun) {
-      selectedRun = matchedRuns[0] || null;
+      selectedRun = matchedRuns.find((r) => r.main_workflow !== 'flow_4_purge' && !r.main_workflow?.includes('purge')) || matchedRuns[0] || null;
     }
     // Fallback: periksa migration_step_log untuk config_id ini jika tidak ditemukan di migration_run
     if (!selectedRun) {
