@@ -203,7 +203,9 @@ class PipelineService {
 
         let actionStatus = 'NONE';
         if (runForActionPre) {
-          actionStatus = runForActionPre.is_rolled_back ? 'ROLLED_BACK' : (runForActionPre.is_posted ? 'POSTED' : 'STAGING ONLY');
+          const isZeroPre = (runForActionPre.main_workflow === 'flow_2_post' && runForActionPre.is_posted === false) ||
+                            (runForActionPre.note && (runForActionPre.note.includes('+0 baris diposting') || runForActionPre.note.includes('ter-insert=0')));
+          actionStatus = runForActionPre.is_rolled_back ? 'ROLLED_BACK' : (isZeroPre ? 'NOT_POSTED' : (runForActionPre.is_posted ? 'POSTED' : 'STAGING ONLY'));
         } else if (matchedLog) {
           actionStatus = 'POSTED';
         }
@@ -311,14 +313,23 @@ class PipelineService {
         let postedAt = null;
         let rolledBackAt = null;
 
+        const isZeroPostRun = (runForAction && runForAction.main_workflow === 'flow_2_post' && runForAction.is_posted === false) ||
+                              (runForAction?.note && (runForAction.note.includes('+0 baris diposting') || runForAction.note.includes('ter-insert=0')));
+
         if (runForAction) {
           postedAt = runForAction.posted_at;
           rolledBackAt = runForAction.rolled_back_at;
           if (runForAction.is_rolled_back) {
             actionStatus = 'ROLLED_BACK';
+          } else if (isZeroPostRun) {
+            actionStatus = 'NOT_POSTED';
           } else if (runForAction.is_posted) {
             actionStatus = 'POSTED';
-          } else if (runForAction.main_workflow === 'flow_1_staging' || runForAction.note?.includes('Flow 1') || (!runForAction.is_posted && runForAction.status === 'SUCCESS')) {
+          } else if (runForAction.main_workflow === 'flow_1_staging' || runForAction.note?.includes('Flow 1')) {
+            actionStatus = 'STAGING ONLY';
+          } else if (runForAction.main_workflow === 'flow_2_post') {
+            actionStatus = 'NOT_POSTED';
+          } else if (!runForAction.is_posted && runForAction.status === 'SUCCESS') {
             actionStatus = 'STAGING ONLY';
           } else {
             actionStatus = 'NOT_POSTED';
@@ -351,6 +362,9 @@ class PipelineService {
         // HANYA jika sesi adalah proses POSTING aktual (BUKAN flow_4_purge)
         const isPurgeRun = matchedRun && (matchedRun.main_workflow === 'flow_4_purge' || matchedRun.main_workflow?.includes('purge'));
         if (!isPurgeRun) {
+          if (runForAction?.main_workflow === 'flow_2_post' && sumBefore !== null && sumAfter !== null && sumAfter === sumBefore) {
+            actionStatus = 'NOT_POSTED';
+          }
           if (actionStatus === 'POSTED' && sumBefore !== null && sumAfter !== null && sumAfter === sumBefore) {
             actionStatus = 'NOT_POSTED';
           }

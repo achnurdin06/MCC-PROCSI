@@ -4872,9 +4872,13 @@ async function loadEtlRuns() {
 
       // Posting & Rollback Badges
       const isPurgeFlow = run.main_workflow === 'flow_4_purge' || run.main_workflow?.includes('purge');
+      const isZeroPost = (run.main_workflow === 'flow_2_post' && run.is_posted === false) ||
+                         (run.note && (run.note.includes('+0 baris diposting') || run.note.includes('ter-insert=0')));
       let postBadge = '';
       if (isPurgeFlow) {
         postBadge = `<span class="text-muted text-xs font-mono">-</span>`;
+      } else if (isZeroPost) {
+        postBadge = `<span class="badge badge-warning font-bold" title="Tidak ada baris data baru yang diposting ke target (+0 baris)">📦 No Posted</span>`;
       } else if (run.is_posted) {
         postBadge = `<span class="badge badge-success font-bold">✓ Sudah Post (${escapeHtml(run.post_type || 'auto')})</span>`;
       } else if (isCancelled) {
@@ -4890,7 +4894,7 @@ async function loadEtlRuns() {
       }
 
       let rollbackBadge = '';
-      if (isPurgeFlow) {
+      if (isPurgeFlow || isZeroPost) {
         rollbackBadge = `<span class="text-muted text-xs font-mono">-</span>`;
       } else if (run.is_rolled_back) {
         rollbackBadge = `<span class="badge badge-danger">⚠️ Rolled Back</span>`;
