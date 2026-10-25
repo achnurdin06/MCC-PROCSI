@@ -288,14 +288,29 @@ class PipelineService {
       }) || null;
 
       // Ketika proses flow_4_purge, actionStatus tetap dengan status terakhir pada hasil migrasi.
-      // Prioritas penentuan status: rollback aktif > posted aktif > run terbaru non-purge
+      // Prioritas: purge → run terbaru (jika lebih baru dari rollback) → rollback aktif
       let runForAction;
       if (matchedRun && (matchedRun.main_workflow === 'flow_4_purge' || matchedRun.main_workflow?.includes('purge'))) {
         // Jika run terbaru adalah purge, gunakan run migrasi sebelumnya
         runForAction = matchedMigrationRun || matchedRun;
       } else if (matchedRollbackRun && !matchedPostedRun) {
-        // Jika ada rollback aktif dan tidak ada posting aktif yang belum di-rollback, gunakan rollback
-        runForAction = matchedRollbackRun;
+        // Ada rollback aktif dan tidak ada posting aktif — tapi cek dulu apakah ada Flow 1 atau Flow 2 yang lebih baru dari rollback
+        const rollbackRunId = parseInt(matchedRollbackRun.run_id, 10);
+        const latestNonRollbackRun = allRuns.find((r) => {
+          if (!r.config_id) return false;
+          if (r.main_workflow === 'flow_4_purge' || r.main_workflow?.includes('purge')) return false;
+          if (r.main_workflow === 'flow_3_rollback') return false;
+          const ids = r.config_id.split(',').map((s) => s.trim());
+          return ids.includes(idStr) && parseInt(r.run_id, 10) > rollbackRunId;
+        }) || null;
+
+        if (latestNonRollbackRun) {
+          // Ada run (Flow 1/Flow 2) yang lebih baru dari rollback → gunakan run tersebut
+          runForAction = latestNonRollbackRun;
+        } else {
+          // Tidak ada run baru setelah rollback → tampilkan status rollback
+          runForAction = matchedRollbackRun;
+        }
       } else {
         // Gunakan run terbaru secara langsung
         runForAction = matchedRun;
