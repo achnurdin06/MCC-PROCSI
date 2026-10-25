@@ -51,6 +51,7 @@ class PipelineService {
       configsRes,
       targetConfigsRes,
       postStepLogsRes,
+      rollbackStepLogsRes,
       latestRunsRes,
       errorCountsRes,
       lastStepLogsRes
@@ -77,6 +78,12 @@ class PipelineService {
         ORDER BY log_id DESC
       `),
       queryPostgres(`
+        SELECT log_id, run_id, config_id, step_name, rows_before, rows_after, message, start_time
+        FROM mc_center.migration_step_log
+        WHERE step_name = 'ROLLBACK_TARGET' AND status = 'OK'
+        ORDER BY log_id DESC
+      `),
+      queryPostgres(`
         SELECT 
           run_id, run_ts, start_time, end_time, status, hop_host, note, main_workflow, config_id,
           is_posted, posted_at, post_type, is_rolled_back, rolled_back_at,
@@ -100,6 +107,7 @@ class PipelineService {
     const configs = configsRes.rows;
     const allTargetConfigs = targetConfigsRes.rows;
     const allPostStepLogs = postStepLogsRes.rows;
+    const allRollbackStepLogs = rollbackStepLogsRes.rows;
     const allRuns = latestRunsRes.rows;
 
     // Buat O(1) Fast Lookup Maps
@@ -261,10 +269,37 @@ class PipelineService {
         return ids.includes(idStr);
       }) || null;
 
-      // Ketika proses flow_4_purge, actionStatus tetap dengan status terakhir pada hasil migrasi
-      const runForAction = (matchedRun && (matchedRun.main_workflow === 'flow_4_purge' || matchedRun.main_workflow?.includes('purge')))
-        ? (matchedMigrationRun || matchedRun)
-        : matchedRun;
+      // Cari sesi rollback terakhir yang valid (is_rolled_back = true)
+      const matchedRollbackRun = allRuns.find((r) => {
+        if (!r.config_id) return false;
+        if (r.main_workflow !== 'flow_3_rollback') return false;
+        if (!r.is_rolled_back) return false;
+        const ids = r.config_id.split(',').map((s) => s.trim());
+        return ids.includes(idStr);
+      }) || null;
+
+      // Cari sesi posted terakhir yang belum di-rollback
+      const matchedPostedRun = allRuns.find((r) => {
+        if (!r.config_id) return false;
+        if (r.main_workflow === 'flow_4_purge' || r.main_workflow?.includes('purge')) return false;
+        if (!r.is_posted || r.is_rolled_back) return false;
+        const ids = r.config_id.split(',').map((s) => s.trim());
+        return ids.includes(idStr);
+      }) || null;
+
+      // Ketika proses flow_4_purge, actionStatus tetap dengan status terakhir pada hasil migrasi.
+      // Prioritas penentuan status: rollback aktif > posted aktif > run terbaru non-purge
+      let runForAction;
+      if (matchedRun && (matchedRun.main_workflow === 'flow_4_purge' || matchedRun.main_workflow?.includes('purge'))) {
+        // Jika run terbaru adalah purge, gunakan run migrasi sebelumnya
+        runForAction = matchedMigrationRun || matchedRun;
+      } else if (matchedRollbackRun && !matchedPostedRun) {
+        // Jika ada rollback aktif dan tidak ada posting aktif yang belum di-rollback, gunakan rollback
+        runForAction = matchedRollbackRun;
+      } else {
+        // Gunakan run terbaru secara langsung
+        runForAction = matchedRun;
+      }
 
       const errorsCount = runForAction ? (errorMap.get(`${cfg.config_id}_${runForAction.run_id}`) || 0) : 0;
       const lastStep = lastStepMap.get(cfg.config_id) || null;
@@ -343,25 +378,41 @@ class PipelineService {
         let sumAfter = null;
         let sumBefore = null;
 
-        // Ambil baris target: prioritaskan matchedLog (record audit aktual), fallback ke query count tabel target
-        if (matchedLog && matchedLog.rows_after !== null && matchedLog.rows_after !== undefined) {
-          sumAfter = parseInt(matchedLog.rows_after, 10);
-        } else {
-          sumAfter = fallbackTargetMap.get(`"${tSchema}"."${tTable}"`) ?? null;
-        }
+        // Jika ROLLED_BACK: gunakan log ROLLBACK_TARGET untuk sumBefore/sumAfter (nilai setelah rollback = nilai sebelum posting)
+        const rollbackLog = (actionStatus === 'ROLLED_BACK' && runForAction)
+          ? allRollbackStepLogs.find((sl) =>
+              sl.run_id === runForAction.run_id &&
+              sl.message && tTable &&
+              sl.message.toLowerCase().includes(tTable.toLowerCase())
+            ) || null
+          : null;
 
-        if (matchedLog && matchedLog.rows_before !== null && matchedLog.rows_before !== undefined) {
-          sumBefore = parseInt(matchedLog.rows_before, 10);
-        } else if (sumAfter !== null && stgRows !== null && actionStatus === 'POSTED') {
-          sumBefore = Math.max(0, sumAfter - stgRows);
-        } else if (sumAfter !== null) {
-          sumBefore = sumAfter;
+        if (rollbackLog) {
+          // sumAfter = jumlah baris target setelah rollback (= sebelum posting)
+          sumAfter = rollbackLog.rows_after !== null ? parseInt(rollbackLog.rows_after, 10) : null;
+          // sumBefore = jumlah baris target sebelum rollback (= saat posting selesai)
+          sumBefore = rollbackLog.rows_before !== null ? parseInt(rollbackLog.rows_before, 10) : null;
+        } else {
+          // Ambil baris target dari POST_TARGET log: prioritaskan matchedLog (record audit aktual), fallback ke query count tabel target
+          if (matchedLog && matchedLog.rows_after !== null && matchedLog.rows_after !== undefined) {
+            sumAfter = parseInt(matchedLog.rows_after, 10);
+          } else {
+            sumAfter = fallbackTargetMap.get(`"${tSchema}"."${tTable}"`) ?? null;
+          }
+
+          if (matchedLog && matchedLog.rows_before !== null && matchedLog.rows_before !== undefined) {
+            sumBefore = parseInt(matchedLog.rows_before, 10);
+          } else if (sumAfter !== null && stgRows !== null && actionStatus === 'POSTED') {
+            sumBefore = Math.max(0, sumAfter - stgRows);
+          } else if (sumAfter !== null) {
+            sumBefore = sumAfter;
+          }
         }
 
         // Koreksi Status Action jika tidak ada penambahan baris data baru ke target (+0 baris) saat proses POSTING:
-        // HANYA jika sesi adalah proses POSTING aktual (BUKAN flow_4_purge)
+        // HANYA jika sesi adalah proses POSTING aktual (BUKAN flow_4_purge atau ROLLED_BACK)
         const isPurgeRun = matchedRun && (matchedRun.main_workflow === 'flow_4_purge' || matchedRun.main_workflow?.includes('purge'));
-        if (!isPurgeRun) {
+        if (!isPurgeRun && actionStatus !== 'ROLLED_BACK') {
           if (runForAction?.main_workflow === 'flow_2_post' && sumBefore !== null && sumAfter !== null && sumAfter === sumBefore) {
             actionStatus = 'NOT_POSTED';
           }
