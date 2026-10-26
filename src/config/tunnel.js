@@ -156,8 +156,13 @@ async function closeTunnel() {
   console.log('✓ SSH tunnel ditutup / di-reset.');
 }
 
+function isTunnelActive() {
+  return isTunnelReady && !!sshClient && !!netServer;
+}
+
 module.exports = {
   tunnelConfig,
   ensureTunnel,
+  isTunnelActive,
   closeTunnel,
 };

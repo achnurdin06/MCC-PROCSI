@@ -6,6 +6,7 @@ const { Pool } = require('pg');
 const { checkSqlServerConnection, getSqlServerPool, querySqlServer } = require('../config/sqlserver');
 const { ensureTunnel } = require('../config/tunnel');
 const { encrypt, decrypt, isEncrypted, maskCredential } = require('../utils/encryption');
+const pipelineService = require('./pipeline.service');
 
 function sanitizeIdentifier(name) {
   if (!name || typeof name !== 'string') return null;
@@ -1861,6 +1862,7 @@ class EtlService {
       );
     } catch (_) {}
 
+    pipelineService.invalidatePipelineCache();
     return updateRes.rows[0];
   }
 

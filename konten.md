@@ -361,7 +361,8 @@ Tabel ini membandingkan volume baris data secara berdampingan:
   - `🟡 Selisih N`: Terdapat perbedaan jumlah baris (misalnya akibat data duplikat yang difilter atau record yang ditolak oleh aturan validasi).
 - **Pill Status Aksi**:
   - `🚀 Posted`: Data telah selesai diposting ke tabel produksi target.
-  - `📦 Staging`: Data baru sampai di tahap penampungan staging.
+  - `📥 Staging Only`: Sesi Flow 1 terakhir sudah sampai di tahap staging dan belum diposting (siap untuk Flow 2). Status ini juga tampil setelah Flow 1 baru dijalankan sesudah rollback.
+  - `📦 No Posted`: Flow 2 dijalankan tetapi tidak ada baris baru yang diposting ke target (+0 baris).
   - `↩️ Rolled Back`: Data sebelumnya pernah diposting namun telah dibatalkan kembali.
 
 ### 7.3 Fitur Komparasi Data Kolom 3-Tier (⚖️ Compare)

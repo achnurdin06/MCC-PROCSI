@@ -1,5 +1,6 @@
 const EventEmitter = require('events');
 const dbDispatcher = require('./db-dispatcher.service');
+const pipelineService = require('./pipeline.service');
 const ingestionService = require('./ingestion.service');
 const { querySqlServer } = require('../config/sqlserver');
 const { queryPostgres } = require('../config/postgres');
@@ -1167,6 +1168,21 @@ class DagEngineService extends EventEmitter {
       }
     }
 
+    // Flow 1: lewati (skip) konfigurasi yang tidak memiliki target aktif di migration_target_config
+    const skippedNotes = [];
+    if (flowId === 'flow_1_staging' && targetConfigs.length > 0) {
+      const withTarget = await this.getConfigIdsWithActiveTarget(targetConfigs.map(c => c.config_id));
+      const skipped = targetConfigs.filter(c => !withTarget.has(parseInt(c.config_id, 10)));
+      if (skipped.length > 0) {
+        targetConfigs = targetConfigs.filter(c => withTarget.has(parseInt(c.config_id, 10)));
+        skippedNotes.push(`Dilewati (tidak ada target aktif di migration_target_config): Config ${skipped.map(c => '#' + c.config_id).join(', ')}`);
+        console.warn(`[DAG-ENGINE] Flow 1 ${skippedNotes[0]}`);
+        if (targetConfigs.length === 0) {
+          throw new Error(`Seluruh konfigurasi dilewati karena tidak memiliki target aktif di migration_target_config (Config ${skipped.map(c => '#' + c.config_id).join(', ')}). Tambahkan target aktif terlebih dahulu.`);
+        }
+      }
+    }
+
     const isMultiBatch = targetConfigs.length > 1;
 
     // Resolusi khusus Flow 2: Multi-Run ID Looping (Requirement 1 & 2)
@@ -1197,6 +1213,9 @@ class DagEngineService extends EventEmitter {
 
         // Validasi: Sesi berstatus SUCCESS atau sesi yang sempat gagal di tahap posting (flow_2_post) dapat diposting
         for (const tr of targetRuns) {
+          if (tr.main_workflow === 'flow_4_purge' || tr.main_workflow?.includes('purge') || tr.main_workflow === 'flow_3_rollback') {
+            throw new Error(`Run ID #${tr.run_id} adalah sesi ${tr.main_workflow} dan bukan sesi staging. Pilih sesi Flow 1 (Staging) yang siap diposting.`);
+          }
           const isStagingOk = tr.status === 'SUCCESS' || (tr.status === 'FAILED' && tr.main_workflow === 'flow_2_post');
           if (!isStagingOk) {
             throw new Error(`Run ID #${tr.run_id} berstatus "${tr.status}". Flow 2 hanya dapat memposting sesi dengan data staging yang valid.`);
@@ -1221,6 +1240,8 @@ class DagEngineService extends EventEmitter {
             AND (r.is_posted IS FALSE OR r.is_posted IS NULL)
             AND (r.is_rolled_back IS FALSE OR r.is_rolled_back IS NULL)
             AND (r.note NOT LIKE '%SUPERSEDED%' AND r.note NOT LIKE '%KADALUARSA%' OR r.note IS NULL)
+            AND COALESCE(r.main_workflow, '') NOT LIKE '%purge%'
+            AND COALESCE(r.main_workflow, '') <> 'flow_3_rollback'
           ORDER BY r.run_id DESC
           LIMIT 1
         `);
@@ -1228,6 +1249,20 @@ class DagEngineService extends EventEmitter {
           targetRuns = candidateRun.rows;
         } else {
           throw new Error('Tidak ditemukan sesi Flow 1 (Staging) yang berstatus SUCCESS dan belum diposting. Silakan jalankan Flow 1 terlebih dahulu.');
+        }
+      }
+
+      // Flow 2: lewati (skip) sesi yang seluruh konfigurasinya tidak memiliki target aktif di migration_target_config
+      const parseRunCfgIds = (r) => String(r.config_id || '').split(',').map(x => parseInt(x.trim(), 10)).filter(n => !isNaN(n));
+      const describeRun = (r) => `Run #${r.run_id} (Config ${parseRunCfgIds(r).map(i => '#' + i).join(', ')})`;
+      const withTarget = await this.getConfigIdsWithActiveTarget(targetRuns.flatMap(parseRunCfgIds));
+      const skippedRuns = targetRuns.filter(r => !parseRunCfgIds(r).some(id => withTarget.has(id)));
+      if (skippedRuns.length > 0) {
+        targetRuns = targetRuns.filter(r => parseRunCfgIds(r).some(id => withTarget.has(id)));
+        skippedNotes.push(`Dilewati (tidak ada target aktif di migration_target_config): ${skippedRuns.map(describeRun).join(', ')}`);
+        console.warn(`[DAG-ENGINE] Flow 2 ${skippedNotes[skippedNotes.length - 1]}`);
+        if (targetRuns.length === 0) {
+          throw new Error(`Seluruh sesi dilewati karena tidak memiliki target aktif di migration_target_config: ${skippedRuns.map(describeRun).join(', ')}. Tambahkan target aktif terlebih dahulu.`);
         }
       }
 
@@ -1399,6 +1434,12 @@ class DagEngineService extends EventEmitter {
 
     const actualRunId = currentRun.run_id;
 
+    for (const note of skippedNotes) {
+      try {
+        await dbDispatcher.logStep({ runId: actualRunId, configId: null, stepName: 'SKIP_NO_TARGET', status: 'OK', message: note });
+      } catch (_) {}
+    }
+
     // 2c. Aturan Main Migrasi: Tandai sesi lama yang belum diposting sebagai KADALUARSA (SUPERSEDED)
     if (flowId === 'flow_1_staging' && !runId) {
       const targetIds = targetConfigs.map(c => String(c.config_id));
@@ -1472,12 +1513,29 @@ class DagEngineService extends EventEmitter {
         : ((flowId === 'flow_3_rollback' && isMultiRollback)
             ? `${flowName} [Multi-Rollback ${targetRollbackRuns.length} Sesi]`
             : (isMultiBatch ? `${flowName} [Multi-Config ${targetConfigs.length} Tabel]` : flowName)),
-      message: (flowId === 'flow_2_post')
+      skipped: skippedNotes,
+      message: ((flowId === 'flow_2_post')
         ? `Eksekusi Flow 2 Post berhasil dimulai untuk ${targetRuns.length} sesi Run ID (${configSummary})`
         : (flowId === 'flow_3_rollback'
             ? `Eksekusi Flow 3 Rollback berhasil dimulai untuk ${targetRollbackRuns.length} sesi Run ID (${configSummary})`
-            : `Eksekusi alur "${flowName}" berhasil dimulai dengan Run ID #${actualRunId} (${targetConfigs.length} konfigurasi: ${configSummary})`)
+            : `Eksekusi alur "${flowName}" berhasil dimulai dengan Run ID #${actualRunId} (${targetConfigs.length} konfigurasi: ${configSummary})`))
+        + (skippedNotes.length > 0 ? ` | ${skippedNotes.join(' | ')}` : '')
     };
+  }
+
+  /**
+   * Kembalikan Set config_id (dari daftar yang diberikan) yang memiliki minimal 1 target aktif
+   * di migration_target_config. Config di luar Set ini dilewati (skip) oleh Flow 1 & 2.
+   */
+  async getConfigIdsWithActiveTarget(configIds = []) {
+    const ids = [...new Set(configIds.map(x => parseInt(x, 10)).filter(n => !isNaN(n)))];
+    if (ids.length === 0) return new Set();
+    const res = await queryPostgres(`
+      SELECT DISTINCT config_id
+      FROM mc_center.migration_target_config
+      WHERE config_id = ANY($1::int[]) AND is_active = true
+    `, [ids]);
+    return new Set(res.rows.map(r => parseInt(r.config_id, 10)));
   }
 
   /**
@@ -1816,6 +1874,7 @@ class DagEngineService extends EventEmitter {
       });
     } finally {
       this.activeRuns.delete(actualRunId);
+      pipelineService.invalidatePipelineCache();
       await dbDispatcher.releaseLock(lockKey);
     }
   }
@@ -1859,9 +1918,14 @@ class DagEngineService extends EventEmitter {
         const currentRunId = currentRun.run_id;
         
         // Ekstrak daftar config_id yang terkandung dalam sesi ini (misal '15,19' -> [15, 19])
-        const runConfigIds = String(currentRun.config_id).includes(',')
+        const allRunConfigIds = String(currentRun.config_id).includes(',')
           ? String(currentRun.config_id).split(',').map(x => parseInt(x.trim(), 10)).filter(n => !isNaN(n))
           : [parseInt(String(currentRun.config_id).trim(), 10)].filter(n => !isNaN(n));
+
+        // Config tanpa target aktif di migration_target_config dilewati dari posting
+        const cfgWithTarget = await this.getConfigIdsWithActiveTarget(allRunConfigIds);
+        const filteredRunConfigIds = allRunConfigIds.filter(id => cfgWithTarget.has(id));
+        const runConfigIds = filteredRunConfigIds.length > 0 ? filteredRunConfigIds : allRunConfigIds;
         
         const currentConfigId = runConfigIds[0] || (targetConfigs[0]?.config_id || 1);
 
@@ -2217,6 +2281,7 @@ class DagEngineService extends EventEmitter {
     } finally {
       // Selalu lepas lock dan bersihkan activeRuns
       this.activeRuns.delete(actualRunId);
+      pipelineService.invalidatePipelineCache();
       await dbDispatcher.releaseLock(lockKey);
     }
   }
@@ -2521,6 +2586,7 @@ class DagEngineService extends EventEmitter {
       });
     } finally {
       this.activeRuns.delete(actualRunId);
+      pipelineService.invalidatePipelineCache();
       await dbDispatcher.releaseLock(lockKey);
     }
   }

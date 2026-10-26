@@ -5366,12 +5366,17 @@ window.showJsonModal = function (errorId) {
 // MODUL 4: HASIL MIGRASI (PIPELINE 3-TIER RECONCILIATION)
 // =========================================================================
 
+// Nilai status staging pernah dikirim sebagai STAGING / STAGING_ONLY / 'STAGING ONLY'
+function isStagingActionStatus(actionStatus) {
+  return actionStatus === 'STAGING' || actionStatus === 'STAGING_ONLY' || actionStatus === 'STAGING ONLY';
+}
+
 function renderActionStatusBadge(actionStatus, postedAt, rolledBackAt) {
   if (actionStatus === 'POSTED') {
     const titleStr = postedAt ? `Sudah diposting ke target (${formatDate(postedAt)})` : 'Sudah diposting ke target vendor';
     return `<span class="badge badge-success font-bold" title="${titleStr}" style="font-size: 0.78rem;">🚀 Posted</span>`;
   }
-  if (actionStatus === 'STAGING' || actionStatus === 'STAGING_ONLY' || actionStatus === 'STAGING ONLY') {
+  if (isStagingActionStatus(actionStatus)) {
     return `<span class="badge badge-info font-bold" title="Tahap Staging selesai sukses, siap untuk diposting ke target" style="font-size: 0.78rem;">📥 Staging Only</span>`;
   }
   if (actionStatus === 'NOT_POSTED' || actionStatus === 'NO_POSTED') {
@@ -5517,7 +5522,7 @@ function renderPipelineMasterRows(pipelines) {
     const srcCount = Number(p.source?.rows ?? 0);
     const stgCount = Number(p.staging?.rows ?? 0);
     const isAnyNotPosted = targets.some(t => t.actionStatus === 'NOT_POSTED' || t.actionStatus === 'NO_POSTED');
-    const isStagingOnly = targets.every(t => t.actionStatus === 'STAGING' || t.actionStatus === 'STAGING_ONLY' || t.actionStatus === 'STAGING ONLY');
+    const isStagingOnly = targets.every(t => isStagingActionStatus(t.actionStatus));
     const isAllPosted = targets.every(t => t.actionStatus === 'POSTED');
 
     if (isMatch && (isAllPosted || isStagingOnly)) {
