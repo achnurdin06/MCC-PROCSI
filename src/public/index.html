@@ -1526,6 +1526,7 @@
                         <option value="">Semua Status</option>
                         <option value="SUCCESS">SUCCESS</option>
                         <option value="FAILED">FAILED</option>
+                        <option value="CANCELLED">CANCELLED</option>
                         <option value="RUNNING">RUNNING</option>
                       </select>
                       <button id="btn-refresh-runs" class="btn btn-secondary btn-xs">Refresh Runs</button>
@@ -1738,11 +1739,11 @@
                   <th class="sortable text-center" data-pipe-col="sumStaging">sum staging <span class="sort-icon">↕</span></th>
                   <th class="sortable text-center" data-pipe-col="sumBefore">sum before target <span class="sort-icon">↕</span></th>
                   <th class="sortable text-center" data-pipe-col="sumAfter">sum after target <span class="sort-icon">↕</span></th>
-                  <th class="sortable text-center" data-pipe-col="lastRunId">last_run_id <span class="sort-icon">↕</span></th>
+                  <th class="sortable text-center" data-pipe-col="lastRunId">Run ID Terakhir <span class="sort-icon">↕</span></th>
                   <th class="text-center">Status Action</th>
                   <th class="sortable text-center" data-pipe-col="status">Status Alur <span class="sort-icon">↕</span></th>
                   <th class="sortable text-center" data-pipe-col="errors">Errors Logged <span class="sort-icon">↕</span></th>
-                  <th class="text-center" style="width: 145px;">Aksi</th>
+                  <th class="text-center" style="width: 140px;">Aksi</th>
                 </tr>
               </thead>
               <tbody id="pipeline-master-tbody">
@@ -4654,6 +4655,7 @@ WHERE v.is_deleted = 0;</code></pre>
         </div>
       </div>
     </div>
+
 
     <!-- ============================================================== -->
     <!-- MODAL: PIPELINE COMPARE (KOMPARASI 3-TIER KOLOM & STATUS SUKSES)-->

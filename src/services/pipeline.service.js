@@ -7,7 +7,45 @@ function sanitizeIdentifier(name) {
   return clean.length > 0 ? clean : null;
 }
 
+const ACTION_STATUS = {
+  STAGING: 'STAGING ONLY',
+  POSTED: 'POSTED',
+  NOT_POSTED: 'NOT_POSTED',
+  ROLLED_BACK: 'ROLLED_BACK',
+  NONE: 'NONE'
+};
+
+function isZeroPostRun(run) {
+  return Boolean(run) && (
+    (run.main_workflow === 'flow_2_post' && run.is_posted === false) ||
+    (run.note && (run.note.includes('+0 baris diposting') || run.note.includes('ter-insert=0')))
+  );
+}
+
+/**
+ * Satu-satunya sumber kebenaran penentuan Status Action per run.
+ * Run Flow 1 yang belum diposting SELALU berstatus STAGING, dievaluasi sebelum
+ * pengecekan "+0 baris" agar teks pada note tidak menggesernya menjadi NOT_POSTED.
+ */
+function resolveActionStatus(run, { hasPostLog = false, stgRows = null } = {}) {
+  if (!run) {
+    if (hasPostLog) return ACTION_STATUS.POSTED;
+    return stgRows !== null && stgRows > 0 ? ACTION_STATUS.STAGING : ACTION_STATUS.NONE;
+  }
+  if (run.is_rolled_back) return ACTION_STATUS.ROLLED_BACK;
+  if (run.main_workflow === 'flow_1_staging' && !run.is_posted) return ACTION_STATUS.STAGING;
+  if (isZeroPostRun(run)) return ACTION_STATUS.NOT_POSTED;
+  if (run.is_posted) return ACTION_STATUS.POSTED;
+  if (run.note?.includes('Flow 1')) return ACTION_STATUS.STAGING;
+  if (run.main_workflow === 'flow_2_post') return ACTION_STATUS.NOT_POSTED;
+  if (run.status === 'SUCCESS') return ACTION_STATUS.STAGING;
+  return ACTION_STATUS.NOT_POSTED;
+}
+
 class PipelineService {
+  static resolveActionStatus = resolveActionStatus;
+  static ACTION_STATUS = ACTION_STATUS;
+
   // In-memory cache map untuk mempercepat display data secara drastis
   static _pipelineCache = new Map();
 
@@ -51,6 +89,7 @@ class PipelineService {
       configsRes,
       targetConfigsRes,
       postStepLogsRes,
+      rollbackStepLogsRes,
       latestRunsRes,
       errorCountsRes,
       lastStepLogsRes
@@ -77,6 +116,12 @@ class PipelineService {
         ORDER BY log_id DESC
       `),
       queryPostgres(`
+        SELECT log_id, run_id, config_id, step_name, rows_before, rows_after, message, start_time
+        FROM mc_center.migration_step_log
+        WHERE step_name = 'ROLLBACK_TARGET' AND status = 'OK'
+        ORDER BY log_id DESC
+      `),
+      queryPostgres(`
         SELECT 
           run_id, run_ts, start_time, end_time, status, hop_host, note, main_workflow, config_id,
           is_posted, posted_at, post_type, is_rolled_back, rolled_back_at,
@@ -100,6 +145,7 @@ class PipelineService {
     const configs = configsRes.rows;
     const allTargetConfigs = targetConfigsRes.rows;
     const allPostStepLogs = postStepLogsRes.rows;
+    const allRollbackStepLogs = rollbackStepLogsRes.rows;
     const allRuns = latestRunsRes.rows;
 
     // Buat O(1) Fast Lookup Maps
@@ -190,14 +236,8 @@ class PipelineService {
           sl.message.toLowerCase().includes(tTable.toLowerCase())
         );
 
-        let actionStatus = 'NONE';
-        if (matchedRun) {
-          actionStatus = matchedRun.is_rolled_back ? 'ROLLED_BACK' : (matchedRun.is_posted ? 'POSTED' : 'STAGING_ONLY');
-        } else if (matchedLog) {
-          actionStatus = 'POSTED';
-        }
-
-        if (actionStatus === 'POSTED' && tTable && (!matchedLog || matchedLog.rows_after === null)) {
+        // Hitung ulang tabel target selalu dilakukan: sesi staging (Flow 1) tidak punya log POST_TARGET sendiri
+        if (tTable) {
           const key = `"${tSchema}"."${tTable}"`;
           if (!fallbackTargetMap.has(key)) {
             fallbackTargetMap.set(key, null);
@@ -240,7 +280,41 @@ class PipelineService {
         return ids.includes(idStr);
       }) || null;
 
-      const errorsCount = matchedRun ? (errorMap.get(`${cfg.config_id}_${matchedRun.run_id}`) || 0) : 0;
+      // Cari sesi migrasi terakhir yang BUKAN flow_4_purge (misal Flow 1 Staging, Flow 2 Post, Flow 3 Rollback)
+      const matchedMigrationRun = allRuns.find((r) => {
+        if (!r.config_id) return false;
+        if (r.main_workflow === 'flow_4_purge' || r.main_workflow?.includes('purge')) return false;
+        const ids = r.config_id.split(',').map((s) => s.trim());
+        return ids.includes(idStr);
+      }) || null;
+
+      // Cari sesi rollback terakhir yang valid (is_rolled_back = true)
+      const matchedRollbackRun = allRuns.find((r) => {
+        if (!r.config_id) return false;
+        if (r.main_workflow !== 'flow_3_rollback') return false;
+        if (!r.is_rolled_back) return false;
+        const ids = r.config_id.split(',').map((s) => s.trim());
+        return ids.includes(idStr);
+      }) || null;
+
+      // Ketika proses flow_4_purge, actionStatus tetap dengan status terakhir pada hasil migrasi.
+      // Prioritas penentuan status:
+      //   1. Jika run terbaru adalah purge -> gunakan run migrasi non-purge sebelumnya
+      //   2. Jika ada rollback aktif (is_rolled_back) DAN run terbaru non-purge adalah rollback itu sendiri -> tampilkan rollback
+      //   3. Semua kasus lain (mis. flow 1 staging baru setelah rollback) -> gunakan run terbaru langsung
+      let runForAction;
+      if (matchedRun && (matchedRun.main_workflow === 'flow_4_purge' || matchedRun.main_workflow?.includes('purge'))) {
+        // Jika run terbaru adalah purge, gunakan run migrasi sebelumnya
+        runForAction = matchedMigrationRun || matchedRun;
+      } else if (matchedRollbackRun && matchedMigrationRun && matchedMigrationRun.run_id === matchedRollbackRun.run_id) {
+        // Run terbaru non-purge adalah rollback -> tampilkan status rollback
+        runForAction = matchedRollbackRun;
+      } else {
+        // Ada run baru setelah rollback (mis. flow_1 staging baru) -> gunakan run terbaru langsung
+        runForAction = matchedRun;
+      }
+
+      const errorsCount = runForAction ? (errorMap.get(`${cfg.config_id}_${runForAction.run_id}`) || 0) : 0;
       const lastStep = lastStepMap.get(cfg.config_id) || null;
 
       let stage1Status = 'UNKNOWN';
@@ -274,7 +348,7 @@ class PipelineService {
 
         const matchedLog = allPostStepLogs.find((sl) =>
           sl.config_id === cfg.config_id &&
-          (matchedRun ? sl.run_id === matchedRun.run_id : true) &&
+          (runForAction ? sl.run_id === runForAction.run_id : true) &&
           sl.message && tTable &&
           sl.message.toLowerCase().includes(tTable.toLowerCase())
         ) || allPostStepLogs.find((sl) =>
@@ -283,44 +357,67 @@ class PipelineService {
           sl.message.toLowerCase().includes(tTable.toLowerCase())
         );
 
-        let actionStatus = 'NONE';
-        let postedAt = null;
-        let rolledBackAt = null;
-
-        if (matchedRun) {
-          postedAt = matchedRun.posted_at;
-          rolledBackAt = matchedRun.rolled_back_at;
-          if (matchedRun.is_rolled_back) {
-            actionStatus = 'ROLLED_BACK';
-          } else if (matchedRun.is_posted) {
-            actionStatus = 'POSTED';
-          } else {
-            actionStatus = 'STAGING_ONLY';
-          }
-        } else if (matchedLog) {
-          actionStatus = 'POSTED';
-        } else if (stgRows !== null && stgRows > 0) {
-          actionStatus = 'STAGING_ONLY';
-        }
+        let actionStatus = resolveActionStatus(runForAction, { hasPostLog: Boolean(matchedLog), stgRows });
+        const postedAt = runForAction ? runForAction.posted_at : null;
+        const rolledBackAt = runForAction ? runForAction.rolled_back_at : null;
 
         let sumAfter = null;
         let sumBefore = null;
 
-        if (actionStatus === 'POSTED') {
-          sumAfter = (matchedLog && matchedLog.rows_after !== null && matchedLog.rows_after !== undefined)
-            ? parseInt(matchedLog.rows_after, 10)
-            : (fallbackTargetMap.get(`"${tSchema}"."${tTable}"`) ?? null);
+        // Jika ROLLED_BACK: gunakan log ROLLBACK_TARGET untuk sumBefore/sumAfter (nilai setelah rollback = nilai sebelum posting)
+        // Sesi staging belum memposting apa pun: log POST_TARGET milik sesi lama (yang mungkin sudah di-rollback)
+        // tidak boleh dipakai, sehingga Sum After dihitung ulang dari isi tabel target saat ini.
+        const auditLog = actionStatus === ACTION_STATUS.STAGING ? null : matchedLog;
 
-          sumBefore = (matchedLog && matchedLog.rows_before !== null && matchedLog.rows_before !== undefined)
-            ? parseInt(matchedLog.rows_before, 10)
-            : null;
+        const rollbackLog = (actionStatus === 'ROLLED_BACK' && runForAction)
+          ? allRollbackStepLogs.find((sl) =>
+              sl.run_id === runForAction.run_id &&
+              sl.message && tTable &&
+              sl.message.toLowerCase().includes(tTable.toLowerCase())
+            ) || null
+          : null;
 
-          if (sumBefore === null && sumAfter !== null && stgRows !== null) {
+        if (rollbackLog) {
+          // sumAfter = jumlah baris target setelah rollback (= sebelum posting)
+          sumAfter = rollbackLog.rows_after !== null ? parseInt(rollbackLog.rows_after, 10) : null;
+          // sumBefore = jumlah baris target sebelum rollback (= saat posting selesai)
+          sumBefore = rollbackLog.rows_before !== null ? parseInt(rollbackLog.rows_before, 10) : null;
+        } else {
+          // Ambil baris target dari POST_TARGET log: prioritaskan matchedLog (record audit aktual), fallback ke query count tabel target
+          if (auditLog && auditLog.rows_after !== null && auditLog.rows_after !== undefined) {
+            sumAfter = parseInt(auditLog.rows_after, 10);
+          } else {
+            sumAfter = fallbackTargetMap.get(`"${tSchema}"."${tTable}"`) ?? null;
+          }
+
+          if (auditLog && auditLog.rows_before !== null && auditLog.rows_before !== undefined) {
+            sumBefore = parseInt(auditLog.rows_before, 10);
+          } else if (sumAfter !== null && stgRows !== null && actionStatus === 'POSTED') {
             sumBefore = Math.max(0, sumAfter - stgRows);
+          } else if (sumAfter !== null) {
+            sumBefore = sumAfter;
           }
         }
 
-        const lastRunId = matchedRun?.run_id || matchedLog?.run_id || null;
+        // Koreksi Status Action jika tidak ada penambahan baris data baru ke target (+0 baris) saat proses POSTING:
+        // HANYA jika sesi adalah proses POSTING aktual (BUKAN flow_4_purge atau ROLLED_BACK)
+        const isPurgeRun = matchedRun && (matchedRun.main_workflow === 'flow_4_purge' || matchedRun.main_workflow?.includes('purge'));
+        if (!isPurgeRun && actionStatus !== 'ROLLED_BACK') {
+          if (runForAction?.main_workflow === 'flow_2_post' && sumBefore !== null && sumAfter !== null && sumAfter === sumBefore) {
+            actionStatus = 'NOT_POSTED';
+          }
+          if (actionStatus === 'POSTED' && sumBefore !== null && sumAfter !== null && sumAfter === sumBefore) {
+            actionStatus = 'NOT_POSTED';
+          }
+          if (actionStatus === 'POSTED' && matchedRun?.note && (matchedRun.note.includes('+0 baris diposting') || matchedRun.note.includes('ter-insert=0'))) {
+            actionStatus = 'NOT_POSTED';
+          }
+          if (actionStatus === 'POSTED' && matchedLog?.message && (matchedLog.message.includes('Selisih=+0 baris') || matchedLog.message.includes('ter-insert=0'))) {
+            actionStatus = 'NOT_POSTED';
+          }
+        }
+
+        const lastRunId = runForAction?.run_id || matchedRun?.run_id || matchedLog?.run_id || null;
 
         resolvedTargets.push({
           targetConfigId: t.target_config_id,
@@ -378,7 +475,7 @@ class PipelineService {
           errorsLogged: errorsCount,
           lastStep
         },
-        latestRun: matchedRun || allRuns[0] || null,
+        latestRun: runForAction || matchedRun || allRuns[0] || null,
         metadata: {
           pkColumns: cfg.pk_columns,
           compareColumns: cfg.compare_columns,
@@ -886,7 +983,7 @@ class PipelineService {
       selectedRun = allRunsRes.rows.find((r) => String(r.run_id) === String(runId)) || null;
     }
     if (!selectedRun) {
-      selectedRun = matchedRuns[0] || null;
+      selectedRun = matchedRuns.find((r) => r.main_workflow !== 'flow_4_purge' && !r.main_workflow?.includes('purge')) || matchedRuns[0] || null;
     }
     // Fallback: periksa migration_step_log untuk config_id ini jika tidak ditemukan di migration_run
     if (!selectedRun) {
@@ -1416,7 +1513,53 @@ class PipelineService {
       latestRun: selectedRun,
     };
   }
+
+  /**
+   * Mengambil riwayat data staging dari stg_antam.staging_data_history
+   * Mendukung filter runId, configId, deltaStatus, pagination
+   */
+  async getStagingHistory(filters = {}) {
+    const { runId, configId, deltaStatus, limit = 100, offset = 0 } = filters;
+    const conditions = [];
+    const params = [];
+
+    if (runId) {
+      params.push(parseInt(runId, 10));
+      conditions.push(`run_id = $${params.length}`);
+    }
+    if (configId) {
+      params.push(parseInt(configId, 10));
+      conditions.push(`config_id = $${params.length}`);
+    }
+    if (deltaStatus) {
+      params.push(deltaStatus);
+      conditions.push(`delta_status = $${params.length}`);
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const lim = Math.min(parseInt(limit, 10) || 100, 1000);
+    const off = parseInt(offset, 10) || 0;
+
+    const [countRes, rowsRes] = await Promise.all([
+      queryPostgres(`SELECT count(*) as total FROM stg_antam.staging_data_history ${whereClause}`, params),
+      queryPostgres(`
+        SELECT history_id, run_id, config_id, table_name, business_key_columns, business_key_value, delta_status, payload, staged_at
+        FROM stg_antam.staging_data_history
+        ${whereClause}
+        ORDER BY history_id DESC
+        LIMIT ${lim} OFFSET ${off}
+      `, params)
+    ]);
+
+    return {
+      total: parseInt(countRes.rows[0]?.total || 0, 10),
+      limit: lim,
+      offset: off,
+      rows: rowsRes.rows
+    };
+  }
 }
 
 module.exports = new PipelineService();
+
 

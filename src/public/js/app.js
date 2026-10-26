@@ -872,6 +872,7 @@ function setupEventListeners() {
     btnClosePipelineInspectorFooter.addEventListener('click', () => closePipelineInspectorModal());
   }
 
+
   // Modal CRUD Universal
   document.getElementById('btn-close-crud-modal').addEventListener('click', () => {
     document.getElementById('modal-config-form').classList.add('hidden');
@@ -4846,6 +4847,7 @@ async function loadEtlRuns() {
 
     tbody.innerHTML = state.process.runs.map((run) => {
       const isSuperseded = Boolean(run.note && (run.note.toUpperCase().includes('SUPERSEDED') || run.note.toUpperCase().includes('KADALUARSA')));
+      const isCancelled = run.status === 'CANCELLED';
       const isSuccess = run.status === 'SUCCESS' || run.status === 'COMPLETED';
       const isFailed = run.status === 'FAILED';
       const isPostFailed = (run.main_workflow === 'flow_2_post' && isFailed) || (isFailed && run.note && (run.note.toUpperCase().includes('FLOW 2') || run.note.toUpperCase().includes('PRECHECK_TARGET')));
@@ -4855,6 +4857,8 @@ async function loadEtlRuns() {
       let statusBadge = '';
       if (isSuperseded) {
         statusBadge = `<span class="badge" style="background: rgba(148, 163, 184, 0.2); color: #64748b; border: 1px solid #cbd5e1; font-weight: 700;" title="Sesi usang karena digantikan oleh run baru">⚠️ SUPERSEDED</span>`;
+      } else if (isCancelled) {
+        statusBadge = `<span class="badge" style="background: rgba(148, 163, 184, 0.2); color: #64748b; border: 1px solid #94a3b8; font-weight: 700;" title="Sesi telah dibatalkan">🚫 CANCELLED</span>`;
       } else if (isSuccess) {
         statusBadge = `<span class="badge badge-success font-bold" title="Sesi aktif dan berhasil dieksekusi">✓ SUCCESS (Aktif)</span>`;
       } else if (isPostFailed) {
@@ -4866,23 +4870,39 @@ async function loadEtlRuns() {
         statusBadge = `<span class="badge ${badgeClass}">${run.status}</span>`;
       }
 
-      // Posting Badge
+      // Posting & Rollback Badges
+      const isPurgeFlow = run.main_workflow === 'flow_4_purge' || run.main_workflow?.includes('purge');
+      const isZeroPost = (run.main_workflow === 'flow_2_post' && run.is_posted === false) ||
+                         (run.note && (run.note.includes('+0 baris diposting') || run.note.includes('ter-insert=0')));
       let postBadge = '';
-      if (run.is_posted) {
+      if (isPurgeFlow) {
+        postBadge = `<span class="text-muted text-xs font-mono">-</span>`;
+      } else if (isZeroPost) {
+        postBadge = `<span class="badge badge-warning font-bold" title="Tidak ada baris data baru yang diposting ke target (+0 baris)">📦 No Posted</span>`;
+      } else if (run.is_posted) {
         postBadge = `<span class="badge badge-success font-bold">✓ Sudah Post (${escapeHtml(run.post_type || 'auto')})</span>`;
+      } else if (isCancelled) {
+        postBadge = `<span class="badge" style="background: #f1f5f9; color: #94a3b8; border: 1px dashed #cbd5e1; font-weight: 600;" title="Sesi dibatalkan, tidak diposting">Batal</span>`;
       } else if (isSuperseded) {
         postBadge = `<span class="badge" style="background: #f1f5f9; color: #94a3b8; border: 1px dashed #cbd5e1; font-weight: 600;" title="Data staging telah digantikan oleh sesi baru, tidak diposting">Batal / Usang</span>`;
       } else if (isPostFailed) {
         postBadge = `<span class="badge badge-danger font-bold" title="Gagal saat posting ke tabel target">✕ Gagal Post (Flow 2)</span>`;
-      } else if (isSuccess) {
+      } else if (isSuccess && (run.main_workflow === 'flow_1_staging' || !run.main_workflow)) {
         postBadge = `<span class="badge font-bold" style="background: #e0f2fe; color: #0284c7; border: 1px solid #7dd3fc;" title="Data staging valid, siap diposting ke target (Flow 2)">Siap Post (Flow 2)</span>`;
       } else {
-        postBadge = `<span class="badge badge-neutral">Belum</span>`;
+        postBadge = `<span class="text-muted text-xs font-mono">-</span>`;
       }
 
-      const rollbackBadge = run.is_rolled_back
-        ? `<span class="badge badge-danger">⚠️ Rolled Back</span>`
-        : `<span class="badge badge-neutral">Normal</span>`;
+      let rollbackBadge = '';
+      if (isPurgeFlow || isZeroPost) {
+        rollbackBadge = `<span class="text-muted text-xs font-mono">-</span>`;
+      } else if (run.is_rolled_back) {
+        rollbackBadge = `<span class="badge badge-danger">⚠️ Rolled Back</span>`;
+      } else if (run.is_posted) {
+        rollbackBadge = `<span class="badge badge-neutral">Normal</span>`;
+      } else {
+        rollbackBadge = `<span class="text-muted text-xs font-mono">-</span>`;
+      }
 
       const clientBadge = run.client_code
         ? `<span class="badge badge-info font-mono font-bold" title="${escapeHtml(run.client_name || '')}">${escapeHtml(run.client_code)}</span>`
@@ -4902,13 +4922,15 @@ async function loadEtlRuns() {
         noteStyle = 'color: #0369a1; font-size: 0.75rem; font-weight: 600;';
       }
 
-      const rowBgStyle = isSuperseded 
+      const rowBgStyle = (isSuperseded || isCancelled)
         ? 'opacity: 0.7; background-color: rgba(241, 245, 249, 0.4);' 
-        : (!run.is_posted && isSuccess ? 'background-color: rgba(240, 253, 244, 0.35);' : '');
+        : (!run.is_posted && isSuccess && !isPurgeFlow ? 'background-color: rgba(240, 253, 244, 0.35);' : '');
 
       let workflowDisplay = `<span class="font-mono text-cyan" style="font-size: 0.75rem;">${run.main_workflow || '-'}</span>`;
       if (run.main_workflow === 'flow_2_post') {
         workflowDisplay = `<span class="badge badge-purple font-mono font-bold" title="Tahap 2: Posting Target">flow_2_post</span>`;
+      } else if (run.main_workflow === 'flow_4_purge') {
+        workflowDisplay = `<span class="badge badge-warning font-mono font-bold" title="Tahap 4: Purge Target">flow_4_purge</span>`;
       } else if (isPostFailed) {
         workflowDisplay = `<span class="font-mono text-cyan" style="font-size: 0.75rem;">flow_1</span><span class="text-xs font-bold" style="color: #ef4444;"> ➔ flow_2</span>`;
       }
@@ -4937,14 +4959,10 @@ async function loadEtlRuns() {
                 <button class="btn btn-warning btn-sm" onclick="resumeWorkflow(${run.run_id}, '${isPostFailed ? 'flow_2_post' : (run.main_workflow || 'flow_1_staging')}', '${run.config_id || ''}')" title="${isPostFailed ? 'Lanjutkan eksekusi posting Flow 2 untuk sesi ini' : 'Lanjutkan proses pada sesi Run #' + run.run_id}">
                   ▶️ ${isPostFailed ? 'Lanjutkan Post (Flow 2)' : 'Lanjutkan'}
                 </button>
-                <button class="btn btn-danger btn-sm" onclick="rerunWorkflow('${run.main_workflow || 'flow_1_staging'}', '${run.config_id || ''}', ${run.run_id})" title="Jalankan ulang alur ini dari awal">
-                  🔄 Run Ulang
+                <button class="btn btn-secondary btn-sm" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.35);" onclick="cancelWorkflowRun(${run.run_id})" title="Batalkan status sesi gagal ini (tandai CANCELLED)">
+                  🚫 Cancel
                 </button>
-              ` : `
-                <button class="btn btn-secondary btn-sm" onclick="rerunWorkflow('${run.main_workflow || 'flow_1_staging'}', '${run.config_id || ''}', ${run.run_id})" title="Eksekusi ulang alur untuk konfigurasi sesi ini">
-                  🔄 Run Ulang
-                </button>
-              `}
+              ` : ''}
             </div>
           </td>
         </tr>
@@ -5076,6 +5094,45 @@ window.rerunWorkflow = function (workflowId, configId, runId = null) {
         }, 150);
       }
     }
+  });
+};
+
+window.cancelWorkflowRun = function (runId) {
+  openGeneralConfirmModal({
+    title: 'Konfirmasi Pembatalan Sesi',
+    message: `Apakah Anda yakin ingin membatalkan sesi Run #${runId}?`,
+    submessage: 'Status sesi gagal ini akan diubah menjadi CANCELLED dan tidak dapat di-resume lagi.',
+    proceedLabel: 'Ya, Batalkan Sesi',
+    proceedClass: 'btn-danger',
+    onConfirm: async () => {
+      try {
+        const res = await fetch(`/api/etl/runs/${runId}/cancel`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || 'Gagal membatalkan sesi.');
+        }
+        if (typeof showToast === 'function') {
+          showToast(`Sesi Run #${runId} berhasil dibatalkan.`, 'success');
+        } else {
+          alert(`Sesi Run #${runId} berhasil dibatalkan.`);
+        }
+        if (typeof loadMigrationRunsTable === 'function') {
+          await loadMigrationRunsTable();
+        }
+        if (typeof loadEtlOverview === 'function') {
+          await loadEtlOverview();
+        }
+      } catch (err) {
+        if (typeof showToast === 'function') {
+          showToast(`Gagal membatalkan sesi: ${err.message}`, 'error');
+        } else {
+          alert(`Gagal membatalkan sesi: ${err.message}`);
+        }
+      }
+    },
   });
 };
 
@@ -5309,13 +5366,21 @@ window.showJsonModal = function (errorId) {
 // MODUL 4: HASIL MIGRASI (PIPELINE 3-TIER RECONCILIATION)
 // =========================================================================
 
+// Nilai status staging pernah dikirim sebagai STAGING / STAGING_ONLY / 'STAGING ONLY'
+function isStagingActionStatus(actionStatus) {
+  return actionStatus === 'STAGING' || actionStatus === 'STAGING_ONLY' || actionStatus === 'STAGING ONLY';
+}
+
 function renderActionStatusBadge(actionStatus, postedAt, rolledBackAt) {
   if (actionStatus === 'POSTED') {
     const titleStr = postedAt ? `Sudah diposting ke target (${formatDate(postedAt)})` : 'Sudah diposting ke target vendor';
     return `<span class="badge badge-success font-bold" title="${titleStr}" style="font-size: 0.78rem;">🚀 Posted</span>`;
   }
-  if (actionStatus === 'STAGING_ONLY') {
-    return `<span class="badge badge-warning font-bold" title="Data berada di tahap staging, belum diposting ke target" style="font-size: 0.78rem;">📦 Staging</span>`;
+  if (isStagingActionStatus(actionStatus)) {
+    return `<span class="badge badge-info font-bold" title="Tahap Staging selesai sukses, siap untuk diposting ke target" style="font-size: 0.78rem;">📥 Staging Only</span>`;
+  }
+  if (actionStatus === 'NOT_POSTED' || actionStatus === 'NO_POSTED') {
+    return `<span class="badge badge-warning font-bold" title="Tidak ada baris data yang diposting ke target" style="font-size: 0.78rem;">📦 No Posted</span>`;
   }
   if (actionStatus === 'ROLLED_BACK') {
     const titleStr = rolledBackAt ? `Data di-rollback dari target (${formatDate(rolledBackAt)})` : 'Data di-rollback dari target';
@@ -5453,9 +5518,29 @@ function renderPipelineMasterRows(pipelines) {
     }];
     const spanCount = targets.length;
     const isMatch = p.reconciliation?.sourceToStagingStatus === 'MATCH';
-    const statusBadge = isMatch
-      ? `<span class="badge badge-success font-bold" style="font-size: 0.78rem;">✓ 100% Match</span>`
-      : `<span class="badge badge-warning font-bold" style="font-size: 0.78rem;">⏳ Selisih</span>`;
+    let statusBadge = '';
+    const srcCount = Number(p.source?.rows ?? 0);
+    const stgCount = Number(p.staging?.rows ?? 0);
+    const isAnyNotPosted = targets.some(t => t.actionStatus === 'NOT_POSTED' || t.actionStatus === 'NO_POSTED');
+    const isStagingOnly = targets.every(t => isStagingActionStatus(t.actionStatus));
+    const isAllPosted = targets.every(t => t.actionStatus === 'POSTED');
+
+    if (isMatch && (isAllPosted || isStagingOnly)) {
+      statusBadge = `<span class="badge badge-success font-bold" style="font-size: 0.78rem;">✓ 100% Match</span>`;
+    } else if (stgCount === 0 || (isAnyNotPosted && targets.every(t => (t.sumAfter ?? 0) === (t.sumBefore ?? 0)))) {
+      statusBadge = `<span class="badge badge-danger font-bold" style="font-size: 0.78rem;">0% Match</span>`;
+    } else if (srcCount > 0) {
+      const pct = Math.min(100, Math.max(0, Math.round((stgCount / srcCount) * 100)));
+      if (pct === 0) {
+        statusBadge = `<span class="badge badge-danger font-bold" style="font-size: 0.78rem;">0% Match</span>`;
+      } else if (pct === 100) {
+        statusBadge = `<span class="badge badge-success font-bold" style="font-size: 0.78rem;">✓ 100% Match</span>`;
+      } else {
+        statusBadge = `<span class="badge badge-warning font-bold" style="font-size: 0.78rem;">⏳ ${pct}% Match</span>`;
+      }
+    } else {
+      statusBadge = `<span class="badge badge-warning font-bold" style="font-size: 0.78rem;">⏳ Selisih</span>`;
+    }
 
     const errorCount = p.reconciliation?.errorsLogged || 0;
     const errorClass = errorCount > 0 ? 'text-rose font-bold' : 'text-muted';

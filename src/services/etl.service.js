@@ -6,6 +6,7 @@ const { Pool } = require('pg');
 const { checkSqlServerConnection, getSqlServerPool, querySqlServer } = require('../config/sqlserver');
 const { ensureTunnel } = require('../config/tunnel');
 const { encrypt, decrypt, isEncrypted, maskCredential } = require('../utils/encryption');
+const pipelineService = require('./pipeline.service');
 
 function sanitizeIdentifier(name) {
   if (!name || typeof name !== 'string') return null;
@@ -1795,6 +1796,74 @@ class EtlService {
       totalPages: Math.ceil(total / limitNum) || 1,
       runs: runsRes.rows,
     };
+  }
+
+  async cancelMigrationRun(runId) {
+    const rId = parseInt(runId, 10);
+    if (!rId || isNaN(rId)) {
+      throw new Error('Run ID tidak valid.');
+    }
+
+    const checkRes = await queryPostgres(
+      'SELECT run_id, status, config_id, main_workflow, note FROM mc_center.migration_run WHERE run_id = $1',
+      [rId]
+    );
+
+    if (checkRes.rows.length === 0) {
+      throw new Error(`Sesi Run #${rId} tidak ditemukan.`);
+    }
+
+    const currentRun = checkRes.rows[0];
+    if (currentRun.status === 'SUCCESS' || currentRun.status === 'COMPLETED') {
+      throw new Error(`Sesi Run #${rId} sudah berhasil selesai (SUCCESS) dan tidak dapat dibatalkan.`);
+    }
+
+    if (currentRun.status === 'CANCELLED') {
+      throw new Error(`Sesi Run #${rId} sudah berstatus CANCELLED sebelumnya.`);
+    }
+
+    // Update status ke CANCELLED
+    const updateRes = await queryPostgres(
+      `UPDATE mc_center.migration_run 
+       SET status = 'CANCELLED',
+           end_time = COALESCE(end_time, NOW()),
+           note = CASE 
+             WHEN note IS NULL OR note = '' THEN 'Sesi dibatalkan (Cancelled)'
+             WHEN note LIKE '%Dibatalkan%' OR note LIKE '%Cancelled%' THEN note
+             ELSE note || ' | Sesi dibatalkan (Cancelled)'
+           END
+       WHERE run_id = $1
+       RETURNING *`,
+      [rId]
+    );
+
+    // Jika sesi adalah Flow 1 yang gagal dan memiliki config_id, lakukan cleanup staging agar bersih
+    try {
+      if (currentRun.main_workflow === 'flow_1_staging' && currentRun.config_id) {
+        const cfgId = parseInt(String(currentRun.config_id).split(',')[0], 10);
+        if (!isNaN(cfgId)) {
+          const cfgRes = await queryPostgres('SELECT stg_table FROM mc_center.migration_config WHERE config_id = $1', [cfgId]);
+          if (cfgRes.rows.length > 0 && cfgRes.rows[0].stg_table) {
+            const stg = cfgRes.rows[0].stg_table.endsWith('_src') ? cfgRes.rows[0].stg_table : `${cfgRes.rows[0].stg_table}_src`;
+            await queryPostgres(`TRUNCATE TABLE stg_antam."${stg}"`);
+          }
+        }
+      }
+    } catch (_) {}
+
+    // Catat log langkah pembatalan di migration_step_log
+    try {
+      const cfgId = currentRun.config_id ? parseInt(String(currentRun.config_id).split(',')[0], 10) : null;
+      await queryPostgres(
+        `INSERT INTO mc_center.migration_step_log 
+         (run_id, config_id, step_name, status, message, end_time)
+         VALUES ($1, $2, 'CANCEL_RUN', 'CANCELLED', 'Sesi migrasi dibatalkan oleh pengguna.', NOW())`,
+        [rId, isNaN(cfgId) ? null : cfgId]
+      );
+    } catch (_) {}
+
+    pipelineService.invalidatePipelineCache();
+    return updateRes.rows[0];
   }
 
   async getStepLogs(options = {}) {

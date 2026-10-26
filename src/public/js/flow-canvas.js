@@ -1188,6 +1188,7 @@ class FlowCanvasStudio {
     modal.classList.remove('hidden');
 
     let configs = [];
+    let targetConfigRows = [];
     let runs = [];
 
     try {
@@ -1197,9 +1198,11 @@ class FlowCanvasStudio {
       if (ctx.envId) params.push(`envId=${ctx.envId}`);
       const qs = params.length > 0 ? `?${params.join('&')}` : '';
 
-      const [cfgRes, runRes] = await Promise.all([
+      // Baris target dicocokkan via config_id (tanpa filter client/env) agar sama dengan pengecekan di backend
+      const [cfgRes, runRes, allCfgRes] = await Promise.all([
         fetch(`/api/etl/configs${qs}`).then(r => r.json()).catch(() => null),
-        fetch(`/api/etl/runs${qs}${params.length > 0 ? '&' : '?'}limit=50`).then(r => r.json()).catch(() => null)
+        fetch(`/api/etl/runs${qs}${params.length > 0 ? '&' : '?'}limit=50`).then(r => r.json()).catch(() => null),
+        qs ? fetch('/api/etl/configs').then(r => r.json()).catch(() => null) : Promise.resolve(null)
       ]);
 
       if (cfgRes?.success && cfgRes.data) {
@@ -1210,6 +1213,13 @@ class FlowCanvasStudio {
         } else if (Array.isArray(cfgRes.data.pipelines)) {
           configs = cfgRes.data.pipelines;
         }
+        if (Array.isArray(cfgRes.data.migration_target_config)) {
+          targetConfigRows = cfgRes.data.migration_target_config;
+        }
+      }
+
+      if (Array.isArray(allCfgRes?.data?.migration_target_config)) {
+        targetConfigRows = allCfgRes.data.migration_target_config;
       }
 
       if (runRes?.success && runRes.data) {
@@ -1250,19 +1260,31 @@ class FlowCanvasStudio {
           }
         });
 
+        // Sembunyikan config yang tidak punya target aktif di migration_target_config (selaras dengan skip di backend)
+        const activeTargetCfgIds = new Set(
+          targetConfigRows
+            .filter(t => t.is_active !== false)
+            .map(t => parseInt(t.config_id, 10))
+        );
+        const selectableConfigs = configs.filter(c => activeTargetCfgIds.has(parseInt(c.config_id, 10)));
+        const hiddenCount = configs.length - selectableConfigs.length;
+        const hasPreselected = preselectedConfigId && selectableConfigs.some(c => String(c.config_id) === String(preselectedConfigId));
+
         let cfgOptionsHtml = '';
-        if (configs.length === 0) {
+        if (selectableConfigs.length === 0) {
           cfgOptionsHtml = `
             <div class="p-3 text-center text-xs" style="color: #fbbf24; background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3); border-radius: 6px; margin: 8px;">
-              ⚠️ <strong>Belum ada tabel konfigurasi untuk Client [${ctx.clientCode}] di Environment [${ctx.envCode}].</strong><br>
-              <span class="text-muted text-xs">Silakan daftarkan konfigurasi tabel pada tab <strong>2. Migration Config</strong>.</span>
+              ⚠️ <strong>${configs.length === 0
+                ? `Belum ada tabel konfigurasi untuk Client [${ctx.clientCode}] di Environment [${ctx.envCode}].`
+                : `Tidak ada konfigurasi yang memiliki target aktif untuk Client [${ctx.clientCode}] di Environment [${ctx.envCode}].`}</strong><br>
+              <span class="text-muted text-xs">Silakan daftarkan konfigurasi tabel dan target aktif pada tab <strong>2. Migration Config</strong>.</span>
             </div>
           `;
         } else {
-          cfgOptionsHtml = configs.map((c, idx) => {
+          cfgOptionsHtml = selectableConfigs.map((c, idx) => {
             const postedRunId = postedMap.get(parseInt(c.config_id, 10));
             const badge = postedRunId ? `<span class="badge text-xs ml-2" style="background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; font-weight: 700; padding: 3px 8px; border-radius: 4px; font-size: 11px;">⚠️ Diposting (Run #${postedRunId})</span>` : '';
-            const isChecked = preselectedConfigId 
+            const isChecked = hasPreselected
               ? (String(c.config_id) === String(preselectedConfigId) ? 'checked' : '')
               : (idx === 0 ? 'checked' : '');
             const isSelectedClass = isChecked ? 'is-selected' : '';
@@ -1308,7 +1330,7 @@ class FlowCanvasStudio {
                 </div>
                 
                 <div class="multiselect-footer">
-                  <span id="config-selection-count">${configs.length > 0 ? '1 konfigurasi terpilih' : '0 konfigurasi'}</span>
+                  <span id="config-selection-count">${selectableConfigs.length > 0 ? '1 konfigurasi terpilih' : '0 konfigurasi'}</span>
                   <span class="text-xs text-muted">Klik opsi untuk toggle item</span>
                 </div>
               </div>
@@ -1344,10 +1366,12 @@ class FlowCanvasStudio {
         // 1. HANYA sesi berstatus SUCCESS, belum diposting, dan belum di-rollback
         // 2. Abaikan sesi yang sudah KADALUARSA / SUPERSEDED (karena staging table ditimpa oleh run baru)
         // 3. Hanya ambil 1 SESI TERBARU per konfigurasi tabel (1 sesi per config_id)
+        // 4. Abaikan sesi non-staging (Flow 4 Purge dan Flow 3 Rollback) karena tidak membawa data staging
         const activeRunsByConfig = new Map();
         const sortedRuns = [...runs].sort((a, b) => parseInt(b.run_id, 10) - parseInt(a.run_id, 10));
 
         sortedRuns.forEach(r => {
+          if (r.main_workflow === 'flow_4_purge' || r.main_workflow?.includes('purge') || r.main_workflow === 'flow_3_rollback') return;
           const isEligible = r.status === 'SUCCESS' || (r.status === 'FAILED' && r.main_workflow === 'flow_2_post');
           const notPosted = !r.is_posted;
           const notRolledBack = !r.is_rolled_back;
@@ -2307,10 +2331,17 @@ class FlowCanvasStudio {
         if (typeof window.loadEtlRuns === 'function') window.loadEtlRuns();
         if (typeof window.loadEtlOverview === 'function') window.loadEtlOverview();
 
-        // Buffer delay (~500ms) untuk memastikan database commit hoàn toàn stabil, lalu switch otomatis ke tab Riwayat Eksekusi
+        // Buffer delay (~500ms) untuk memastikan database commit sepenuhnya stabil, lalu switch otomatis ke tab Riwayat Eksekusi
         setTimeout(() => {
           if (typeof window.loadEtlRuns === 'function') window.loadEtlRuns();
           if (typeof window.loadEtlOverview === 'function') window.loadEtlOverview();
+          // Refresh tab pipeline (Hasil Migrasi) jika aktif
+          const pipelineTab = document.getElementById('tab-pipeline');
+          if (pipelineTab && !pipelineTab.classList.contains('hidden')) {
+            if (typeof window.loadPipelineReconciliation === 'function') {
+              window.loadPipelineReconciliation(true);
+            }
+          }
           if (typeof window.switchCanvasBottomTab === 'function') {
             window.switchCanvasBottomTab('canvas-tab-runs');
           }
@@ -2346,6 +2377,13 @@ class FlowCanvasStudio {
         setTimeout(() => {
           if (typeof window.loadEtlRuns === 'function') window.loadEtlRuns();
           if (typeof window.loadEtlOverview === 'function') window.loadEtlOverview();
+          // Refresh tab pipeline (Hasil Migrasi) jika aktif
+          const pipelineTab = document.getElementById('tab-pipeline');
+          if (pipelineTab && !pipelineTab.classList.contains('hidden')) {
+            if (typeof window.loadPipelineReconciliation === 'function') {
+              window.loadPipelineReconciliation(true);
+            }
+          }
         }, 500);
 
         // Buka otomatis modal diagnostik error (Bug #3)

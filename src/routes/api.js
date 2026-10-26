@@ -103,6 +103,7 @@ router.delete('/etl/configs/:table/:id', requireAuth, (req, res) => etlControlle
 // ==========================================
 router.get('/etl/overview', requireAuth, (req, res) => etlController.getOverview(req, res));
 router.get('/etl/runs', requireAuth, (req, res) => etlController.getRuns(req, res));
+router.post('/etl/runs/:runId/cancel', requireAuth, (req, res) => etlController.cancelRun(req, res));
 router.get('/etl/step-logs', requireAuth, (req, res) => etlController.getStepLogs(req, res));
 router.get('/etl/error-logs', requireAuth, (req, res) => etlController.getErrorLogs(req, res));
 
@@ -114,6 +115,7 @@ router.get('/reconciliation/config-details', requireAuth, (req, res) => pipeline
 router.get('/reconciliation/stage-data', requireAuth, (req, res) => pipelineController.getPipelineStageData(req, res));
 router.get('/reconciliation/compare', requireAuth, (req, res) => pipelineController.comparePipelineConfig(req, res));
 router.get('/reconciliation/berita-acara', requireAuth, (req, res) => pipelineController.getBeritaAcara(req, res));
+router.get('/reconciliation/staging-history', requireAuth, (req, res) => pipelineController.getStagingHistory(req, res));
 
 const flowCanvasController = require('../controllers/flow-canvas.controller');
 
