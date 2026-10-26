@@ -7,7 +7,45 @@ function sanitizeIdentifier(name) {
   return clean.length > 0 ? clean : null;
 }
 
+const ACTION_STATUS = {
+  STAGING: 'STAGING ONLY',
+  POSTED: 'POSTED',
+  NOT_POSTED: 'NOT_POSTED',
+  ROLLED_BACK: 'ROLLED_BACK',
+  NONE: 'NONE'
+};
+
+function isZeroPostRun(run) {
+  return Boolean(run) && (
+    (run.main_workflow === 'flow_2_post' && run.is_posted === false) ||
+    (run.note && (run.note.includes('+0 baris diposting') || run.note.includes('ter-insert=0')))
+  );
+}
+
+/**
+ * Satu-satunya sumber kebenaran penentuan Status Action per run.
+ * Run Flow 1 yang belum diposting SELALU berstatus STAGING, dievaluasi sebelum
+ * pengecekan "+0 baris" agar teks pada note tidak menggesernya menjadi NOT_POSTED.
+ */
+function resolveActionStatus(run, { hasPostLog = false, stgRows = null } = {}) {
+  if (!run) {
+    if (hasPostLog) return ACTION_STATUS.POSTED;
+    return stgRows !== null && stgRows > 0 ? ACTION_STATUS.STAGING : ACTION_STATUS.NONE;
+  }
+  if (run.is_rolled_back) return ACTION_STATUS.ROLLED_BACK;
+  if (run.main_workflow === 'flow_1_staging' && !run.is_posted) return ACTION_STATUS.STAGING;
+  if (isZeroPostRun(run)) return ACTION_STATUS.NOT_POSTED;
+  if (run.is_posted) return ACTION_STATUS.POSTED;
+  if (run.note?.includes('Flow 1')) return ACTION_STATUS.STAGING;
+  if (run.main_workflow === 'flow_2_post') return ACTION_STATUS.NOT_POSTED;
+  if (run.status === 'SUCCESS') return ACTION_STATUS.STAGING;
+  return ACTION_STATUS.NOT_POSTED;
+}
+
 class PipelineService {
+  static resolveActionStatus = resolveActionStatus;
+  static ACTION_STATUS = ACTION_STATUS;
+
   // In-memory cache map untuk mempercepat display data secara drastis
   static _pipelineCache = new Map();
 
@@ -171,17 +209,6 @@ class PipelineService {
         return ids.includes(idStr);
       }) || null;
 
-      const matchedMigrationRun = allRuns.find((r) => {
-        if (!r.config_id) return false;
-        if (r.main_workflow === 'flow_4_purge' || r.main_workflow?.includes('purge')) return false;
-        const ids = r.config_id.split(',').map((s) => s.trim());
-        return ids.includes(idStr);
-      }) || null;
-
-      const runForActionPre = (matchedRun && (matchedRun.main_workflow === 'flow_4_purge' || matchedRun.main_workflow?.includes('purge')))
-        ? (matchedMigrationRun || matchedRun)
-        : matchedRun;
-
       let cfgTargets = allTargetConfigs.filter((t) => t.config_id === cfg.config_id);
       if (cfgTargets.length === 0) {
         cfgTargets = [{
@@ -209,16 +236,8 @@ class PipelineService {
           sl.message.toLowerCase().includes(tTable.toLowerCase())
         );
 
-        let actionStatus = 'NONE';
-        if (runForActionPre) {
-          const isZeroPre = (runForActionPre.main_workflow === 'flow_2_post' && runForActionPre.is_posted === false) ||
-                            (runForActionPre.note && (runForActionPre.note.includes('+0 baris diposting') || runForActionPre.note.includes('ter-insert=0')));
-          actionStatus = runForActionPre.is_rolled_back ? 'ROLLED_BACK' : (isZeroPre ? 'NOT_POSTED' : (runForActionPre.is_posted ? 'POSTED' : 'STAGING ONLY'));
-        } else if (matchedLog) {
-          actionStatus = 'POSTED';
-        }
-
-        if (tTable && (!matchedLog || matchedLog.rows_after === null)) {
+        // Hitung ulang tabel target selalu dilakukan: sesi staging (Flow 1) tidak punya log POST_TARGET sendiri
+        if (tTable) {
           const key = `"${tSchema}"."${tTable}"`;
           if (!fallbackTargetMap.has(key)) {
             fallbackTargetMap.set(key, null);
@@ -282,7 +301,7 @@ class PipelineService {
       // Prioritas penentuan status:
       //   1. Jika run terbaru adalah purge -> gunakan run migrasi non-purge sebelumnya
       //   2. Jika ada rollback aktif (is_rolled_back) DAN run terbaru non-purge adalah rollback itu sendiri -> tampilkan rollback
-      //   3. Semua kasus lain -> gunakan run terbaru (flow_1, flow_2, dll)
+      //   3. Semua kasus lain (mis. flow 1 staging baru setelah rollback) -> gunakan run terbaru langsung
       let runForAction;
       if (matchedRun && (matchedRun.main_workflow === 'flow_4_purge' || matchedRun.main_workflow?.includes('purge'))) {
         // Jika run terbaru adalah purge, gunakan run migrasi sebelumnya
@@ -338,41 +357,18 @@ class PipelineService {
           sl.message.toLowerCase().includes(tTable.toLowerCase())
         );
 
-        let actionStatus = 'NONE';
-        let postedAt = null;
-        let rolledBackAt = null;
-
-        const isZeroPostRun = (runForAction && runForAction.main_workflow === 'flow_2_post' && runForAction.is_posted === false) ||
-                              (runForAction?.note && (runForAction.note.includes('+0 baris diposting') || runForAction.note.includes('ter-insert=0')));
-
-        if (runForAction) {
-          postedAt = runForAction.posted_at;
-          rolledBackAt = runForAction.rolled_back_at;
-          if (runForAction.is_rolled_back) {
-            actionStatus = 'ROLLED_BACK';
-          } else if (isZeroPostRun) {
-            actionStatus = 'NOT_POSTED';
-          } else if (runForAction.is_posted) {
-            actionStatus = 'POSTED';
-          } else if (runForAction.main_workflow === 'flow_1_staging' || runForAction.note?.includes('Flow 1')) {
-            actionStatus = 'STAGING ONLY';
-          } else if (runForAction.main_workflow === 'flow_2_post') {
-            actionStatus = 'NOT_POSTED';
-          } else if (!runForAction.is_posted && runForAction.status === 'SUCCESS') {
-            actionStatus = 'STAGING ONLY';
-          } else {
-            actionStatus = 'NOT_POSTED';
-          }
-        } else if (matchedLog) {
-          actionStatus = 'POSTED';
-        } else if (stgRows !== null && stgRows > 0) {
-          actionStatus = 'STAGING ONLY';
-        }
+        let actionStatus = resolveActionStatus(runForAction, { hasPostLog: Boolean(matchedLog), stgRows });
+        const postedAt = runForAction ? runForAction.posted_at : null;
+        const rolledBackAt = runForAction ? runForAction.rolled_back_at : null;
 
         let sumAfter = null;
         let sumBefore = null;
 
         // Jika ROLLED_BACK: gunakan log ROLLBACK_TARGET untuk sumBefore/sumAfter (nilai setelah rollback = nilai sebelum posting)
+        // Sesi staging belum memposting apa pun: log POST_TARGET milik sesi lama (yang mungkin sudah di-rollback)
+        // tidak boleh dipakai, sehingga Sum After dihitung ulang dari isi tabel target saat ini.
+        const auditLog = actionStatus === ACTION_STATUS.STAGING ? null : matchedLog;
+
         const rollbackLog = (actionStatus === 'ROLLED_BACK' && runForAction)
           ? allRollbackStepLogs.find((sl) =>
               sl.run_id === runForAction.run_id &&
@@ -388,14 +384,14 @@ class PipelineService {
           sumBefore = rollbackLog.rows_before !== null ? parseInt(rollbackLog.rows_before, 10) : null;
         } else {
           // Ambil baris target dari POST_TARGET log: prioritaskan matchedLog (record audit aktual), fallback ke query count tabel target
-          if (matchedLog && matchedLog.rows_after !== null && matchedLog.rows_after !== undefined) {
-            sumAfter = parseInt(matchedLog.rows_after, 10);
+          if (auditLog && auditLog.rows_after !== null && auditLog.rows_after !== undefined) {
+            sumAfter = parseInt(auditLog.rows_after, 10);
           } else {
             sumAfter = fallbackTargetMap.get(`"${tSchema}"."${tTable}"`) ?? null;
           }
 
-          if (matchedLog && matchedLog.rows_before !== null && matchedLog.rows_before !== undefined) {
-            sumBefore = parseInt(matchedLog.rows_before, 10);
+          if (auditLog && auditLog.rows_before !== null && auditLog.rows_before !== undefined) {
+            sumBefore = parseInt(auditLog.rows_before, 10);
           } else if (sumAfter !== null && stgRows !== null && actionStatus === 'POSTED') {
             sumBefore = Math.max(0, sumAfter - stgRows);
           } else if (sumAfter !== null) {

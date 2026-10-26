@@ -1,5 +1,5 @@
 const sql = require('mssql');
-const { ensureTunnel } = require('./tunnel');
+const { ensureTunnel, isTunnelActive } = require('./tunnel');
 require('dotenv').config();
 
 function getEffectiveConfig() {
@@ -30,29 +30,42 @@ function getEffectiveConfig() {
 }
 
 let pool = null;
+let connectingPromise = null;
 
 async function getSqlServerPool() {
-  if (pool && pool.connected) {
+  const useTunnel = process.env.MSSQL_USE_SSH_TUNNEL === 'true';
+
+  // Pool yang masih "connected" tidak valid lagi jika SSH tunnel sudah putus (koneksi baru akan ESOCKET)
+  if (pool && pool.connected && (!useTunnel || isTunnelActive())) {
     return pool;
   }
 
-  try {
-    // Pastikan SSH tunnel aktif jika diaktifkan
-    if (process.env.MSSQL_USE_SSH_TUNNEL === 'true') {
-      await ensureTunnel();
-    }
+  if (connectingPromise) return connectingPromise;
 
-    if (pool) {
-      await pool.close();
-    }
+  connectingPromise = (async () => {
+    try {
+      if (useTunnel) {
+        await ensureTunnel();
+      }
 
-    const config = getEffectiveConfig();
-    pool = await new sql.ConnectionPool(config).connect();
-    return pool;
-  } catch (err) {
-    pool = null;
-    throw err;
-  }
+      if (pool) {
+        const stalePool = pool;
+        pool = null;
+        try { await stalePool.close(); } catch (e) {}
+      }
+
+      const config = getEffectiveConfig();
+      pool = await new sql.ConnectionPool(config).connect();
+      return pool;
+    } catch (err) {
+      pool = null;
+      throw err;
+    } finally {
+      connectingPromise = null;
+    }
+  })();
+
+  return connectingPromise;
 }
 
 async function checkSqlServerConnection() {
