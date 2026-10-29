@@ -205,14 +205,16 @@ Aplikasi memiliki sistem deteksi otomatis lingkungan (*Dynamic Environment Loade
 
 ---
 
-## 🏢 Panduan Instalasi ke Server On-Premise (Production)
+## 🏢 Panduan Instalasi ke Server On-Premise (Development / Dev Environment)
 
-Panduan berikut ditujukan untuk instalasi pada server Linux fisik (*Bare Metal*) atau Virtual Machine (*VM / On-Premise*) berbasis **Ubuntu 20.04/22.04 LTS** atau **RHEL / Rocky Linux 8/9**.
+Panduan berikut ditujukan untuk instalasi pada server Linux fisik (*Bare Metal*) atau Virtual Machine (*VM / On-Premise*) lingkungan **Development / Pengujian** berbasis **Ubuntu 20.04/22.04 LTS** atau **RHEL / Rocky Linux 8/9** menggunakan branch **`dev`** dan konfigurasi **`.env.development`**.
+
+> 💡 **Info:** Sistem MCC-PROCSI dilengkapi deteksi otomatis ([`src/config/env.js`](./src/config/env.js)). Ketika berada di branch `dev`, sistem otomatis mengaktifkan mode **Development** dan membaca `.env.development`. Untuk deployment ke server produksi (`main`), lihat panduan perbedaannya di [catatan produksi di bawah](#perbedaan-dengan-server-production).
 
 ### 1. Kebutuhan Sistem & Spesifikasi Minimum
 - **Sistem Operasi**: Linux Ubuntu 20.04/22.04 LTS / Debian 11/12 / RHEL 8/9
 - **Processor**: Minimum 2 Core vCPU (Rekomendasi 4 Core vCPU)
-- **RAM**: Minimum 4 GB (Rekomendasi 8 GB jika memproses jutaan baris data)
+- **RAM**: Minimum 4 GB (Rekomendasi 8 GB jika memproses dataset besar)
 - **Disk Storage**: Minimum 20 GB free space (SSD disarankan)
 - **Software Dependencies**:
   - Node.js **versi terbaru (minimal v26.12.2, LTS "Lithium")** — wajib, bukan versi lama
@@ -223,27 +225,27 @@ Panduan berikut ditujukan untuk instalasi pada server Linux fisik (*Bare Metal*)
 
 ---
 
-### 2. Persiapan Database PostgreSQL On-Premise
+### 2. Persiapan Database PostgreSQL On-Premise Dev
 
-Pastikan PostgreSQL sudah berjalan dan dapat diakses dari server aplikasi:
+Pastikan PostgreSQL sudah berjalan dan dapat diakses dari server aplikasi dev:
 
 ```bash
 # Masuk ke prompt PostgreSQL
 sudo -u postgres psql
 
-# Buat user dan database aplikasi (sesuaikan nama & password)
-CREATE USER <USER_DB_APLIKASI> WITH PASSWORD '<PASSWORD_DB_APLIKASI>';
-CREATE DATABASE <NAMA_DATABASE> OWNER <USER_DB_APLIKASI>;
-GRANT ALL PRIVILEGES ON DATABASE <NAMA_DATABASE> TO <USER_DB_APLIKASI>;
+# Buat user dan database aplikasi dev (sesuaikan nama & password)
+CREATE USER <USER_DB_DEV> WITH PASSWORD '<PASSWORD_DB_DEV>';
+CREATE DATABASE <NAMA_DATABASE_DEV> OWNER <USER_DB_DEV>;
+GRANT ALL PRIVILEGES ON DATABASE <NAMA_DATABASE_DEV> TO <USER_DB_DEV>;
 
-# Hubungkan ke database aplikasi
-\c <NAMA_DATABASE>
+# Hubungkan ke database aplikasi dev
+\c <NAMA_DATABASE_DEV>
 
 # Buat schema kontrol mc_center
-CREATE SCHEMA IF NOT EXISTS mc_center AUTHORIZATION <USER_DB_APLIKASI>;
-GRANT ALL ON SCHEMA mc_center TO <USER_DB_APLIKASI>;
-GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA mc_center TO <USER_DB_APLIKASI>;
-GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA mc_center TO <USER_DB_APLIKASI>;
+CREATE SCHEMA IF NOT EXISTS mc_center AUTHORIZATION <USER_DB_DEV>;
+GRANT ALL ON SCHEMA mc_center TO <USER_DB_DEV>;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA mc_center TO <USER_DB_DEV>;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA mc_center TO <USER_DB_DEV>;
 
 # Keluar dari PostgreSQL
 \q
@@ -283,90 +285,90 @@ sudo npm install -g pm2
 
 ---
 
-### 4. Clone Repository & Checkout Branch `main`
+### 4. Clone Repository & Checkout Branch `dev`
 
-Aplikasi diatur agar otomatis menggunakan mode **Production** ketika berada di branch `main`:
+Aplikasi diatur agar otomatis menggunakan mode **Development** ketika berada di branch `dev`:
 
 ```bash
-# Buat direktori aplikasi
-sudo mkdir -p /var/www/mcc-procsi
-sudo chown -R $USER:$USER /var/www/mcc-procsi
+# Buat direktori aplikasi untuk server dev
+sudo mkdir -p /var/www/mcc-procsi-dev
+sudo chown -R $USER:$USER /var/www/mcc-procsi-dev
 
-# Clone source code
-git clone https://workstation.sisi.id/product-development/procsi/antam-new-scm/migrasi-dashboard-antam.git /var/www/mcc-procsi
-cd /var/www/mcc-procsi
+# Clone source code dari GitLab Workstation SISI (atau GitHub)
+git clone https://workstation.sisi.id/product-development/procsi/antam-new-scm/migrasi-dashboard-antam.git /var/www/mcc-procsi-dev
+cd /var/www/mcc-procsi-dev
 
-# Pastikan berada di branch main (Production)
-git checkout main
-git pull origin main
+# Pastikan berada di branch dev
+git checkout dev
+git pull origin dev
 
-# Install dependensi produksi saja (bersih dan aman)
-npm ci --omit=dev
+# Install dependensi
+npm install
 ```
 
 ---
 
-### 5. Konfigurasi Environment Produksi (`.env.production`)
+### 5. Konfigurasi Environment Development (`.env.development`)
 
-Buat file `.env.production` di root direktori `/var/www/mcc-procsi`:
+Sistem secara otomatis membaca berkas `.env.development` saat mendeteksi branch `dev`:
 
 ```bash
-cp .env.example .env.production
-nano .env.production
+cp .env.example .env.development
+nano .env.development
 ```
 
-#### Contoh Konfigurasi `.env.production` Lengkap:
+#### Contoh Konfigurasi `.env.development` Lengkap:
 
 ```ini
 # ==============================================================================
-# ENVIRONMENT UTAMA PRODUCTION
+# ENVIRONMENT UTAMA DEVELOPMENT
 # ==============================================================================
-NODE_ENV=production
-APP_ENV=PROD
+NODE_ENV=development
+APP_ENV=DEV
 PORT=3000
 
 # ==============================================================================
-# 1. DATABASE APLIKASI (PostgreSQL mc_center)
+# 1. DATABASE APLIKASI (PostgreSQL Dev)
 # ==============================================================================
-APP_DB_HOST=<HOST_POSTGRESQL>
+APP_DB_HOST=<HOST_DEV_POSTGRESQL>
 APP_DB_PORT=<PORT_POSTGRESQL>
-APP_DB_USER=<USER_DB_APLIKASI>
-APP_DB_PASSWORD=<PASSWORD_DB_APLIKASI>
-APP_DB_NAME=<NAMA_DATABASE>
+APP_DB_USER=<USER_DB_DEV>
+APP_DB_PASSWORD=<PASSWORD_DB_DEV>
+APP_DB_NAME=<NAMA_DATABASE_DEV>
 APP_DB_SCHEMA=mc_center
-APP_DB_MAX_POOL=20
+APP_DB_MAX_POOL=10
 
 # Alias backward compatibility
-PG_HOST=<HOST_POSTGRESQL>
+PG_HOST=<HOST_DEV_POSTGRESQL>
 PG_PORT=<PORT_POSTGRESQL>
-PG_USER=<USER_DB_APLIKASI>
-PG_PASSWORD=<PASSWORD_DB_APLIKASI>
-PG_DATABASE=<NAMA_DATABASE>
+PG_USER=<USER_DB_DEV>
+PG_PASSWORD=<PASSWORD_DB_DEV>
+PG_DATABASE=<NAMA_DATABASE_DEV>
 PG_CONNECTION_TIMEOUT_MILLIS=15000
 
 # Opsional: Jika PostgreSQL menggunakan SSL
 PG_SSL=false
-PG_SSL_REJECT_UNAUTHORIZED=true
+PG_SSL_REJECT_UNAUTHORIZED=false
 
 # ==============================================================================
-# 2. DEFAULT WORKLOAD SOURCE DATABASE (SQL Server Antam)
-# Pada server on-premise, koneksi biasanya langsung melalui intranet tanpa SSH tunnel
+# 2. DATABASE SUMBER & SSH TUNNEL BASTION (Dev)
+# Pada server dev/testing, koneksi ke sumber umumnya melalui SSH Bastion
 # ==============================================================================
-MSSQL_SERVER=<HOST_SQLSERVER_SUMBER>
-MSSQL_PORT=1433
-MSSQL_USER=<USER_SQLSERVER>
-MSSQL_PASSWORD=<PASSWORD_SQLSERVER>
+MSSQL_SERVER=127.0.0.1
+MSSQL_PORT=11433
+MSSQL_USER=<USER_SQLSERVER_DEV>
+MSSQL_PASSWORD=<PASSWORD_SQLSERVER_DEV>
 MSSQL_DATABASE=<NAMA_DATABASE_SUMBER>
 MSSQL_ENCRYPT=false
 MSSQL_TRUST_SERVER_CERTIFICATE=true
 MSSQL_CONNECTION_TIMEOUT=15000
 
-# Nonaktifkan SSH Tunnel untuk production jika koneksi intranet direct
-MSSQL_USE_SSH_TUNNEL=false
-MSSQL_SSH_HOST=<HOST_SSH_BASTION_JIKA_ADA>
+# Aktifkan SSH Tunnel untuk server development
+MSSQL_USE_SSH_TUNNEL=true
+MSSQL_SSH_HOST=<HOST_SSH_BASTION>
 MSSQL_SSH_PORT=22
-MSSQL_SSH_USER=<USER_SSH_JIKA_ADA>
-MSSQL_SSH_PASSWORD=<PASSWORD_SSH_JIKA_ADA>
+MSSQL_SSH_USER=<USER_SSH_BASTION>
+MSSQL_SSH_PASSWORD=<PASSWORD_SSH_BASTION>
 LOCAL_TUNNEL_PORT=11433
 
 # ==============================================================================
@@ -382,8 +384,8 @@ ENCRYPTION_MASTER_KEY=<HASIL_OPENSSL_RAND_HEX_32>
 # ==============================================================================
 # 4. KEAMANAN JARINGAN & REVERSE PROXY
 # ==============================================================================
-# Diisi domain resmi yang diizinkan mengakses API (dipisahkan koma)
-CORS_ALLOWED_ORIGINS=http://localhost:3000,https://mcc.antam.com
+# Diisi domain atau IP Server dev yang diizinkan mengakses API (dipisahkan koma)
+CORS_ALLOWED_ORIGINS=http://localhost:3000,http://<IP_ATAU_DOMAIN_DEV>
 TRUST_PROXY=loopback
 ```
 
@@ -400,12 +402,12 @@ TRUST_PROXY=loopback
 
 Lindungi hak akses file konfigurasi:
 ```bash
-chmod 600 .env.production
+chmod 600 .env.development
 ```
 
 ---
 
-### 6. Pengaturan Process Manager dengan PM2
+### 6. Pengaturan Process Manager dengan PM2 (Dev Mode)
 
 Gunakan **PM2** agar aplikasi berjalan terus-menerus di latar belakang (*daemonized*), otomatis restart saat terjadi error tak terduga, dan otomatis hidup kembali saat server reboot:
 
@@ -415,15 +417,16 @@ cat << 'EOF' > ecosystem.config.js
 module.exports = {
   apps: [
     {
-      name: 'mcc-procsi',
+      name: 'mcc-procsi-dev',
       script: 'src/app.js',
       instances: 1, // Eksekusi single instance untuk menjamin koordinasi in-memory lock
       autorestart: true,
       watch: false,
       max_memory_restart: '1G',
-      env_production: {
-        NODE_ENV: 'production',
-        APP_ENV: 'PROD',
+      env_development: {
+        NODE_ENV: 'development',
+        APP_ENV: 'DEV',
+        PORT: 3000,
       },
     },
   ],
@@ -433,14 +436,14 @@ EOF
 
 Jalankan aplikasi via PM2:
 ```bash
-# Jalankan menggunakan konfigurasi production
-pm2 start ecosystem.config.js --env production
+# Jalankan menggunakan konfigurasi development
+pm2 start ecosystem.config.js --env development
 
 # Periksa status
 pm2 status
 
-# Periksa log aplikasi
-pm2 logs mcc-procsi --lines 50
+# Periksa log aplikasi (pastikan muncul tanda: '🚀 Migration Command Center [DEV] Mode berjalan!')
+pm2 logs mcc-procsi-dev --lines 50
 
 # Simpan state PM2 agar otomatis berjalan saat reboot
 pm2 save
@@ -453,18 +456,18 @@ sudo env PATH=$PATH:/usr/bin pm2 startup systemd -u $USER --hp $HOME
 
 Nginx berfungsi sebagai pintu gerbang utama (port 80 / 443), menangani kompresi gzip, terminasi SSL/TLS, dan meneruskan trafik ke backend Node.js (port 3000). 
 
-> ⚠️ **PENTING UNTUK SSE:** Fitur streaming alur orkestrasi (Modul 5) menggunakan Server-Sent Events (`/api/flows/stream/`). Nginx wajib menonaktifkan *buffering* (`proxy_buffering off;`) agar event log terkirim secara instan ke browser tanpa tertahan.
+> ⚠️ **PENTING UNTUK SSE:** Fitur streaming alur orkestrasi menggunakan Server-Sent Events (`/api/flows/stream/`). Nginx wajib menonaktifkan *buffering* (`proxy_buffering off;`) agar event log terkirim secara instan ke browser tanpa tertahan.
 
 Buat file konfigurasi Nginx:
 ```bash
-sudo nano /etc/nginx/sites-available/mcc-procsi
+sudo nano /etc/nginx/sites-available/mcc-procsi-dev
 ```
 
 Isi konfigurasi berikut:
 ```nginx
 server {
     listen 80;
-    server_name mcc.antam.com; # Ganti dengan domain atau IP Server On-Premise
+    server_name mcc-dev.antam.com; # Ganti dengan domain dev atau IP Server On-Premise Dev
 
     # Ukuran maksimum body untuk upload konfigurasi JSON & file besar
     client_max_body_size 50M;
@@ -512,8 +515,8 @@ server {
 
 Aktifkan konfigurasi Nginx dan muat ulang:
 ```bash
-# Aktifkan site
-sudo ln -s /etc/nginx/sites-available/mcc-procsi /etc/nginx/sites-enabled/
+# Aktifkan site dev
+sudo ln -s /etc/nginx/sites-available/mcc-procsi-dev /etc/nginx/sites-enabled/
 
 # Uji sintaks konfigurasi
 sudo nginx -t
@@ -522,10 +525,10 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-*(Opsional tapi Direkomendasikan)* Pasang SSL Certificate gratis via Let's Encrypt atau sertifikat korporat internal:
+*(Opsional tapi Direkomendasikan)* Pasang SSL Certificate via Let's Encrypt atau sertifikat korporat internal:
 ```bash
 sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d mcc.antam.com
+sudo certbot --nginx -d mcc-dev.antam.com
 ```
 
 ---
@@ -573,33 +576,45 @@ Jalankan pengujian kesehatan dari terminal server:
    ```
 
 2. **Uji Akses Browser:**
-   Buka alamat domain atau IP Server: `http://mcc.antam.com`
+   Buka alamat domain atau IP Server: `http://mcc-dev.antam.com`
    - Pastikan halaman Login muncul lengkap dengan logo dan Captcha.
    - Login menggunakan akun `admin`.
    - Buka menu **Context Settings** dan **Dashboard** untuk memverifikasi data.
 
 ---
 
-### 10. Prosedur Update Versi Aplikasi (Maintenance)
+### 10. Prosedur Update Versi Aplikasi (Maintenance di Dev)
 
-Ketika terdapat pembaruan kode baru dari tim pengembang di branch `main`:
+Ketika terdapat pembaruan kode baru dari tim pengembang di branch `dev`:
 
 ```bash
-cd /var/www/mcc-procsi
+cd /var/www/mcc-procsi-dev
 
-# 1. Ambil kode terbaru dari GitLab Workstation
-git fetch origin main
-git pull origin main
+# 1. Ambil kode terbaru dari remote dev
+git fetch origin dev
+git pull origin dev
 
-# 2. Pasang dependensi terbaru (jika ada perubahan package.json)
-npm ci --omit=dev
+# 2. Pasang dependensi terbaru
+npm install
 
 # 3. Reload aplikasi PM2 tanpa downtime
-pm2 reload mcc-procsi
+pm2 reload mcc-procsi-dev
 
 # 4. Pantau log apakah boot sukses
-pm2 logs mcc-procsi --lines 30
+pm2 logs mcc-procsi-dev --lines 30
 ```
+
+---
+
+### Perbedaan dengan Server Production
+
+Jika sewaktu-waktu Anda mengonfigurasi **Server Production On-Premise**:
+1. Gunakan branch **`main`** (`git checkout main`).
+2. Gunakan berkas konfigurasi **`.env.production`** (dengan `NODE_ENV=production`, `APP_ENV=PROD`).
+3. Jalankan instalasi dependensi produksi murni: `npm ci --omit=dev`.
+4. Jalankan PM2 dengan profil produksi: `pm2 start ecosystem.config.js --env production`.
+5. Pada jaringan produksi intranet direct, biasanya SSH tunnel tidak diperlukan (`MSSQL_USE_SSH_TUNNEL=false`).
+Panduan lengkap operasional produksi tersedia di [Document/DEPLOYMENT_RUNBOOK.md](./Document/DEPLOYMENT_RUNBOOK.md).
 
 ---
 
