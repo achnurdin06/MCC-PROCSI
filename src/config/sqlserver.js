@@ -1,6 +1,6 @@
 const sql = require('mssql');
 const { ensureTunnel, isTunnelActive } = require('./tunnel');
-require('dotenv').config();
+require('./env');
 
 function getEffectiveConfig() {
   const useTunnel = process.env.MSSQL_USE_SSH_TUNNEL === 'true';

@@ -3593,6 +3593,13 @@ textarea.form-input {
   pointer-events: none;
 }
 
+/* Token tersimpan: jangan tampilkan login selama sesi diverifikasi */
+html.auth-pending #screen-login {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .login-backdrop-glow {
   position: absolute;
   width: 600px;

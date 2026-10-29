@@ -67,7 +67,23 @@ class EtlController {
   async getEnvironmentDetails(req, res) {
     try {
       const data = await etlService.getEnvironmentWithConnections(req.params.id);
-      return res.json({ success: true, data });
+      const mask = (c) => (c ? {
+        ...c,
+        has_password: Boolean(c.password),
+        has_ssh_password: Boolean(c.ssh_password),
+        password: c.password ? '••••••••' : '',
+        ssh_password: c.ssh_password ? '••••••••' : '',
+      } : c);
+      return res.json({
+        success: true,
+        data: {
+          ...data,
+          connections: (data.connections || []).map(mask),
+          sourceConnection: mask(data.sourceConnection),
+          targetConnection: mask(data.targetConnection),
+          stagingConnection: mask(data.stagingConnection),
+        },
+      });
     } catch (err) {
       return res.status(500).json({ success: false, error: err.message });
     }

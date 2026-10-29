@@ -2,7 +2,7 @@
 **Dokumen:** Hasil Investigasi Bug, Perbaikan Arsitektur, dan Siklus Pengujian QA  
 **Peran:** Senior Software Engineer & Lead QA Engineer  
 **Repositori:** `achnurdin06/mig-antam`  
-**Basis Data Target:** PostgreSQL (`db_procsi` @ `HOST_REDACTED:5433`)  
+**Basis Data Target:** PostgreSQL (`db_procsi` @ `<HOST_DEV>:<PORT>`)  
 **Basis Data Kontrol:** Skema `mc_center` & `etl_antam`  
 **Tanggal Eksekusi:** Sesi Verifikasi Menyeluruh (Run 305 s/d 327)  
 
@@ -179,6 +179,49 @@ Pengguna mungkin melihat bahwa pada eksekusi Flow 2 kedua (Run 320 s/d 327), sta
 
 | # | Temuan | Akar Masalah | Perbaikan | Status |
 |---|--------|--------------|-----------|--------|
-| 1 | Flow 2 (Run 336) dan Flow 3: riwayat eksekusi tidak otomatis refresh | Flow 2/3 memakai ulang `run_id` Flow 1, sehingga buffer SSE `runEvents` masih berisi `FLOW_COMPLETED` lama. Stream langsung ditutup sebelum event Flow 2/3 tiba. | `startFlowAsync` ([dag-engine.service.js](src/services/dag-engine.service.js)) menghapus buffer event lama untuk run utama, `targetRuns`, dan `targetRollbackRuns` sebelum eksekusi. | Flow 2 OK (diuji user); Flow 3 memakai jalur yang sama, menunggu retest |
-| 2 | Tombol Cancel (dan Hentikan Paksa): tabel riwayat tidak refresh | `cancelWorkflowRun` memanggil fungsi `loadMigrationRunsTable` yang tidak ada (terlewat diam-diam oleh guard `typeof`). | Keduanya kini memanggil `window.refreshCanvasHistory(runId)` ([app.js](src/public/js/app.js)): overview, riwayat eksekusi, log langkah, log error. | Diperbaiki, menunggu retest |
+| 1 | Flow 2 (Run 336) dan Flow 3: riwayat eksekusi tidak otomatis refresh | Flow 2/3 memakai ulang `run_id` Flow 1, sehingga buffer SSE `runEvents` masih berisi `FLOW_COMPLETED` lama. Stream langsung ditutup sebelum event Flow 2/3 tiba. | `startFlowAsync` ([dag-engine.service.js](../src/services/dag-engine.service.js)) menghapus buffer event lama untuk run utama, `targetRuns`, dan `targetRollbackRuns` sebelum eksekusi. | Flow 2 OK (diuji user); Flow 3 memakai jalur yang sama, menunggu retest |
+| 2 | Tombol Cancel (dan Hentikan Paksa): tabel riwayat tidak refresh | `cancelWorkflowRun` memanggil fungsi `loadMigrationRunsTable` yang tidak ada (terlewat diam-diam oleh guard `typeof`). | Keduanya kini memanggil `window.refreshCanvasHistory(runId)` ([app.js](../src/public/js/app.js)): overview, riwayat eksekusi, log langkah, log error. | Diperbaiki, menunggu retest |
 | 3 | Flow 1 terasa lama (Run 328/329 ~1,5-2 menit vs Run 330 ~5-10 detik) | Dugaan: tunnel SSH ke SQL Server (keepalive timeout di log). Belum terkonfirmasi. | Belum ada perubahan kode. | Terbuka |
+
+
+---
+
+## 10. ADENDUM: REGRESI KEAMANAN, PERBAIKAN UI & STATUS DATA TERKINI
+
+Bagian ini melengkapi laporan di atas dengan hasil pengujian pada putaran terakhir (lihat [CHANGELOG.md](./CHANGELOG.md) bagian *Belum dirilis*).
+
+### 10.1 Pengujian Regresi Keamanan
+| # | Skenario Uji | Ekspektasi | Hasil |
+|---|---|---|---|
+| S-01 | Request endpoint operasional tanpa token | `401` + pesan akses ditolak | ✅ PASS |
+| S-02 | Request endpoint tulis dengan role `VIEWER` | `403` | ✅ PASS |
+| S-03 | Validator query dengan statement majemuk / DDL | Ditolak oleh `assertReadOnlySelect` | ✅ PASS |
+| S-04 | Browse tabel terlarang (`sys_users`, `sys_roles`, `master_connection`) | Ditolak | ✅ PASS |
+| S-05 | Login gagal berulang > 10 kali/menit (IP+username) | `429` | ✅ PASS |
+| S-06 | Response `GET /api/context/connections` | Password tersamar + `has_password` | ✅ PASS |
+| S-07 | Startup tanpa `JWT_SECRET` / `ENCRYPTION_MASTER_KEY` yang valid | Error saat secret dipakai (login/enkripsi gagal, bukan crash saat boot) | ✅ PASS |
+| S-08 | `npm audit` | 0 vulnerability | ✅ PASS |
+| S-09 | Forgot-password untuk username tidak terdaftar | Respons identik dengan username terdaftar (anti-enumerasi) | ✅ PASS |
+
+### 10.2 Perbaikan Fungsional yang Diuji Ulang
+| # | Masalah | Akar Masalah | Perbaikan | Hasil Uji |
+|---|---|---|---|---|
+| F-01 | Maintain Menu & Navigasi: insert dan update tidak jalan | `authFetch` menimpa header sehingga `Content-Type: application/json` hilang pada request body | Penggabungan header di `authFetch` (`src/public/js/app.js`) | `POST`, `PUT`, `DELETE /api/auth/menus` → `200` dan data tersimpan ✅ PASS |
+| F-02 | Refresh halaman memunculkan layar login padahal sudah login | `initAuth` menganggap kegagalan sementara `/api/auth/me` sebagai sesi tidak valid | `initAuth` retry 3x (jeda 1s & 2s), status `auth-pending`, token hanya dihapus pada `401`/`403` | Refresh berulang tetap di dashboard ✅ PASS |
+| F-03 | Konfigurasi environment antar-repo | Local & branch `dev` memakai env dev, branch `main` memakai env prod | Resolusi otomatis di `src/config/env.js` | Lihat [ENVIRONMENT_CONFIG.md](./ENVIRONMENT_CONFIG.md) ✅ PASS |
+
+### 10.3 Status Data Terkini (Verifikasi Basis Data)
+| Metrik | Nilai |
+|---|---|
+| Total run tercatat (`mc_center.migration_runs`) | 26 |
+| Status run | Seluruhnya `SUCCESS` |
+| `staging_data_history` — `NEW_DELTA` | 113 baris |
+| `staging_data_history` — `ALREADY_IN_TARGET` | 37 baris |
+| Health check `/api/health` | SQL Server & PostgreSQL `connected` |
+
+### 10.4 Risiko Terbuka
+| # | Risiko | Catatan |
+|---|---|---|
+| 1 | Config 20 (Siujk) belum memiliki `migration_target_config` | Flow 2 akan ditolak guard `NO_TARGET_CONFIG`. Lihat [MIGRATION_FLOWS.md](./MIGRATION_FLOWS.md#8-kelemahan-yang-diketahui-status-mitigasi--roadmap) |
+| 2 | State run & rate limiter di memori | Hanya aman untuk deployment single instance. Lihat [ARCHITECTURE.md](./ARCHITECTURE.md) |
+| 3 | Durasi Flow 1 bergantung pada stabilitas tunnel SSH | Belum ada instrumentasi khusus |

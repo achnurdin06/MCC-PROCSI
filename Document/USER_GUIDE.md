@@ -1,30 +1,30 @@
 # Buku Panduan Operasional Sistem (User Guide)
-# ETL Migration Command Center
-### Multi-Database Enterprise Platform (SQL Server ➔ PostgreSQL)
+# ETL Migration Command Center (MCC-PROCSI)
+### Platform Migrasi Multi-Database Enterprise (Semua Database Sumber ➔ PostgreSQL)
 
 ---
 
 ## Daftar Isi
-1. [Pengenalan & Arsitektur Sistem](#1-pengenalan--arsitektur-sistem)
+1. [Pengenalan & Konsep Dasar](#1-pengenalan--konsep-dasar)
    - 1.1 Latar Belakang & Tujuan
    - 1.2 Arsitektur 3-Tier (Source ➔ Staging ➔ Target)
-   - 1.3 Prinsip Keamanan Data: Dual-Guard Protection
+   - 1.3 Proteksi Data Ganda (Dual-Guard Protection)
    - 1.4 Konektivitas & Auto-Healing SSH Tunnel
 2. [Navigasi Global & Kontrol Header](#2-navigasi-global--kontrol-header)
    - 2.1 Pemilih Tenant (Client & Environment)
-   - 2.2 Status Indikator Database Real-Time
-   - 2.3 Master System Settings (Client, Environment, Connection)
-   - 2.4 Manajemen Sesi & Logout
+   - 2.2 Indikator Status Database Real-Time
+   - 2.3 Master Pengaturan Sistem (Client, Environment, Connection)
+   - 2.4 Manajemen Sesi, Autentikasi & Ketahanan Refresh
 3. [Menu 0: Selamat Datang (Portal Inisialisasi)](#3-menu-0-selamat-datang-portal-inisialisasi)
-   - 3.1 Setup Gate untuk Instalasi Baru
-   - 3.2 Ringkasan Dashboard Sambutan
+   - 3.1 Setup Gate untuk Pemasangan Baru
+   - 3.2 Ringkasan Dashboard Orientasi
 4. [Menu 1: Source Data (Katalog View SQL Server)](#4-menu-1-source-data-katalog-view-sql-server)
    - 4.1 Eksplorasi View & Tabel Sumber
-   - 4.2 Filter Status & Pencarian View
+   - 4.2 Filter Status & Pencarian Cepat
    - 4.3 Data Inspector & Preview Skema DDL
-   - 4.4 Editor Objek & Query View (Fitur Salin Query di Footer)
+   - 4.4 Editor Objek & Query View (Fitur Salin Query)
 5. [Menu 2: Migration Config (Master Pemetaan & Konfigurasi ETL)](#5-menu-2-migration-config-master-pemetaan--konfigurasi-etl)
-   - 5.1 Struktur Konfigurasi & Foreign Key Ordering (`exec_order`)
+   - 5.1 Urutan Dependensi Foreign Key (`exec_order`)
    - 5.2 Empat Sub-Tabel Master (`config`, `convert_rule`, `target_config`, `lookup`)
    - 5.3 Operasi CRUD, Clone Konfigurasi, dan Uji Coba Query
 6. [Menu 3: Workflow Canvas Studio (Dynamic Visual DAG Orchestrator)](#6-menu-3-workflow-canvas-studio-dynamic-visual-dag-orchestrator)
@@ -41,11 +41,12 @@
    - 7.1 Tabel Rekonsiliasi Data 3-Tahap
    - 7.2 Indikator Status Rekonsiliasi & Status Aksi
    - 7.3 Fitur Komparasi Data Kolom 3-Tier (⚖️ Compare)
-   - 7.4 Formulir Berita Acara Migrasi (Poin 1 s/d 4) & Ekspor PDF
+   - 7.4 Formulir Berita Acara Migrasi (4 Poin Standar) & Ekspor PDF
 8. [Menu 5: System Administration & Access Control (RBAC)](#8-menu-5-system-administration--access-control-rbac)
    - 8.1 Manajemen Pengguna (Master Users) & Penugasan Tenant
    - 8.2 Manajemen Peran (Master Roles)
-   - 8.3 Matriks Hak Akses Menu & Perizinan (Menu & Permission Matrix)
+   - 8.3 Maintain Menu & Navigasi Sistem (Menu Management)
+   - 8.4 Matriks Hak Akses Menu & Perizinan (Menu & Permission Matrix)
 9. [Menu 6: Userguide Terintegrasi](#9-menu-6-userguide-terintegrasi)
    - 9.1 Fitur Pencarian Tutorial & Filter Kategori
    - 9.2 Navigasi Cepat & Cetak Panduan
@@ -55,15 +56,15 @@
 
 ---
 
-## 1. Pengenalan & Arsitektur Sistem
+## 1. Pengenalan & Konsep Dasar
 
 ### 1.1 Latar Belakang & Tujuan
-**ETL Migration Command Center** adalah platform enterprise yang dirancang khusus untuk memfasilitasi, mengotomasi, dan mengaudit proses migrasi data dari sistem lawas (*legacy*) **Microsoft SQL Server (`antam_scm`)** ke basis data modern **PostgreSQL (`db_procsi`)**.
+**ETL Migration Command Center (MCC-PROCSI)** adalah platform enterprise yang dirancang khusus untuk memfasilitasi, mengotomasi, dan mengaudit proses migrasi data dari sistem lama (*legacy*) **Microsoft SQL Server (`antam_scm`)** ke basis data modern **PostgreSQL (`db_procsi`)**.
 
-Platform ini menggabungkan eksekusi *Extract-Transform-Load (ETL)* berbasis pipeline berkinerja tinggi dengan antarmuka web interaktif, kanvas visual *Directed Acyclic Graph (DAG)*, rekonsiliasi data otomatis, serta pembuatan dokumen formal **Berita Acara Migrasi**.
+Platform ini menggabungkan eksekusi *Extract-Transform-Load (ETL)* berbasis pipeline berkinerja tinggi dengan antarmuka web interaktif, kanvas visual *Directed Acyclic Graph (DAG)*, rekonsiliasi data 3-tier otomatis, serta pembuatan dokumen formal **Berita Acara Migrasi**. Rincian arsitektur teknis mendalam dapat dipelajari pada [ARCHITECTURE.md](./ARCHITECTURE.md).
 
 ### 1.2 Arsitektur 3-Tier (Source ➔ Staging ➔ Target)
-Proses migrasi mengadopsi model pemisahan tiga lapisan (*3-Tier Architecture*) untuk menjamin isolasi risiko dan kemudahan verifikasi:
+Proses migrasi mengadopsi model pemisahan tiga lapisan (*3-Tier Architecture*) untuk menjamin isolasi risiko dan kemudahan audit rekonsiliasi:
 
 ```
 +---------------------------+       Flow 1        +---------------------------+       Flow 2        +---------------------------+
@@ -84,19 +85,20 @@ Proses migrasi mengadopsi model pemisahan tiga lapisan (*3-Tier Architecture*) u
 2. **Tier 2 (Staging Database - PostgreSQL)**:
    - Area penampungan sementara pada skema `stg_antam`.
    - Mengisolasi data mentah, membersihkan karakter string ilegal, serta menjalankan *stored procedure* konversi kode kamus (*lookup mapping engine*).
+   - Kolom sensitif (kredensial, NIK, nomor rekening) dienkripsi secara transparan via `mc_center.fn_encrypt_staging`.
 3. **Tier 3 (Target Database - PostgreSQL Production)**:
    - Skema target akhir (seperti `vendor`, `contract`, `procurement`).
    - Setiap baris hasil migrasi ditandai secara ketat dengan atribut identitas sistem: `migration = '1'` dan `migration_run_id`.
 
-### 1.3 Prinsip Keamanan Data: Dual-Guard Protection
+### 1.3 Proteksi Data Ganda (Dual-Guard Protection)
 Untuk menjamin agar data operasional asli yang dibuat langsung oleh aplikasi di lingkungan PostgreSQL tidak pernah terhapus atau rusak secara tidak sengaja, sistem menerapkan standar keamanan **Dual-Guard**:
 - **Guard 1 (Flag Migration Check)**: Setiap perintah manipulasi data target (*Posting*, *Rollback*, dan *Purge*) secara wajib menyertakan filter klausa `WHERE migration = '1'`.
-- **Guard 2 (Staging Reference Validation)**: Perintah pembersihan (*Purge*) memverifikasi keterkaitan ID dengan record yang terdaftar di tabel staging sesi terkait sebelum instruksi `DELETE` dieksekusi.
+- **Guard 2 (Staging Reference Validation)**: Perintah pembersihan (*Purge*) memverifikasi keterkaitan ID dengan data migrasi yang sah (baik memiliki flag `migration = '1'` maupun tercatat di `stg_antam.staging_data_history`) sebelum instruksi `DELETE` dieksekusi.
 
 ### 1.4 Konektivitas & Auto-Healing SSH Tunnel
 Aplikasi terhubung ke database SQL Server melalui terowongan aman (*Secure Shell Tunnel*). Fitur **Auto-Healing SSH Daemon** bekerja di latar belakang:
 - Terowongan otomatis mendeteksi jika terjadi *connection reset* atau *keepalive timeout*.
-- Melakukan *re-handshake* otomatis ke server gateway (`HOST_REDACTED:22` port forward ke `11433`) tanpa perlu mematikan (*restart*) aplikasi atau memutuskan pekerjaan operator.
+- Melakukan *re-handshake* otomatis ke server gateway SSH internal tanpa perlu mematikan (*restart*) aplikasi atau memutuskan pekerjaan operator.
 
 ---
 
@@ -113,27 +115,35 @@ Header aplikasi selalu berada di posisi paling atas dan menyediakan visibilitas 
 - **Dropdown Environment**: Memilih lingkungan kerja aktif, yaitu `DEV` (Pengembangan), `UAT` (Pengujian Pengguna), atau `PROD` (Produksi).
 - Pergantian Client/Environment secara otomatis menyaring seluruh data di tabel konfigurasi, view sumber, alur kanvas, dan riwayat pipeline.
 
-### 2.2 Status Indikator Database Real-Time
+### 2.2 Indikator Status Database Real-Time
 Header menampilkan tiga pill indikator koneksi:
 - **SQL Server**: Status keterhubungan ke server sumber SQL Server via SSH Tunnel.
 - **Staging**: Status keterhubungan ke database PostgreSQL penampungan (`stg_antam`).
 - **Target**: Status keterhubungan ke skema produksi PostgreSQL.
 - *Warna Indikator*: Hijau (Normal/Aktif), Merah (Terputus/Gagal Autentikasi), Kuning (Dalam Pengujian).
 
-### 2.3 Master System Settings (Client, Environment, Connection)
-Dapat diakses melalui ikon roda gigi (`⚙️`) di kanan atas (khusus role berwenang):
+### 2.3 Master Pengaturan Sistem (Client, Environment, Connection)
+Dapat diakses melalui ikon roda gigi (`⚙️`) di kanan atas (khusus role `SUPERADMIN`):
 1. **Tab 1: Master Client**:
    - Mendaftarkan kode client (contoh: `ANTAM`), nama instansi, deskripsi, dan status aktif.
 2. **Tab 2: Master Environment**:
    - Menautkan environment kerja ke client tertentu, mengatur kode lingkungan (`DEV`, `UAT`, `PROD`), dan nama database penampungan.
 3. **Tab 3: Master Connection**:
    - Mengelola parameter koneksi database: *Host*, *Port*, *Database Name*, *Username*, *Password*, dan *Role* (`SOURCE`, `STAGING`, atau `TARGET`).
-   - Opsi *SSH Tunnel*: Mengaktifkan tunnel dengan mengisi SSH Host, SSH Port, SSH User, dan Private Key / Password.
+   - Opsi *SSH Tunnel*: Mengaktifkan tunnel dengan mengisi SSH Host, SSH Port, SSH User, dan Kredensial/Kunci Privat.
    - Tombol **⚡ Test**: Menguji koneksi langsung ke database target sebelum disimpan.
 
-### 2.4 Manajemen Sesi & Logout
-- Menampilkan nama lengkap dan badge peran pengguna yang sedang aktif (contoh: `SUPERADMIN`, `ADMIN`, `OPERATOR`, `AUDITOR`).
-- Tombol **Logout**: Menutup sesi autentikasi berbasis JWT secara aman dan mengarahkan kembali ke gerbang login.
+### 2.4 Manajemen Sesi, Autentikasi & Ketahanan Refresh
+- Menampilkan nama lengkap dan badge peran pengguna yang sedang aktif (`SUPERADMIN`, `OPERATOR`, atau `VIEWER`).
+- **Autentikasi & Keamanan Login**:
+  - Halaman login dilindungi oleh **Captcha matematis dinamis** dan **Rate Limiter** internal (maksimal 10 percobaan/menit per IP+username).
+  - Pendaftaran mandiri (*Register*) menghasilkan akun dengan role `VIEWER` dan status **nonaktif** (`is_active = FALSE`), sehingga wajib diaktivasi oleh `SUPERADMIN` sebelum dapat masuk.
+  - Fitur **Lupa Password** menerapkan respons seragam (*anti-enumeration*) untuk melindungi kerahasiaan daftar akun.
+- **Ketahanan Sesi Saat Refresh Halaman**:
+  - Token JWT memiliki masa berlaku **8 jam** dan disimpan di `localStorage` (`antam_token`).
+  - Saat browser di-refresh, mekanisme `initAuth` melakukan verifikasi ke `/api/auth/me` dengan proteksi toleransi jaringan (auto-retry 3 kali dengan jeda progresif) dan status transisi `auth-pending`.
+  - Token hanya dihapus dari browser jika server secara eksplisit mengembalikan kode `401 Unauthorized` atau `403 Forbidden`. Gangguan jaringan sesaat tidak akan membuang pengguna ke halaman login.
+- **Logout Aman**: Menutup sesi autentikasi berbasis JWT secara aman dan mengarahkan kembali ke gerbang login. Rincian kebijakan keamanan dapat dilihat di [security.md](./security.md).
 
 ---
 
@@ -141,15 +151,15 @@ Dapat diakses melalui ikon roda gigi (`⚙️`) di kanan atas (khusus role berwe
 
 Menu Selamat Datang berfungsi sebagai gerbang sambutan, panduan orientasi cepat, dan *setup wizard* untuk instalasi baru.
 
-### 3.1 Setup Gate untuk Instalasi Baru
+### 3.1 Setup Gate untuk Pemasangan Baru
 Jika aplikasi baru dipasang dan belum memiliki rekaman data Client, Environment, atau Koneksi Database di database internal:
 1. Layar secara otomatis menampilkan kartu peringatan **Setup & Initialization Portal**.
 2. Tombol utama **🏢 Mulai Daftarkan Client Pertama** memandu administrator mengonfigurasi entitas tenant sebelum modul migrasi dibuka.
 3. Setelah Client dan Koneksi terbentuk, gerbang terbuka otomatis dan beralih ke tampilan dashboard penuh.
 
-### 3.2 Ringkasan Dashboard Sambutan
+### 3.2 Ringkasan Dashboard Orientasi
 Jika konfigurasi telah aktif, menu ini menampilkan:
-- **Hero Banner**: Deskripsi arsitektur integrasi sistem antam_scm ➔ db_procsi.
+- **Hero Banner**: Deskripsi arsitektur integrasi sistem `antam_scm` ➔ `db_procsi`.
 - **Pintasan Cepat Operasional**:
   - Tombol *Masuk ke Dashboard / Source Data*.
   - Tombol pintasan langsung ke *Workflow Canvas Studio*.
@@ -177,7 +187,7 @@ Menu **Source Data** berfungsi sebagai modul eksplorasi dan inspeksi data awal p
 - Menampilkan seluruh objek SQL View dengan awalan `v_migration_*` yang ada di database SQL Server.
 - Membaca jumlah baris total (*Row Count*) secara aktual dan menampilkan status apakah view tersebut sudah dikaitkan ke sebuah `migration_config`.
 
-### 4.2 Filter Status & Pencarian View
+### 4.2 Filter Status & Pencarian Cepat
 - **Tombol Filter Cepat**:
   - `Semua View`: Menampilkan seluruh view di database sumber.
   - `🟢 Terdaftar Config`: Menyaring view yang sudah memiliki aturan pemetaan di modul konfigurasi.
@@ -189,7 +199,7 @@ Menu **Source Data** berfungsi sebagai modul eksplorasi dan inspeksi data awal p
 Klik tombol **🔍 Detail** pada baris view:
 - **Tab Preview Data**: Menampilkan 50 baris sampel rekaman data asli langsung dari SQL Server.
 - **Tab Skema Kolom**: Menampilkan daftar kolom, tipe data SQL Server (`varchar`, `int`, `datetime`), batas panjang karakter, serta status *nullable*.
-- **Tab DDL Script**: Menampilkan skrip `CREATE VIEW` lengkap untuk keperluan analisis teknis.
+- **Tab DDL Script**: Menampilkan skrip `CREATE VIEW` lengkap untuk analisis teknis.
 
 ### 4.4 Editor Objek & Query View
 Klik tombol **✏️ Edit** pada baris view untuk membuka modal editor:
@@ -197,7 +207,7 @@ Klik tombol **✏️ Edit** pada baris view untuk membuka modal editor:
 2. **Keterangan & Dokumentasi**: Kolom catatan deskripsi fungsi view.
 3. **Footer Dialog yang Terstruktur**:
    - Tombol **📋 Salin Query**: Terletak di sisi kiri footer modal untuk memudahkan teknisi menyalin query ke tools manajemen database eksternal (seperti SSMS atau DBeaver).
-   - Tombol **Batal** dan **💾 Simpan Perubahan Query View**: Mengeksekusi instruksi `ALTER VIEW` ke database SQL Server secara aman.
+   - Tombol **Batal** dan **💾 Simpan Perubahan Query View**: Mengeksekusi instruksi `ALTER VIEW` ke database SQL Server secara aman (khusus role `SUPERADMIN`).
 4. **Proteksi Penghapusan**: Tombol **🗑️ Hapus** dikunci (*disabled*) jika view tersebut sedang aktif digunakan oleh konfigurasi migrasi agar dependensi sistem tidak rusak.
 
 ---
@@ -206,7 +216,7 @@ Klik tombol **✏️ Edit** pada baris view untuk membuka modal editor:
 
 Menu **Migration Config** merupakan pusat logika dan aturan konversi (*transformation engine*) yang mengendalikan bagaimana data diekstraksi, ditransformasikan, dan diposting.
 
-### 5.1 Struktur Konfigurasi & Foreign Key Ordering (`exec_order`)
+### 5.1 Urutan Dependensi Foreign Key (`exec_order`)
 Kunci keberhasilan migrasi relasional terletak pada pengaturan parameter `exec_order` (Urutan Eksekusi):
 - **Tabel Induk (*Parent*)** harus memiliki `exec_order` lebih kecil daripada **Tabel Anak (*Child*)**.
 - *Contoh Urutan yang Benar*:
@@ -216,7 +226,7 @@ Kunci keberhasilan migrasi relasional terletak pada pengaturan parameter `exec_o
   4. `exec_order: 4` ➔ Dokumen Legal Vendor (Tabel `vendor.vendor_document`)
 
 ### 5.2 Empat Sub-Tabel Master
-Modul ini dibagi menjadi empat subtab data:
+Modul ini dibagi menjadi empat subtab data (lihat [DATABASE_SCHEMA.md](./DATABASE_SCHEMA.md) untuk struktur kolom lengkap):
 
 ```
 [ 📋 1. migration_config ]   [ 🔄 2. migration_convert_rule ]   [ 🎯 3. migration_target_config ]   [ 📚 4. migration_lookup ]
@@ -224,12 +234,12 @@ Modul ini dibagi menjadi empat subtab data:
 
 1. **`migration_config` (Tabel Pemetaan Utama)**:
    - Menghubungkan `src_view` (SQL Server) ➔ `stg_table` (PostgreSQL Staging) ➔ `tgt_table` (PostgreSQL Target).
-   - Menentukan kolom kunci utama (`pk_source_col` dan `pk_target_col`).
-   - Menentukan `exec_order`, ukuran chunk batch, serta nama modul fungsional.
+   - Menentukan kolom kunci utama (`pk_columns` dan `business_keys`).
+   - Menentukan `exec_order`, ukuran chunk batch, serta modul bisnis.
 2. **`migration_convert_rule` (Aturan Transformasi Kolom)**:
-   - Aturan konversi per kolom: pemetaan format tanggal (`YYYY-MM-DD`), pembersihan whitespace, nilai pengganti jika NULL (`DEFAULT_VALUE`), dan ekspresi SQL lanjutan.
+   - Aturan konversi per kolom: pemetaan format tanggal (`YYYY-MM-DD`), pembersihan whitespace, nilai pengganti jika NULL (`default_value`), dan ekspresi SQL lanjutan.
 3. **`migration_target_config` (Arsitektur 1-View ke Multi-Target)**:
-   - Mendukung skenario di mana satu view sumber SQL Server berukuran besar harus dipecah (*splited*) ke dalam beberapa tabel relasional PostgreSQL yang berbeda.
+   - Mendukung skenario di mana satu view sumber SQL Server berukuran besar dipecah (*split*) ke beberapa tabel relasional PostgreSQL yang berbeda.
 4. **`migration_lookup` (Kamus Kode)**:
    - Tabel referensi untuk mengonversi kode legacy menjadi ID modern di PostgreSQL (misal: kode negara, kode mata uang, jenis badan usaha).
 
@@ -242,7 +252,7 @@ Modul ini dibagi menjadi empat subtab data:
 
 ## 6. Menu 3: Workflow Canvas Studio (Dynamic Visual DAG Orchestrator)
 
-Workflow Canvas Studio adalah pusat orkestrasi visual canggih berbasis graf berarah tanpa siklus (*Directed Acyclic Graph / DAG*). Di menu ini, alur migrasi dieksekusi, dipantau, dan dikontrol secara grafis.
+Workflow Canvas Studio adalah pusat orkestrasi visual canggih berbasis graf berarah tanpa siklus (*Directed Acyclic Graph / DAG*). Di menu ini, alur migrasi dieksekusi, dipantau, dan dikontrol secara grafis. Spesifikasi teknis setiap node dapat dilihat pada [MIGRATION_FLOWS.md](./MIGRATION_FLOWS.md).
 
 ```
 +-------------------------------------------------------------------------------------------------------+
@@ -302,7 +312,7 @@ Sistem menyediakan 4 alur kerja preset terstandarisasi:
 - **Langkah Eksekusi**:
   1. Pilih template **Flow 3: Safe Rollback Engine**.
   2. Klik tombol **▶️ Jalankan Alur**.
-  3. Pilih Run ID yang akan dibatalkan (hanya menampilkan sesi yang berstatus `is_posted = true`).
+  3. Pilih Run ID yang akan dibatalkan (hanya menampilkan sesi yang berstatus `is_posted = true` dan belum pernah di-rollback).
   4. Centang konfirmasi persetujuan rollback dan jalankan alur.
 
 #### 🗑️ Flow 4: Target Purge Engine (Dual-Guard & Looping)
@@ -310,12 +320,14 @@ Sistem menyediakan 4 alur kerja preset terstandarisasi:
 - **Karakteristik**:
   - Mendukung eksekusi multi-tabel sekaligus secara berurutan (*looping*).
   - Dilengkapi *bulkhead error handling* (jika satu tabel gagal, proses tetap dilanjutkan ke tabel berikutnya).
+  - Memverifikasi riwayat melalui `stg_antam.staging_data_history`.
 - **Langkah Eksekusi**:
   1. Pilih template **Flow 4: Target Purge Engine**.
   2. Klik tombol **▶️ Jalankan Alur**.
   3. Pilih tabel-tabel target yang ingin dibersihkan (tersedia tombol *Pilih Semua*).
   4. (Opsional) Masukkan daftar ID tertentu pada kolom `DELETE_IDS` jika hanya ingin menghapus sebagian baris.
-  5. Konfirmasi dan mulai eksekusi pembersihan.
+  5. Selalu gunakan tombol **Preview Purge** terlebih dahulu untuk memeriksa baris terproteksi.
+  6. Konfirmasi dan mulai eksekusi pembersihan.
 
 ### 6.3 Dialog Parameter Eksekusi Cerdas
 Header dialog eksekusi telah distandarkan dengan format **rata kiri penuh** untuk kenyamanan membaca:
@@ -324,7 +336,7 @@ Header dialog eksekusi telah distandarkan dengan format **rata kiri penuh** untu
 
 ### 6.4 Panel Konsol Resizable & Streaming Log Real-Time (SSE)
 - **Bilah Pemisah Vertikal (*Vertical Splitter Bar*)**: Pembatas antara kanvas grafis dan panel konsol di bawahnya dapat ditarik (*drag*) naik-turun untuk memperluas atau mempersempit area baca log.
-- **Real-Time Streaming**: Menggunakan teknologi *Server-Sent Events (SSE)* sehingga setiap baris pemrosesan data, persentase kemajuan (*progress bar*), dan penggunaan memori tampil secara instan tanpa perlu memuat ulang (*refresh*) halaman.
+- **Real-Time Streaming**: Menggunakan teknologi *Server-Sent Events (SSE)* sehingga setiap baris pemrosesan data, persentase kemajuan (*progress bar*), dan status node tampil instan tanpa perlu memuat ulang (*refresh*) halaman.
 
 ### 6.5 Riwayat Eksekusi, Per-Step Inspection, & Log Galat
 Panel konsol bawah memiliki tiga tab pengawasan:
@@ -370,16 +382,16 @@ Klik tombol **⚖️ Compare** pada baris konfigurasi:
 - Membuka dialog komparasi baris-demi-baris yang menyandingkan data asli SQL Server di sisi kiri dengan data hasil transformasi PostgreSQL di sisi kanan.
 - Kolom yang mengalami perubahan nilai (seperti mapping ID kamus atau format tanggal) disorot dengan warna khusus untuk memudahkan audit data engineer.
 
-### 7.4 Formulir Berita Acara Migrasi (Poin 1 s/d 4) & Ekspor PDF
+### 7.4 Formulir Berita Acara Migrasi (4 Poin Standar) & Ekspor PDF
 Klik tombol **📄 Input & Cetak Berita Acara** di kanan atas tabel:
 Modal Berita Acara Migrasi dirancang khusus dengan format formal perusahaan yang dibagi menjadi **4 Poin Standar**:
 
 ```
 [ MODAL INPUT BERITA ACARA MIGRASI ]
 ├── [ 1 ] Informasi Umum Dokumen
-│   ├── Nomor Berita Acara  : BA-MIG/2026/X/001
-│   ├── Tanggal Pelaksanaan : 22 Oktober 2026
-│   └── Tempat Pelaksanaan  : Ruang Command Center / Data Center
+│   ├── Nomor Berita Acara  : Format BA resmi (contoh: BA-MIG/YYYY/MM/XXX)
+│   ├── Tanggal Pelaksanaan : Tanggal penyelesaian migrasi
+│   └── Tempat Pelaksanaan  : Lokasi operasional / Command Center
 ├── [ 2 ] Identitas & Penandatangan Pihak Terkait
 │   ├── Pihak Pertama (Pelaksana / Tim Teknis ETL) : Nama, NIP, Jabatan
 │   └── Pihak Kedua   (Pemberi Kerja / Data Owner)  : Nama, NIP, Jabatan
@@ -412,6 +424,10 @@ Menu **System Administration** menyediakan tata kelola autentikasi pengguna, per
 - **Penugasan Akses Tenant (*Multi-Tenant Assignment*)**:
   - Pengguna dapat ditugaskan untuk memiliki akses ke satu atau beberapa entitas Client beserta Environment spesifik (misal: hanya boleh mengakses Client `ANTAM` pada Environment `DEV` dan `UAT`).
   - Akun ber-role `SUPERADMIN` secara otomatis memiliki penanda `🌐 Global Superadmin` (mengakses seluruh client dan environment).
+- **Peran Resmi Sistem**:
+  - `SUPERADMIN`: Akses penuh ke seluruh konfigurasi, rute admin, rotasi menu, dan eksekusi.
+  - `OPERATOR`: Hak eksekusi alur data (Flow 1–4), melihat rekonsiliasi, dan mencetak Berita Acara.
+  - `VIEWER`: Hak baca murni (*read-only*), tanpa wewenang mutasi konfigurasi atau eksekusi alur.
 - **Tombol Aksi**:
   - `✏️ Edit`: Mengubah profil, status aktif/nonaktif, dan penugasan tenant.
   - `🔑 Reset`: Mengatur ulang kata sandi pengguna secara instan.
@@ -422,7 +438,17 @@ Menu **System Administration** menyediakan tata kelola autentikasi pengguna, per
 - Mendukung penambahan peran baru dan perubahan deskripsi otorisasi.
 - **Proteksi Khusus**: Peran bawaan `SUPERADMIN` dilindungi secara permanen sehingga tombol hapusnya dikunci (*disabled*) untuk mencegah penguncian sistem (*system lockout*).
 
-### 8.3 Matriks Hak Akses Menu & Perizinan (Menu & Permission Matrix)
+### 8.3 Maintain Menu & Navigasi Sistem (Menu Management)
+- **Katalog Navigasi Dinamis**: Seluruh menu aplikasi (`TAB_SOURCE`, `TAB_CONFIG`, `TAB_PROCESS`, `TAB_PIPELINE`, `TAB_SYSTEM`, `TAB_USERGUIDE`, serta menu kustom seperti `MENU_SOP`) dikelola secara dinamis dari tabel `mc_center.sys_menus`.
+- **Operasi Tambah (Insert) Menu**:
+  - Tombol **+ Tambah Menu** membuka form untuk menentukan Nama Menu (`menu_name`), Kode Menu (`menu_code` / auto-slug), Ikon (`menu_icon`), Target Rute/Tab (`route_tab`), Nomor Urut (`menu_order`), Sub Judul (`sub_title`), Konten HTML Kustom (`content_html`), dan Status Aktif (`is_active`).
+  - Request dikirim via `POST /api/auth/menus` dengan header `Content-Type: application/json` (khusus role `SUPERADMIN`).
+- **Operasi Ubah (Update) Menu**:
+  - Tombol **✏️ Edit** pada baris menu memungkinkan pembaruan label, ikon, rute, atau urutan secara langsung via `PUT /api/auth/menus/:id` (khusus role `SUPERADMIN`).
+- **Operasi Hapus (Delete) Menu**:
+  - Menu kustom yang sudah tidak digunakan dapat dihapus melalui `DELETE /api/auth/menus/:id` (khusus role `SUPERADMIN`). Menu sistem inti dilindungi dari penghapusan tidak disengaja.
+
+### 8.4 Matriks Hak Akses Menu & Perizinan (Menu & Permission Matrix)
 - **Kontrol Role Target**:
   - Dropdown **Role Target** di bagian atas tabel memiliki ukuran kompak dan proporsional untuk memilih peran yang ingin dikonfigurasi hak aksesnya.
 - **Tabel Matriks Hak Akses**:
@@ -433,13 +459,13 @@ Menu **System Administration** menyediakan tata kelola autentikasi pengguna, per
     - **Update (Ubah)**: Izin mengedit query, memperbarui pemetaan, atau mengubah pengaturan.
     - **Delete (Hapus)**: Izin mengeksekusi penghapusan konfigurasi, pembatalan (*rollback*), atau pembersihan (*purge*).
   - Dilengkapi fitur *Pilih Semua (Check-All)* pada header setiap kolom perizinan.
-- **Tombol Simpan**: Tombol `💾 Simpan Perubahan Matriks` menyimpan pembaruan otorisasi ke database secara instan tanpa perlu me-restart server.
+- **Tombol Simpan**: Tombol `💾 Simpan Perubahan Matriks` menyimpan pembaruan otorisasi ke database secara instan tanpa perlu me-restart server via endpoint `POST /api/auth/role-menus/:roleId`.
 
 ---
 
 ## 9. Menu 6: Userguide Terintegrasi
 
-Menu **Userguide** adalah modul pusat bantuan (*Help Center*) interaktif yang tertanam langsung di dalam aplikasi web.
+Menu **Userguide** adalah modul pusat bantuan (*Help Center*) interaktif yang tertanam langsung di dalam antarmuka web.
 
 ### 9.1 Fitur Pencarian Tutorial & Filter Kategori
 - **Pencarian Cepat (*Search Bar*)**: Pengguna dapat mengetik kata kunci teknis seperti `Rollback`, `Chunking`, `Lookup`, `SSH Tunnel`, atau `Berita Acara` untuk langsung melompat ke panduan yang relevan.
@@ -481,7 +507,7 @@ Untuk memastikan migrasi data berjalan aman dan terkendali, seluruh operator waj
 
 #### ❓ Mengapa Flow 2 menolak Run ID tertentu dengan notifikasi "Run ID belum berstatus SUCCESS"?
 * **Penyebab**: Flow 2 menerapkan proteksi ketat di mana hanya sesi Flow 1 yang selesai sempurna (*100% tanpa galat*) yang diizinkan diposting ke tabel produksi.
-* **Solusi**: Periksa tab Error Log pada Workflow Canvas. Jika Flow 1 sebelumnya berstatus *FAILED* atau *PARTIAL*, perbaiki kesalahan sumber data dan jalankan ulang Flow 1 sebelum mencoba Flow 2 kembali.
+* **Solusi**: Periksa tab Error Log pada Workflow Canvas. Jika Flow 1 sebelumnya berstatus *FAILED* atau *PARTIAL_SUCCESS*, perbaiki kesalahan sumber data dan jalankan ulang Flow 1 sebelum mencoba Flow 2 kembali.
 
 #### ❓ Mengapa sesi migrasi ditandai sebagai "⚠️ KADALUARSA (SUPERSEDED)"?
 * **Penyebab**: Ketika Flow 1 dijalankan ulang untuk konfigurasi tabel yang sama, isi tabel staging akan ditimpa (*overwritten*) oleh data ekstraksi terbaru.
@@ -492,11 +518,11 @@ Untuk memastikan migrasi data berjalan aman dan terkendali, seluruh operator waj
 * **Solusi**: Buka menu **Migration Config**. Pastikan tabel master induk memiliki nilai `exec_order` lebih rendah daripada tabel anak. Jalankan Flow 2 untuk tabel induk terlebih dahulu hingga selesai, baru lanjutkan ke tabel anak.
 
 #### ❓ Bagaimana jika koneksi SSH Tunnel ke SQL Server mendadak terputus di tengah pekerjaan?
-* **Solusi**: Anda tidak perlu merestart server backend secara manual. Fitur *Auto-Healing SSH Tunnel* pada aplikasi akan mendeteksi putusnya saluran dalam hitungan detik dan otomatis menyambungkan kembali koneksi port forward ke `HOST_REDACTED:22`.
+* **Solusi**: Anda tidak perlu me-restart server backend secara manual. Fitur *Auto-Healing SSH Tunnel* pada aplikasi akan mendeteksi putusnya saluran dalam hitungan detik dan otomatis menyambungkan kembali koneksi port forward ke server gateway.
 
 #### ❓ Apakah menjalankan "Flow 4 (Purge)" akan menghapus data operasional asli yang sudah ada sebelumnya?
-* **Solusi**: **Sangat Aman (Tidak Akan Terhapus)**. Berkat implementasi prinsip *Dual-Guard Protection*, seluruh instruksi pembersihan diatur dengan klausa permanen `WHERE migration = '1'` dan divalidasi silang terhadap rekaman staging. Seluruh data operasional yang dibuat langsung melalui aplikasi inti perusahaan tetap utuh dan terlindungi 100%.
+* **Solusi**: **Sangat Aman (Tidak Akan Terhapus)**. Berkat implementasi prinsip *Dual-Guard Protection*, seluruh instruksi pembersihan diatur dengan klausa permanen `WHERE migration = '1'` dan divalidasi silang terhadap rekaman riwayat staging (`stg_antam.staging_data_history`). Seluruh data operasional yang dibuat langsung melalui aplikasi inti perusahaan tetap utuh dan terlindungi 100%.
 
 ---
-*Dokumen ini diterbitkan oleh Tim Pengembangan ETL Migration Command Center.*  
-*Versi Dokumen: 2.5 (Enterprise Dual-Guard Edition) | Tanggal Pembaruan: Oktober 2026*
+*Dokumen ini diterbitkan oleh Tim Pengembang ETL Migration Command Center (MCC-PROCSI).*  
+*Versi Dokumen: 2.6 (Enterprise Hardened Edition) | Terakhir Diperbarui: Sesuai Branch dev (lihat CHANGELOG.md)*
