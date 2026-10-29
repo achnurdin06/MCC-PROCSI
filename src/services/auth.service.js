@@ -248,6 +248,75 @@ class AuthService {
     return res.rows;
   }
 
+  /**
+   * Pendaftaran mandiri: akun dibuat nonaktif dengan role VIEWER, menunggu persetujuan admin
+   */
+  async registerAccount({ username, password, full_name, email }) {
+    const cleanUser = String(username || '').trim().toLowerCase();
+    const cleanName = String(full_name || '').trim();
+    const cleanEmail = String(email || '').trim().toLowerCase();
+
+    if (!/^[a-z0-9._]{4,30}$/.test(cleanUser)) {
+      throw new Error('Username 4-30 karakter, hanya huruf, angka, titik, dan underscore.');
+    }
+    if (cleanName.length < 3 || cleanName.length > 100) {
+      throw new Error('Nama lengkap wajib diisi (3-100 karakter).');
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail) || cleanEmail.length > 150) {
+      throw new Error('Format email tidak valid.');
+    }
+    if (typeof password !== 'string' || password.length < 8 || password.length > 128) {
+      throw new Error('Kata sandi minimal 8 karakter.');
+    }
+
+    const existing = await queryPostgres(
+      `SELECT user_id FROM mc_center.sys_users WHERE LOWER(username) = $1`,
+      [cleanUser]
+    );
+    if (existing.rows.length > 0) {
+      throw new Error('Username sudah digunakan. Silakan pilih username lain.');
+    }
+
+    const roleRes = await queryPostgres(`SELECT role_id FROM mc_center.sys_roles WHERE role_code = 'VIEWER' LIMIT 1`);
+    const roleId = roleRes.rows.length > 0 ? roleRes.rows[0].role_id : null;
+
+    await queryPostgres(
+      `INSERT INTO mc_center.sys_users (username, password_hash, full_name, email, role_id, is_active)
+       VALUES ($1, $2, $3, $4, $5, FALSE)`,
+      [cleanUser, hashPassword(password), cleanName, cleanEmail, roleId]
+    );
+    return true;
+  }
+
+  /**
+   * Reset kata sandi mandiri dengan verifikasi pasangan username + email terdaftar
+   */
+  async resetPasswordSelf({ username, email, new_password }) {
+    const cleanUser = String(username || '').trim().toLowerCase();
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    if (!cleanUser || !cleanEmail) {
+      throw new Error('Username dan email wajib diisi.');
+    }
+    if (typeof new_password !== 'string' || new_password.length < 8 || new_password.length > 128) {
+      throw new Error('Kata sandi baru minimal 8 karakter.');
+    }
+
+    const genericError = 'Data username dan email tidak cocok dengan akun terdaftar. Hubungi administrator jika email belum terdaftar.';
+    const res = await queryPostgres(
+      `SELECT user_id FROM mc_center.sys_users WHERE LOWER(username) = $1 AND LOWER(email) = $2`,
+      [cleanUser, cleanEmail]
+    );
+    if (res.rows.length === 0) {
+      throw new Error(genericError);
+    }
+
+    await queryPostgres(
+      `UPDATE mc_center.sys_users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2`,
+      [hashPassword(new_password), res.rows[0].user_id]
+    );
+    return true;
+  }
+
   async createUser(data) {
     const { username, password, full_name, email, role_id, client_id, env_id, client_ids = [], env_ids = [], is_active = true } = data;
     if (!username || !password || !full_name) {
@@ -504,7 +573,7 @@ class AuthService {
   // ==========================================
   async getMenus() {
     const res = await queryPostgres(`
-      SELECT menu_id, menu_code, menu_name, menu_icon, menu_order, route_tab, is_active
+      SELECT menu_id, menu_code, menu_name, menu_icon, menu_order, route_tab, sub_title, content_html, is_custom, is_active, created_at, updated_at
       FROM mc_center.sys_menus
       ORDER BY menu_order ASC, menu_id ASC
     `);
@@ -515,7 +584,7 @@ class AuthService {
     if (!roleId) return [];
     const rid = parseInt(roleId, 10);
     const res = await queryPostgres(
-      `SELECT m.menu_id, m.menu_code, m.menu_name, m.menu_icon, m.menu_order, m.route_tab,
+      `SELECT m.menu_id, m.menu_code, m.menu_name, m.menu_icon, m.menu_order, m.route_tab, m.sub_title, m.content_html, m.is_custom, m.is_active,
               COALESCE(rm.can_view, false) AS can_view,
               COALESCE(rm.can_create, false) AS can_create,
               COALESCE(rm.can_update, false) AS can_update,
@@ -554,6 +623,170 @@ class AuthService {
     }
 
     return this.getRolePermissions(rid);
+  }
+
+  // ==========================================
+  // MENU CRUD (MAINTAIN MENU)
+  // ==========================================
+  async createMenu(data) {
+    const { menu_name, is_active = true } = data;
+    let { menu_code, route_tab, route_path, menu_icon, icon, menu_order, sub_title, content_html } = data;
+    menu_icon = menu_icon || icon || '📌';
+    route_tab = route_tab || route_path;
+
+    if (!menu_name || !menu_name.trim()) {
+      throw new Error('Nama Menu wajib diisi.');
+    }
+
+    // Auto-generate menu_code jika kosong
+    if (!menu_code || !menu_code.trim()) {
+      const randSuffix = Math.random().toString(36).substring(2, 6).toUpperCase();
+      const slug = menu_name.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_').substring(0, 16);
+      menu_code = `MENU_${slug}_${randSuffix}`;
+    } else {
+      menu_code = menu_code.trim().toUpperCase().replace(/[^A-Z0-9_]+/g, '_');
+    }
+
+    const cleanCode = menu_code;
+    const existing = await queryPostgres(
+      `SELECT menu_id FROM mc_center.sys_menus WHERE menu_code = $1`,
+      [cleanCode]
+    );
+    if (existing.rows.length > 0) {
+      throw new Error(`Kode Menu "${cleanCode}" sudah digunakan.`);
+    }
+
+    // Route tab unik untuk menu kustom
+    if (!route_tab || !route_tab.trim()) {
+      route_tab = `tab-custom-${cleanCode.toLowerCase().replace(/_/g, '-')}`;
+    } else {
+      route_tab = route_tab.trim().toLowerCase();
+    }
+
+    // Hitung order default jika tidak ditentukan
+    let orderNum = parseInt(menu_order, 10);
+    if (isNaN(orderNum)) {
+      const maxOrderRes = await queryPostgres(`SELECT COALESCE(MAX(menu_order), 0) + 1 AS next_order FROM mc_center.sys_menus`);
+      orderNum = maxOrderRes.rows[0]?.next_order || 10;
+    }
+
+    const res = await queryPostgres(
+      `INSERT INTO mc_center.sys_menus (menu_code, menu_name, menu_icon, menu_order, route_tab, sub_title, content_html, is_custom, is_active, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8, NOW(), NOW())
+       RETURNING menu_id, menu_code, menu_name, menu_icon, menu_order, route_tab, sub_title, content_html, is_custom, is_active, created_at, updated_at`,
+      [
+        cleanCode,
+        menu_name.trim(),
+        menu_icon?.trim() || '📌',
+        orderNum,
+        route_tab,
+        sub_title?.trim() || null,
+        content_html || '',
+        Boolean(is_active)
+      ]
+    );
+
+    const newMenu = res.rows[0];
+
+    // Otomatis berikan izin view ke semua roles yang ada
+    const roles = await queryPostgres(`SELECT role_id, role_code FROM mc_center.sys_roles`);
+    for (const r of roles.rows) {
+      const isSuper = r.role_code === 'SUPERADMIN';
+      await queryPostgres(
+        `INSERT INTO mc_center.sys_role_menus (role_id, menu_id, can_view, can_create, can_update, can_delete)
+         VALUES ($1, $2, true, $3, $3, $3)
+         ON CONFLICT (role_id, menu_id) DO NOTHING`,
+        [r.role_id, newMenu.menu_id, isSuper]
+      );
+    }
+
+    return newMenu;
+  }
+
+  async updateMenu(menuId, data) {
+    const mid = parseInt(menuId, 10);
+    const { menu_name, menu_order, sub_title, content_html, is_active } = data;
+    let { menu_code, route_tab, route_path, menu_icon, icon } = data;
+    menu_icon = menu_icon !== undefined ? menu_icon : icon;
+    route_tab = route_tab !== undefined ? route_tab : route_path;
+
+    const menuCheck = await queryPostgres(
+      `SELECT menu_id, menu_code, route_tab, is_custom FROM mc_center.sys_menus WHERE menu_id = $1`,
+      [mid]
+    );
+    if (menuCheck.rows.length === 0) {
+      throw new Error(`Menu ID ${mid} tidak ditemukan.`);
+    }
+
+    const currentMenu = menuCheck.rows[0];
+
+    // Validasi menu_code jika diubah
+    let newCode = null;
+    if (menu_code !== undefined && menu_code !== null) {
+      newCode = menu_code.trim().toUpperCase().replace(/[^A-Z0-9_]+/g, '_');
+      if (newCode && newCode !== currentMenu.menu_code) {
+        const exist = await queryPostgres(
+          `SELECT menu_id FROM mc_center.sys_menus WHERE menu_code = $1 AND menu_id != $2`,
+          [newCode, mid]
+        );
+        if (exist.rows.length > 0) {
+          throw new Error(`Kode Menu "${newCode}" sudah digunakan oleh menu lain.`);
+        }
+      }
+    }
+
+    const newRoute = route_tab !== undefined ? (route_tab ? route_tab.trim().toLowerCase() : null) : null;
+    const newName = menu_name !== undefined ? (menu_name ? menu_name.trim() : null) : null;
+    const newIcon = menu_icon !== undefined ? (menu_icon ? menu_icon.trim() : null) : null;
+    const newSubTitle = sub_title !== undefined ? (sub_title ? sub_title.trim() : '') : null;
+    const newContent = content_html !== undefined ? content_html : null;
+    const newOrder = menu_order !== undefined && menu_order !== '' ? parseInt(menu_order, 10) : null;
+    const newActive = is_active !== undefined ? Boolean(is_active) : null;
+
+    const res = await queryPostgres(
+      `UPDATE mc_center.sys_menus 
+       SET menu_code = COALESCE($1, menu_code),
+           route_tab = COALESCE($2, route_tab),
+           menu_name = COALESCE($3, menu_name),
+           menu_icon = COALESCE($4, menu_icon),
+           menu_order = COALESCE($5, menu_order),
+           sub_title = CASE WHEN $6::text IS NOT NULL THEN $6 ELSE sub_title END,
+           content_html = CASE WHEN $7::text IS NOT NULL THEN $7 ELSE content_html END,
+           is_active = COALESCE($8, is_active),
+           updated_at = NOW()
+       WHERE menu_id = $9
+       RETURNING menu_id, menu_code, menu_name, menu_icon, menu_order, route_tab, sub_title, content_html, is_custom, is_active, created_at, updated_at`,
+      [newCode, newRoute, newName, newIcon, newOrder, newSubTitle, newContent, newActive, mid]
+    );
+    return res.rows[0];
+  }
+
+  async deleteMenu(menuId) {
+    const mid = parseInt(menuId, 10);
+    
+    const menu = await queryPostgres(
+      `SELECT menu_id, menu_name, is_custom FROM mc_center.sys_menus WHERE menu_id = $1`,
+      [mid]
+    );
+    if (menu.rows.length === 0) {
+      throw new Error(`Menu ID ${mid} tidak ditemukan.`);
+    }
+
+    if (!menu.rows[0].is_custom) {
+      throw new Error(`Menu bawaan sistem "${menu.rows[0].menu_name}" tidak dapat dihapus. Anda dapat menonaktifkannya jika tidak ingin ditampilkan.`);
+    }
+
+    await queryPostgres(
+      `DELETE FROM mc_center.sys_role_menus WHERE menu_id = $1`,
+      [mid]
+    );
+
+    await queryPostgres(
+      `DELETE FROM mc_center.sys_menus WHERE menu_id = $1`,
+      [mid]
+    );
+
+    return { success: true, message: `Menu "${menu.rows[0].menu_name}" berhasil dihapus.` };
   }
 }
 

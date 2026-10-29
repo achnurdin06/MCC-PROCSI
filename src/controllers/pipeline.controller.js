@@ -70,8 +70,17 @@ class PipelineController {
 
   async getStagingHistory(req, res) {
     try {
-      const { runId, configId, deltaStatus, limit, offset } = req.query;
-      const data = await pipelineService.getStagingHistory({ runId, configId, deltaStatus, limit, offset });
+      const { runId, configId, deltaStatus, search, limit, offset } = req.query;
+      const data = await pipelineService.getStagingHistory({ runId, configId, deltaStatus, search, limit, offset });
+      return res.json({ success: true, data });
+    } catch (err) {
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  }
+
+  async getStagingHistoryRuns(req, res) {
+    try {
+      const data = await pipelineService.getStagingHistoryRuns(req.query.configId);
       return res.json({ success: true, data });
     } catch (err) {
       return res.status(500).json({ success: false, error: err.message });

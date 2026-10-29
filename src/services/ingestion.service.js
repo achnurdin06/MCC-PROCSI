@@ -1,4 +1,4 @@
-const { querySqlServer } = require('../config/sqlserver');
+const { querySqlServer, streamSqlServerRows } = require('../config/sqlserver');
 const { queryPostgres, getPostgresPool } = require('../config/postgres');
 const dbDispatcher = require('./db-dispatcher.service');
 const { isSensitiveStagingColumn } = require('../utils/encryption');
@@ -142,9 +142,6 @@ class IngestionService {
     const selectCols = matching.map(m => `[${m.srcCol}]`).join(', ');
     const srcQuery = `SELECT ${selectCols} FROM [${srcSchema}].[${srcView}]`;
 
-    const srcData = await querySqlServer(srcQuery);
-    const rows = srcData.recordset || [];
-
     // Dynamic Safe Batch Sizing (PostgreSQL 65,535 parameter limit protection)
     const colCount = Math.max(1, matching.length);
     const maxSafeChunk = Math.floor(60000 / colCount);
@@ -154,90 +151,86 @@ class IngestionService {
     let errorRows = 0;
     const pgColNames = matching.map(m => `"${m.pgCol}"`).join(', ');
 
-    try {
-      // Chunking per effectiveBatchSize untuk parameterized multi-row insert
-      for (let i = 0; i < rows.length; i += effectiveBatchSize) {
-        const chunk = rows.slice(i, i + effectiveBatchSize);
-        
-        try {
-          const valuePlaceholders = [];
-          const params = [];
-          let paramIdx = 1;
+    const insertChunk = async (chunk) => {
+      try {
+        const valuePlaceholders = [];
+        const params = [];
+        let paramIdx = 1;
 
-          for (const row of chunk) {
-            const rowPlaceholders = [];
-            for (const m of matching) {
-              const rawVal = row[m.srcCol];
-              const formatted = this.formatValueForPg(rawVal, m.pgType, m.pgUdt);
-              params.push(formatted);
-              if (isSensitiveStagingColumn(actualStg, m.pgCol)) {
-                rowPlaceholders.push(`mc_center.fn_encrypt_staging($${paramIdx++})`);
-              } else {
-                rowPlaceholders.push(`$${paramIdx++}`);
-              }
-            }
-            valuePlaceholders.push(`(${rowPlaceholders.join(', ')})`);
-          }
-
-          const insertQuery = `
-            INSERT INTO stg_antam."${actualStg}" (${pgColNames})
-            VALUES ${valuePlaceholders.join(', ')}
-          `;
-
-          await queryPostgres(insertQuery, params);
-          loadedRows += chunk.length;
-        } catch (chunkErr) {
-          // Fallback: Jika batch gagal (misal data type mismatch pada salah satu baris),
-          // lakukan insert per-baris untuk mengisolasi baris bermasalah ke migration_error_log
-          for (const row of chunk) {
-            try {
-              const rowParams = [];
-              const rowPlaceholders = [];
-              let pIdx = 1;
-              for (const m of matching) {
-                rowParams.push(this.formatValueForPg(row[m.srcCol], m.pgType, m.pgUdt));
-                if (isSensitiveStagingColumn(actualStg, m.pgCol)) {
-                  rowPlaceholders.push(`mc_center.fn_encrypt_staging($${pIdx++})`);
-                } else {
-                  rowPlaceholders.push(`$${pIdx++}`);
-                }
-              }
-              await queryPostgres(
-                `INSERT INTO stg_antam."${actualStg}" (${pgColNames}) VALUES (${rowPlaceholders.join(', ')})`,
-                rowParams
-              );
-              loadedRows++;
-            } catch (singleRowErr) {
-              errorRows++;
-              const rowDataStr = Object.entries(row).map(([k, v]) => `${k}=${v}`).join('|');
-              await dbDispatcher.logError({
-                runId,
-                configId,
-                stepName: 'STAGING',
-                pipelineName: 'native_ingestion_stream',
-                transformName: 'insert_staging',
-                errorCode: 'STAGING_INSERT_ERROR',
-                errorMessage: singleRowErr.message,
-                errorField: actualStg,
-                rowData: rowDataStr.substring(0, 2000)
-              });
+        for (const row of chunk) {
+          const rowPlaceholders = [];
+          for (const m of matching) {
+            const formatted = this.formatValueForPg(row[m.srcCol], m.pgType, m.pgUdt);
+            params.push(formatted);
+            if (isSensitiveStagingColumn(actualStg, m.pgCol)) {
+              rowPlaceholders.push(`mc_center.fn_encrypt_staging($${paramIdx++})`);
+            } else {
+              rowPlaceholders.push(`$${paramIdx++}`);
             }
           }
+          valuePlaceholders.push(`(${rowPlaceholders.join(', ')})`);
         }
 
-        // Notifikasi callback progress untuk real-time events
-        const elapsed = Date.now() - startTime;
-        const speed = elapsed > 0 ? Math.round((loadedRows / elapsed) * 1000) : loadedRows;
-        if (typeof onProgress === 'function') {
-          onProgress({
-            loadedRows,
-            totalRows,
-            errorRows,
-            speed,
-            percent: Math.min(100, Math.round((loadedRows / totalRows) * 100))
-          });
+        await queryPostgres(
+          `INSERT INTO stg_antam."${actualStg}" (${pgColNames}) VALUES ${valuePlaceholders.join(', ')}`,
+          params
+        );
+        loadedRows += chunk.length;
+      } catch (chunkErr) {
+        // Fallback: Jika batch gagal (misal data type mismatch pada salah satu baris),
+        // lakukan insert per-baris untuk mengisolasi baris bermasalah ke migration_error_log
+        for (const row of chunk) {
+          try {
+            const rowParams = [];
+            const rowPlaceholders = [];
+            let pIdx = 1;
+            for (const m of matching) {
+              rowParams.push(this.formatValueForPg(row[m.srcCol], m.pgType, m.pgUdt));
+              if (isSensitiveStagingColumn(actualStg, m.pgCol)) {
+                rowPlaceholders.push(`mc_center.fn_encrypt_staging($${pIdx++})`);
+              } else {
+                rowPlaceholders.push(`$${pIdx++}`);
+              }
+            }
+            await queryPostgres(
+              `INSERT INTO stg_antam."${actualStg}" (${pgColNames}) VALUES (${rowPlaceholders.join(', ')})`,
+              rowParams
+            );
+            loadedRows++;
+          } catch (singleRowErr) {
+            errorRows++;
+            const rowDataStr = Object.entries(row).map(([k, v]) => `${k}=${v}`).join('|');
+            await dbDispatcher.logError({
+              runId,
+              configId,
+              stepName: 'STAGING',
+              pipelineName: 'native_ingestion_stream',
+              transformName: 'insert_staging',
+              errorCode: 'STAGING_INSERT_ERROR',
+              errorMessage: singleRowErr.message,
+              errorField: actualStg,
+              rowData: rowDataStr.substring(0, 2000)
+            });
+          }
         }
       }
+
+      const elapsed = Date.now() - startTime;
+      const speed = elapsed > 0 ? Math.round((loadedRows / elapsed) * 1000) : loadedRows;
+      if (typeof onProgress === 'function') {
+        onProgress({
+          loadedRows,
+          totalRows,
+          errorRows,
+          speed,
+          percent: Math.min(100, Math.round((loadedRows / totalRows) * 100))
+        });
+      }
+    };
+
+    try {
+      // Streaming dari SQL Server: hanya satu batch yang ditahan di memori pada satu waktu
+      await streamSqlServerRows(srcQuery, effectiveBatchSize, insertChunk);
 
       const totalElapsed = Date.now() - startTime;
       const streamMsg = `Selesai streaming data ke stg_antam.[${actualStg}]: ${loadedRows}/${totalRows} baris berhasil, ${errorRows} baris error (batch size: ${effectiveBatchSize}), durasi ${totalElapsed}ms`;

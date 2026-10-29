@@ -22,6 +22,14 @@ function isZeroPostRun(run) {
   );
 }
 
+// Rollback dianggap lebih baru jika selesai setelah run lain terakhir beraktivitas.
+// Dibandingkan berdasarkan waktu, bukan run_id, karena run_id Flow 2/3 mengikuti run Flow 1.
+function isRollbackNewerThanRun(rollbackRun, otherRun) {
+  const rolledBackAt = rollbackRun?.rolled_back_at ? new Date(rollbackRun.rolled_back_at).getTime() : NaN;
+  const otherAt = new Date(otherRun?.end_time || otherRun?.start_time).getTime();
+  return Number.isFinite(rolledBackAt) && Number.isFinite(otherAt) && rolledBackAt > otherAt;
+}
+
 /**
  * Satu-satunya sumber kebenaran penentuan Status Action per run.
  * Run Flow 1 yang belum diposting SELALU berstatus STAGING, dievaluasi sebelum
@@ -48,9 +56,48 @@ class PipelineService {
 
   // In-memory cache map untuk mempercepat display data secara drastis
   static _pipelineCache = new Map();
+  static _inflight = new Map();
+  static _countCache = new Map();
+  static COUNT_TTL_MS = 120000;
+  static COUNT_CONCURRENCY = 6;
 
   invalidatePipelineCache() {
     PipelineService._pipelineCache.clear();
+    PipelineService._countCache.clear();
+  }
+
+  /**
+   * Hitung baris dengan cache TTL, dedupe request paralel, dan batas konkurensi
+   * agar tidak menghabiskan pool koneksi.
+   */
+  static async _cachedCount(key, force, loader) {
+    const hit = PipelineService._countCache.get(key);
+    if (!force && hit && hit.value !== undefined && Date.now() - hit.timestamp < PipelineService.COUNT_TTL_MS) {
+      return hit.value;
+    }
+    if (hit && hit.promise) return hit.promise;
+    const promise = loader().then((value) => {
+      PipelineService._countCache.set(key, { timestamp: Date.now(), value });
+      return value;
+    }).catch((err) => {
+      PipelineService._countCache.delete(key);
+      throw err;
+    });
+    PipelineService._countCache.set(key, { promise });
+    return promise;
+  }
+
+  static async _mapLimit(items, limit, fn) {
+    const results = new Array(items.length);
+    let next = 0;
+    const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (next < items.length) {
+        const i = next++;
+        results[i] = await fn(items[i], i);
+      }
+    });
+    await Promise.all(workers);
+    return results;
   }
 
   /**
@@ -71,6 +118,19 @@ class PipelineService {
       }
     }
 
+    // Request paralel dengan parameter sama berbagi satu proses hitung
+    const inflightKey = `${cacheKey}_${force ? 'f' : 'n'}`;
+    if (PipelineService._inflight.has(inflightKey)) {
+      return PipelineService._inflight.get(inflightKey);
+    }
+    const task = this._buildPipelineSummary({ cid, eid, force, cacheKey })
+      .finally(() => PipelineService._inflight.delete(inflightKey));
+    PipelineService._inflight.set(inflightKey, task);
+    return task;
+  }
+
+  async _buildPipelineSummary({ cid, eid, force, cacheKey }) {
+
     let cfgWhere = '';
     const cfgParams = [];
     if (cid && eid) {
@@ -85,6 +145,7 @@ class PipelineService {
     }
 
     // 1. Ambil seluruh konfigurasi dan data pendukung PostgreSQL secara PARALEL
+    const configIdsSubquery = `(SELECT config_id FROM mc_center.migration_config ${cfgWhere})`;
     const [
       configsRes,
       targetConfigsRes,
@@ -106,21 +167,21 @@ class PipelineService {
       queryPostgres(`
         SELECT target_config_id, config_id, exec_order, tgt_schema, tgt_table, pk_columns, is_active
         FROM mc_center.migration_target_config
-        WHERE is_active = true
+        WHERE is_active = true AND config_id IN ${configIdsSubquery}
         ORDER BY config_id, exec_order, target_config_id
-      `),
+      `, cfgParams),
       queryPostgres(`
         SELECT log_id, run_id, config_id, step_name, rows_before, rows_after, message, start_time
         FROM mc_center.migration_step_log
-        WHERE step_name = 'POST_TARGET'
+        WHERE step_name = 'POST_TARGET' AND config_id IN ${configIdsSubquery}
         ORDER BY log_id DESC
-      `),
+      `, cfgParams),
       queryPostgres(`
         SELECT log_id, run_id, config_id, step_name, rows_before, rows_after, message, start_time
         FROM mc_center.migration_step_log
-        WHERE step_name = 'ROLLBACK_TARGET' AND status = 'OK'
+        WHERE step_name = 'ROLLBACK_TARGET' AND status = 'OK' AND config_id IN ${configIdsSubquery}
         ORDER BY log_id DESC
-      `),
+      `, cfgParams),
       queryPostgres(`
         SELECT 
           run_id, run_ts, start_time, end_time, status, hop_host, note, main_workflow, config_id,
@@ -128,18 +189,20 @@ class PipelineService {
           ROUND(EXTRACT(EPOCH FROM (end_time - start_time))::numeric, 2) AS duration_seconds
         FROM mc_center.migration_run
         ${cfgWhere}
-        ORDER BY run_id DESC
+        ORDER BY GREATEST(COALESCE(end_time, start_time), COALESCE(posted_at, start_time), COALESCE(rolled_back_at, start_time)) DESC NULLS LAST, run_id DESC
       `, cfgParams),
       queryPostgres(`
         SELECT config_id, run_id, COUNT(*)::int AS total
         FROM mc_center.migration_error_log
+        WHERE config_id IN ${configIdsSubquery}
         GROUP BY config_id, run_id
-      `),
+      `, cfgParams),
       queryPostgres(`
         SELECT DISTINCT ON (config_id) *
         FROM mc_center.migration_step_log
+        WHERE config_id IN ${configIdsSubquery}
         ORDER BY config_id, log_id DESC
-      `)
+      `, cfgParams)
     ]);
 
     const configs = configsRes.rows;
@@ -148,10 +211,26 @@ class PipelineService {
     const allRollbackStepLogs = rollbackStepLogsRes.rows;
     const allRuns = latestRunsRes.rows;
 
+    // Indeks run per config_id (urutan run_id DESC dipertahankan) agar pencarian tidak O(configs x runs)
+    const runsByConfig = new Map();
+    for (const r of allRuns) {
+      if (!r.config_id) continue;
+      for (const id of new Set(r.config_id.split(',').map((x) => x.trim()))) {
+        if (!runsByConfig.has(id)) runsByConfig.set(id, []);
+        runsByConfig.get(id).push(r);
+      }
+    }
+
     // Buat O(1) Fast Lookup Maps
     const errorMap = new Map();
     for (const er of errorCountsRes.rows) {
       errorMap.set(`${er.config_id}_${er.run_id}`, er.total);
+    }
+
+    const postLogsByConfig = new Map();
+    for (const sl of allPostStepLogs) {
+      if (!postLogsByConfig.has(sl.config_id)) postLogsByConfig.set(sl.config_id, []);
+      postLogsByConfig.get(sl.config_id).push(sl);
     }
 
     const lastStepMap = new Map();
@@ -161,38 +240,45 @@ class PipelineService {
 
     // 2. Paralelisasi Perhitungan Staging & Source Rows
     // Eksekusi seluruh query SQL Server dan Postgres Staging secara bersamaan
-    const srcPromises = configs.map(async (cfg) => {
+    const srcTask = PipelineService._mapLimit(configs, PipelineService.COUNT_CONCURRENCY, async (cfg) => {
       const cleanSrcSchema = sanitizeIdentifier(cfg.src_schema) || 'dbo';
       const cleanSrcView = sanitizeIdentifier(cfg.src_view);
       if (!cleanSrcView) return { configId: cfg.config_id, rows: null, error: null };
       try {
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Timeout SQL Server view')), 4000)
-        );
-        const queryPromise = querySqlServer(`SELECT COUNT_BIG(1) AS total FROM [${cleanSrcSchema}].[${cleanSrcView}]`);
-        const res = await Promise.race([queryPromise, timeoutPromise]);
-        return { configId: cfg.config_id, rows: parseInt(res.recordset[0]?.total, 10) || 0, error: null };
+        const rows = await PipelineService._cachedCount(`src_${cleanSrcSchema}.${cleanSrcView}`, force, async () => {
+          let timer;
+          const timeoutPromise = new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error('Timeout SQL Server view')), 4000);
+          });
+          try {
+            const queryPromise = querySqlServer(`SELECT COUNT_BIG(1) AS total FROM [${cleanSrcSchema}].[${cleanSrcView}]`);
+            const res = await Promise.race([queryPromise, timeoutPromise]);
+            return parseInt(res.recordset[0]?.total, 10) || 0;
+          } finally {
+            clearTimeout(timer);
+          }
+        });
+        return { configId: cfg.config_id, rows, error: null };
       } catch (e) {
         return { configId: cfg.config_id, rows: null, error: e.message };
       }
     });
 
-    const stgPromises = configs.map(async (cfg) => {
-      const cleanStgSchema = 'stg_antam';
+    const stgTask = PipelineService._mapLimit(configs, PipelineService.COUNT_CONCURRENCY, async (cfg) => {
       const cleanStgTable = sanitizeIdentifier(cfg.stg_table);
       if (!cleanStgTable) return { configId: cfg.config_id, rows: null, error: null };
       try {
-        const res = await queryPostgres(`SELECT COUNT(*) AS total FROM "${cleanStgSchema}"."${cleanStgTable}"`);
-        return { configId: cfg.config_id, rows: parseInt(res.rows[0]?.total, 10) || 0, error: null };
+        const rows = await PipelineService._cachedCount(`stg_${cleanStgTable}`, force, async () => {
+          const res = await queryPostgres(`SELECT COUNT(*) AS total FROM "stg_antam"."${cleanStgTable}"`);
+          return parseInt(res.rows[0]?.total, 10) || 0;
+        });
+        return { configId: cfg.config_id, rows, error: null };
       } catch (e) {
         return { configId: cfg.config_id, rows: null, error: e.message };
       }
     });
 
-    const [srcResults, stgResults] = await Promise.all([
-      Promise.all(srcPromises),
-      Promise.all(stgPromises)
-    ]);
+    const [srcResults, stgResults] = await Promise.all([srcTask, stgTask]);
 
     const srcMap = new Map(srcResults.map(r => [r.configId, r]));
     const stgMap = new Map(stgResults.map(r => [r.configId, r]));
@@ -203,11 +289,7 @@ class PipelineService {
 
     for (const cfg of configs) {
       const idStr = String(cfg.config_id);
-      const matchedRun = allRuns.find((r) => {
-        if (!r.config_id) return false;
-        const ids = r.config_id.split(',').map((s) => s.trim());
-        return ids.includes(idStr);
-      }) || null;
+      const matchedRun = (runsByConfig.get(idStr) || [])[0] || null;
 
       let cfgTargets = allTargetConfigs.filter((t) => t.config_id === cfg.config_id);
       if (cfgTargets.length === 0) {
@@ -225,34 +307,29 @@ class PipelineService {
       for (const t of cfgTargets) {
         const tSchema = sanitizeIdentifier(t.tgt_schema) || 'vendor';
         const tTable = sanitizeIdentifier(t.tgt_table);
-        const matchedLog = allPostStepLogs.find((sl) =>
-          sl.config_id === cfg.config_id &&
-          (matchedRun ? sl.run_id === matchedRun.run_id : true) &&
-          sl.message && tTable &&
-          sl.message.toLowerCase().includes(tTable.toLowerCase())
-        ) || allPostStepLogs.find((sl) =>
-          sl.config_id === cfg.config_id &&
-          sl.message && tTable &&
-          sl.message.toLowerCase().includes(tTable.toLowerCase())
-        );
-
         // Hitung ulang tabel target selalu dilakukan: sesi staging (Flow 1) tidak punya log POST_TARGET sendiri
         if (tTable) {
           const key = `"${tSchema}"."${tTable}"`;
           if (!fallbackTargetMap.has(key)) {
             fallbackTargetMap.set(key, null);
-            fallbackTargetQueries.push(
-              queryPostgres(`SELECT COUNT(*) AS total FROM ${key}`)
-                .then(r => fallbackTargetMap.set(key, parseInt(r.rows[0]?.total, 10) || 0))
-                .catch(() => fallbackTargetMap.set(key, null))
-            );
+            fallbackTargetQueries.push(key);
           }
         }
       }
     }
 
     if (fallbackTargetQueries.length > 0) {
-      await Promise.all(fallbackTargetQueries);
+      await PipelineService._mapLimit(fallbackTargetQueries, PipelineService.COUNT_CONCURRENCY, async (key) => {
+        try {
+          const total = await PipelineService._cachedCount(`tgt_${key}`, force, async () => {
+            const r = await queryPostgres(`SELECT COUNT(*) AS total FROM ${key}`);
+            return parseInt(r.rows[0]?.total, 10) || 0;
+          });
+          fallbackTargetMap.set(key, total);
+        } catch (e) {
+          fallbackTargetMap.set(key, null);
+        }
+      });
     }
 
     // 4. Bangun seluruh pipeline results in-memory
@@ -274,29 +351,15 @@ class PipelineService {
       const cleanTgtTable = sanitizeIdentifier(cfg.tgt_table);
 
       const idStr = String(cfg.config_id);
-      const matchedRun = allRuns.find((r) => {
-        if (!r.config_id) return false;
-        const ids = r.config_id.split(',').map((s) => s.trim());
-        return ids.includes(idStr);
-      }) || null;
+      const matchedRun = (runsByConfig.get(idStr) || [])[0] || null;
 
       // Cari sesi migrasi terakhir yang BUKAN flow_4_purge (misal Flow 1 Staging, Flow 2 Post, Flow 3 Rollback)
-      const matchedMigrationRun = allRuns.find((r) => {
-        if (!r.config_id) return false;
-        if (r.main_workflow === 'flow_4_purge' || r.main_workflow?.includes('purge')) return false;
-        const ids = r.config_id.split(',').map((s) => s.trim());
-        return ids.includes(idStr);
-      }) || null;
+      const matchedMigrationRun = (runsByConfig.get(idStr) || []).find((r) => !(r.main_workflow === 'flow_4_purge' || r.main_workflow?.includes('purge'))) || null;
 
       // Cari sesi rollback terakhir yang valid (is_rolled_back = true)
-      const matchedRollbackRun = allRuns.find((r) => {
-        if (!r.config_id) return false;
-        if (r.main_workflow !== 'flow_3_rollback') return false;
-        if (!r.is_rolled_back) return false;
-        const ids = r.config_id.split(',').map((s) => s.trim());
-        return ids.includes(idStr);
-      }) || null;
+      const matchedRollbackRun = (runsByConfig.get(idStr) || []).find((r) => r.main_workflow === 'flow_3_rollback' && r.is_rolled_back) || null;
 
+      // Urutan runsByConfig = aktivitas terakhir (end/post/rollback), bukan run_id terbesar.
       // Ketika proses flow_4_purge, actionStatus tetap dengan status terakhir pada hasil migrasi.
       // Prioritas penentuan status:
       //   1. Jika run terbaru adalah purge -> gunakan run migrasi non-purge sebelumnya
@@ -306,8 +369,12 @@ class PipelineService {
       if (matchedRun && (matchedRun.main_workflow === 'flow_4_purge' || matchedRun.main_workflow?.includes('purge'))) {
         // Jika run terbaru adalah purge, gunakan run migrasi sebelumnya
         runForAction = matchedMigrationRun || matchedRun;
-      } else if (matchedRollbackRun && matchedMigrationRun && matchedMigrationRun.run_id === matchedRollbackRun.run_id) {
-        // Run terbaru non-purge adalah rollback -> tampilkan status rollback
+      } else if (matchedRollbackRun && matchedMigrationRun && (
+        matchedMigrationRun.run_id === matchedRollbackRun.run_id ||
+        isRollbackNewerThanRun(matchedRollbackRun, matchedMigrationRun)
+      )) {
+        // Rollback adalah aksi terakhir yang mengubah target (run +0 post / staging yang lebih lama
+        // secara waktu tidak membatalkan rollback) -> tampilkan status rollback
         runForAction = matchedRollbackRun;
       } else {
         // Ada run baru setelah rollback (mis. flow_1 staging baru) -> gunakan run terbaru langsung
@@ -346,16 +413,11 @@ class PipelineService {
         const tSchema = sanitizeIdentifier(t.tgt_schema) || 'vendor';
         const tTable = sanitizeIdentifier(t.tgt_table);
 
-        const matchedLog = allPostStepLogs.find((sl) =>
-          sl.config_id === cfg.config_id &&
-          (runForAction ? sl.run_id === runForAction.run_id : true) &&
-          sl.message && tTable &&
-          sl.message.toLowerCase().includes(tTable.toLowerCase())
-        ) || allPostStepLogs.find((sl) =>
-          sl.config_id === cfg.config_id &&
-          sl.message && tTable &&
-          sl.message.toLowerCase().includes(tTable.toLowerCase())
-        );
+        const cfgPostLogs = postLogsByConfig.get(cfg.config_id) || [];
+        const tTableLower = tTable ? tTable.toLowerCase() : null;
+        const logMatchesTable = (sl) => tTableLower && sl.message && sl.message.toLowerCase().includes(tTableLower);
+        const matchedLog = cfgPostLogs.find((sl) => (runForAction ? sl.run_id === runForAction.run_id : true) && logMatchesTable(sl))
+          || cfgPostLogs.find(logMatchesTable);
 
         let actionStatus = resolveActionStatus(runForAction, { hasPostLog: Boolean(matchedLog), stgRows });
         const postedAt = runForAction ? runForAction.posted_at : null;
@@ -523,7 +585,7 @@ class PipelineService {
           ROUND(EXTRACT(EPOCH FROM (end_time - start_time))::numeric, 2) AS duration_seconds
         FROM mc_center.migration_run
         WHERE config_id = $1 OR config_id LIKE $2
-        ORDER BY run_id DESC
+        ORDER BY GREATEST(COALESCE(end_time, start_time), COALESCE(posted_at, start_time), COALESCE(rolled_back_at, start_time)) DESC NULLS LAST, run_id DESC
         LIMIT 10
       `, [idStr, `%${idStr}%`]),
     ]);
@@ -967,7 +1029,7 @@ class PipelineService {
       SELECT run_id, run_ts, start_time, end_time, status, is_posted, posted_at, is_rolled_back, rolled_back_at, note, config_id,
              ROUND(EXTRACT(EPOCH FROM (end_time - start_time))::numeric, 2) AS duration_seconds
       FROM mc_center.migration_run
-      ORDER BY run_id DESC
+      ORDER BY GREATEST(COALESCE(end_time, start_time), COALESCE(posted_at, start_time), COALESCE(rolled_back_at, start_time)) DESC NULLS LAST, run_id DESC
       LIMIT 100
     `);
 
@@ -1519,7 +1581,7 @@ class PipelineService {
    * Mendukung filter runId, configId, deltaStatus, pagination
    */
   async getStagingHistory(filters = {}) {
-    const { runId, configId, deltaStatus, limit = 100, offset = 0 } = filters;
+    const { runId, configId, deltaStatus, search, limit = 100, offset = 0 } = filters;
     const conditions = [];
     const params = [];
 
@@ -1534,6 +1596,11 @@ class PipelineService {
     if (deltaStatus) {
       params.push(deltaStatus);
       conditions.push(`delta_status = $${params.length}`);
+    }
+
+    if (search && String(search).trim()) {
+      params.push(`%${String(search).trim()}%`);
+      conditions.push(`(business_key_value ILIKE $${params.length} OR payload->>'id' ILIKE $${params.length})`);
     }
 
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -1557,6 +1624,32 @@ class PipelineService {
       offset: off,
       rows: rowsRes.rows
     };
+  }
+
+  /**
+   * Ringkasan run yang tercatat di staging_data_history untuk satu config
+   * (jumlah baris per delta_status + status posting/rollback dari migration_run)
+   */
+  async getStagingHistoryRuns(configId) {
+    const cid = parseInt(configId, 10);
+    if (!cid) throw new Error('configId wajib diisi dan harus berupa angka.');
+
+    const res = await queryPostgres(`
+      SELECT h.run_id,
+             count(*)::int AS total_rows,
+             count(*) FILTER (WHERE h.delta_status = 'NEW_DELTA')::int AS new_delta,
+             count(*) FILTER (WHERE h.delta_status = 'ALREADY_IN_TARGET')::int AS already_in_target,
+             min(h.staged_at) AS staged_at,
+             r.status, r.is_posted, r.posted_at, r.is_rolled_back, r.rolled_back_at
+        FROM stg_antam.staging_data_history h
+        LEFT JOIN mc_center.migration_run r ON r.run_id = h.run_id
+       WHERE h.config_id = $1
+       GROUP BY h.run_id, r.status, r.is_posted, r.posted_at, r.is_rolled_back, r.rolled_back_at
+       ORDER BY h.run_id DESC
+       LIMIT 200
+    `, [cid]);
+
+    return { configId: cid, runs: res.rows };
   }
 }
 

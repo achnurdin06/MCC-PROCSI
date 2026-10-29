@@ -7,12 +7,16 @@ const etlController = require('../controllers/etl.controller');
 const pipelineController = require('../controllers/pipeline.controller');
 const authController = require('../controllers/auth.controller');
 const { requireAuth, requireRole, optionalAuth } = require('../middleware/auth.middleware');
-const { loginRateLimiter } = require('../middleware/rate-limiter.middleware');
+const { loginRateLimiter, captchaRateLimiter } = require('../middleware/rate-limiter.middleware');
+const { sqlInjectionGuard } = require('../middleware/input-guard.middleware');
 
 // ==========================================
 // 0. Autentikasi & RBAC (User, Role, Menu)
 // ==========================================
-router.post('/auth/login', loginRateLimiter, (req, res) => authController.login(req, res));
+router.get('/auth/captcha', captchaRateLimiter, (req, res) => authController.getCaptcha(req, res));
+router.post('/auth/login', loginRateLimiter, sqlInjectionGuard(['username', 'captchaId', 'captchaAnswer']), (req, res) => authController.login(req, res));
+router.post('/auth/register', loginRateLimiter, sqlInjectionGuard(['username', 'full_name', 'email', 'captchaId', 'captchaAnswer']), (req, res) => authController.register(req, res));
+router.post('/auth/forgot-password', loginRateLimiter, sqlInjectionGuard(['username', 'email', 'captchaId', 'captchaAnswer']), (req, res) => authController.forgotPassword(req, res));
 router.post('/auth/logout', requireAuth, (req, res) => authController.logout(req, res));
 router.get('/auth/me', requireAuth, (req, res) => authController.getMe(req, res));
 
@@ -32,6 +36,9 @@ router.delete('/auth/roles/:id', requireAuth, requireRole(['SUPERADMIN']), (req,
 
 // Menu & Permissions Matrix CRUD (SUPERADMIN only for saving)
 router.get('/auth/menus', requireAuth, (req, res) => authController.getMenus(req, res));
+router.post('/auth/menus', requireAuth, requireRole(['SUPERADMIN']), (req, res) => authController.createMenu(req, res));
+router.put('/auth/menus/:id', requireAuth, requireRole(['SUPERADMIN']), (req, res) => authController.updateMenu(req, res));
+router.delete('/auth/menus/:id', requireAuth, requireRole(['SUPERADMIN']), (req, res) => authController.deleteMenu(req, res));
 router.get('/auth/role-menus/:roleId', requireAuth, (req, res) => authController.getRolePermissions(req, res));
 router.post('/auth/role-menus/:roleId', requireAuth, requireRole(['SUPERADMIN']), (req, res) => authController.saveRolePermissions(req, res));
 router.put('/auth/role-menus/:roleId', requireAuth, requireRole(['SUPERADMIN']), (req, res) => authController.saveRolePermissions(req, res));
@@ -104,6 +111,7 @@ router.delete('/etl/configs/:table/:id', requireAuth, (req, res) => etlControlle
 router.get('/etl/overview', requireAuth, (req, res) => etlController.getOverview(req, res));
 router.get('/etl/runs', requireAuth, (req, res) => etlController.getRuns(req, res));
 router.post('/etl/runs/:runId/cancel', requireAuth, (req, res) => etlController.cancelRun(req, res));
+router.post('/etl/runs/:runId/force-stop', requireAuth, (req, res) => etlController.forceStopRun(req, res));
 router.get('/etl/step-logs', requireAuth, (req, res) => etlController.getStepLogs(req, res));
 router.get('/etl/error-logs', requireAuth, (req, res) => etlController.getErrorLogs(req, res));
 
@@ -116,6 +124,7 @@ router.get('/reconciliation/stage-data', requireAuth, (req, res) => pipelineCont
 router.get('/reconciliation/compare', requireAuth, (req, res) => pipelineController.comparePipelineConfig(req, res));
 router.get('/reconciliation/berita-acara', requireAuth, (req, res) => pipelineController.getBeritaAcara(req, res));
 router.get('/reconciliation/staging-history', requireAuth, (req, res) => pipelineController.getStagingHistory(req, res));
+router.get('/reconciliation/staging-history/runs', requireAuth, (req, res) => pipelineController.getStagingHistoryRuns(req, res));
 
 const flowCanvasController = require('../controllers/flow-canvas.controller');
 
@@ -128,6 +137,7 @@ router.post('/flows/flow-1-staging', requireAuth, (req, res) => flowCanvasContro
 router.post('/flows/flow-2-post', requireAuth, (req, res) => flowCanvasController.executeFlow2(req, res));
 router.post('/flows/flow-3-rollback', requireAuth, (req, res) => flowCanvasController.executeFlow3(req, res));
 router.post('/flows/flow-4-purge', requireAuth, (req, res) => flowCanvasController.executeFlow4(req, res));
+router.post('/flows/flow-4-purge-preview', requireAuth, (req, res) => flowCanvasController.previewFlow4(req, res));
 router.get('/flows/stream/:runId', requireAuth, (req, res) => flowCanvasController.streamFlowEvents(req, res));
 router.get('/flows/error-diagnostic/:runId', requireAuth, (req, res) => flowCanvasController.getErrorDiagnostic(req, res));
 

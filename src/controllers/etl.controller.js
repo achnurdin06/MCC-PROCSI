@@ -305,6 +305,20 @@ class EtlController {
     }
   }
 
+  async forceStopRun(req, res) {
+    try {
+      const { runId } = req.params;
+      const run = await etlService.forceStopRun(runId);
+      return res.json({
+        success: true,
+        data: run,
+        message: `Sesi Run #${runId} dihentikan. Silakan Lanjutkan atau Diagnostik.`,
+      });
+    } catch (err) {
+      return res.status(400).json({ success: false, error: err.message });
+    }
+  }
+
   async getStepLogs(req, res) {
     try {
       const { runId, limit, page, status, sortBy, sortDir, clientId, envId } = req.query;

@@ -1,5 +1,6 @@
 const dagEngine = require('../services/dag-engine.service');
 const dbDispatcher = require('../services/db-dispatcher.service');
+const purgePrecheck = require('../services/purge-precheck.service');
 
 /**
  * Flow Canvas Controller
@@ -158,6 +159,41 @@ class FlowCanvasController {
       return res.json({ success: true, data: startResult, message: 'Flow 3 Rollback berhasil dimulai.' });
     } catch (err) {
       return res.status(500).json({ success: false, error: err.message });
+    }
+  }
+
+  /**
+   * Dry-Run / Preview Purge (Flow 4)
+   * Mengklasifikasi ID per config tanpa melakukan perubahan data apa pun
+   */
+  async previewFlow4(req, res) {
+    try {
+      const rawCfg = req.body.configIds || req.body.configId;
+      let parsedConfigIds = [1];
+      if (Array.isArray(rawCfg)) {
+        parsedConfigIds = rawCfg.map(x => parseInt(x, 10)).filter(n => !isNaN(n));
+      } else if (String(rawCfg).includes(',')) {
+        parsedConfigIds = String(rawCfg).split(',').map(x => parseInt(x.trim(), 10)).filter(n => !isNaN(n));
+      } else if (rawCfg !== undefined && rawCfg !== null) {
+        const single = parseInt(rawCfg, 10);
+        parsedConfigIds = isNaN(single) ? [1] : [single];
+      }
+
+      const { deleteIds = '' } = req.body;
+      const plan = await purgePrecheck.buildPlan(parsedConfigIds, deleteIds);
+      return res.json({
+        success: true,
+        data: {
+          ...plan,
+          summary: purgePrecheck.summarize(plan)
+        }
+      });
+    } catch (err) {
+      return res.status(err.code === 'INVALID_DELETE_IDS' || err.code === 'TOO_MANY_DELETE_IDS' ? 400 : 500).json({
+        success: false,
+        code: err.code || 'PREVIEW_ERROR',
+        error: err.message
+      });
     }
   }
 

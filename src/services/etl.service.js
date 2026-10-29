@@ -8,6 +8,9 @@ const { ensureTunnel } = require('../config/tunnel');
 const { encrypt, decrypt, isEncrypted, maskCredential } = require('../utils/encryption');
 const pipelineService = require('./pipeline.service');
 
+// Run RUNNING tanpa aktivitas log selama ini dianggap terputus
+const STALE_RUN_MINUTES = 10;
+
 function sanitizeIdentifier(name) {
   if (!name || typeof name !== 'string') return null;
   const clean = name.replace(/[^a-zA-Z0-9_]/g, '');
@@ -1778,8 +1781,14 @@ class EtlService {
         r.post_type,
         r.is_rolled_back,
         r.rolled_back_at,
-        ROUND(EXTRACT(EPOCH FROM (r.end_time - r.start_time))::numeric, 2) AS duration_seconds
+        ROUND(EXTRACT(EPOCH FROM (r.end_time - r.start_time))::numeric, 2) AS duration_seconds,
+        (r.status = 'RUNNING' AND GREATEST(r.start_time, la.last_log) < NOW() - make_interval(mins => ${STALE_RUN_MINUTES})) AS is_stale
       FROM mc_center.migration_run r
+      LEFT JOIN LATERAL (
+        SELECT MAX(GREATEST(l.start_time, l.end_time)) AS last_log
+        FROM mc_center.migration_step_log l
+        WHERE l.run_id = r.run_id
+      ) la ON true
       LEFT JOIN mc_center.master_client mc ON r.client_id = mc.client_id
       LEFT JOIN mc_center.master_environment me ON r.env_id = me.env_id
       ${whereClause}
@@ -1796,6 +1805,64 @@ class EtlService {
       totalPages: Math.ceil(total / limitNum) || 1,
       runs: runsRes.rows,
     };
+  }
+
+  /**
+   * Tandai run RUNNING yang tidak lagi aktif sebagai FAILED agar bisa didiagnosis / dilanjutkan.
+   * onlyStale=false dipakai saat server start (tidak mungkin ada proses yang masih berjalan).
+   */
+  async recoverInterruptedRuns({ runId = null, onlyStale = true, reason, excludeRunIds = [] } = {}) {
+    const note = reason || 'Sesi terputus (koneksi/server berhenti saat proses berjalan). Klik Lanjutkan untuk meneruskan.';
+    const params = [note];
+    const conds = [`r.status = 'RUNNING'`];
+    if (runId) {
+      params.push(runId);
+      conds.push(`r.run_id = $${params.length}`);
+    }
+    const excluded = excludeRunIds.map((x) => parseInt(x, 10)).filter((x) => !isNaN(x));
+    if (excluded.length > 0) {
+      params.push(excluded);
+      conds.push(`r.run_id <> ALL($${params.length}::bigint[])`);
+    }
+    if (onlyStale) {
+      conds.push(`GREATEST(r.start_time, (SELECT MAX(GREATEST(l.start_time, l.end_time)) FROM mc_center.migration_step_log l WHERE l.run_id = r.run_id)) < NOW() - make_interval(mins => ${STALE_RUN_MINUTES})`);
+    }
+
+    const res = await queryPostgres(
+      `UPDATE mc_center.migration_run r
+       SET status = 'FAILED', end_time = COALESCE(r.end_time, NOW()), note = $1
+       WHERE ${conds.join(' AND ')}
+       RETURNING r.run_id, r.config_id`,
+      params
+    );
+
+    for (const row of res.rows) {
+      const cfgId = row.config_id ? parseInt(String(row.config_id).split(',')[0], 10) : null;
+      try {
+        await queryPostgres(
+          `INSERT INTO mc_center.migration_step_log (run_id, config_id, step_name, status, message, end_time)
+           VALUES ($1, $2, 'RUN_INTERRUPTED', 'FAILED', $3, NOW())`,
+          [row.run_id, isNaN(cfgId) ? null : cfgId, note]
+        );
+      } catch (_) {}
+    }
+
+    if (res.rows.length > 0) pipelineService.invalidatePipelineCache();
+    return res.rows;
+  }
+
+  async forceStopRun(runId) {
+    const rId = parseInt(runId, 10);
+    if (!rId || isNaN(rId)) throw new Error('Run ID tidak valid.');
+
+    const rows = await this.recoverInterruptedRuns({
+      runId: rId,
+      reason: 'Sesi tidak responsif, dihentikan manual oleh pengguna. Klik Lanjutkan untuk meneruskan.',
+    });
+    if (rows.length === 0) {
+      throw new Error(`Run #${rId} tidak dapat dihentikan paksa: status bukan RUNNING atau masih aktif (belum ada ${STALE_RUN_MINUTES} menit tanpa aktivitas).`);
+    }
+    return rows[0];
   }
 
   async cancelMigrationRun(runId) {

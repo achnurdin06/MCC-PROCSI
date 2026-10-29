@@ -1,8 +1,47 @@
 const authService = require('../services/auth.service');
+const { createCaptcha, verifyCaptcha } = require('../utils/captcha');
 
 class AuthController {
+  getCaptcha(req, res) {
+    res.json({ success: true, data: createCaptcha() });
+  }
+
+  _rejectInvalidCaptcha(req, res) {
+    const { captchaId, captchaAnswer } = req.body;
+    if (verifyCaptcha(captchaId, captchaAnswer)) return false;
+    const message = 'Kode captcha salah atau kedaluwarsa. Silakan coba lagi.';
+    res.status(400).json({ success: false, error: message, message, captchaRequired: true });
+    return true;
+  }
+
+  async register(req, res) {
+    if (this._rejectInvalidCaptcha(req, res)) return;
+    try {
+      const { username, password, full_name, email } = req.body;
+      await authService.registerAccount({ username, password, full_name, email });
+      res.status(201).json({
+        success: true,
+        message: 'Pendaftaran berhasil. Akun Anda menunggu persetujuan administrator sebelum dapat digunakan.',
+      });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message, message: err.message });
+    }
+  }
+
+  async forgotPassword(req, res) {
+    if (this._rejectInvalidCaptcha(req, res)) return;
+    try {
+      const { username, email, new_password } = req.body;
+      await authService.resetPasswordSelf({ username, email, new_password });
+      res.json({ success: true, message: 'Kata sandi berhasil diubah. Silakan masuk dengan kata sandi baru.' });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message, message: err.message });
+    }
+  }
+
   // Login
   async login(req, res) {
+    if (this._rejectInvalidCaptcha(req, res)) return;
     try {
       const { username, password } = req.body;
       const result = await authService.login(username, password);
@@ -164,6 +203,41 @@ class AuthController {
       res.json({ success: true, data: menus });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message, message: err.message });
+    }
+  }
+
+  async createMenu(req, res) {
+    try {
+      const menu = await authService.createMenu(req.body);
+      res.json({
+        success: true,
+        data: menu,
+        message: `Menu "${menu.menu_name}" berhasil ditambahkan.`,
+      });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message, message: err.message });
+    }
+  }
+
+  async updateMenu(req, res) {
+    try {
+      const menu = await authService.updateMenu(req.params.id, req.body);
+      res.json({
+        success: true,
+        data: menu,
+        message: `Menu "${menu.menu_name}" berhasil diperbarui.`,
+      });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message, message: err.message });
+    }
+  }
+
+  async deleteMenu(req, res) {
+    try {
+      const result = await authService.deleteMenu(req.params.id);
+      res.json(result);
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message, message: err.message });
     }
   }
 

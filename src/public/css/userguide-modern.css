@@ -154,3 +154,68 @@
   transform: translateY(-2px);
   box-shadow: 0 6px 16px rgba(53, 37, 205, 0.4);
 }
+
+/* ===== Rail modul ringkas: hanya nomor, melebar saat di-hover ===== */
+@media (min-width: 1025px) {
+  #tab-userguide .userguide-left-rail {
+    width: 56px;
+    padding: 0;
+    overflow: visible;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    z-index: 30;
+    height: 0; /* panel absolut; tidak mendorong konten */
+    max-height: none;
+  }
+  #tab-userguide .ug-rail-panel {
+    position: absolute;
+    top: 0; left: 0;
+    width: 56px;
+    max-height: calc(100vh - 100px);
+    overflow: hidden auto;
+    background: #ffffff;
+    border: 1px solid #e5eeff;
+    border-radius: 0.75rem;
+    padding: 0.6rem 0.4rem;
+    box-shadow: 0 1px 8px rgba(0, 0, 0, 0.04);
+    transition: width .2s ease, box-shadow .2s ease;
+  }
+  #tab-userguide .userguide-left-rail:hover .ug-rail-panel,
+  #tab-userguide .userguide-left-rail:focus-within .ug-rail-panel {
+    width: 290px;
+    padding: 0.8rem;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
+  }
+  #tab-userguide .userguide-main-column { margin-left: 68px; }
+  #tab-userguide .userguide-layout-grid { gap: 0; }
+
+  #tab-userguide .ug-rail-title,
+  #tab-userguide .ug-rail-engine { display: none; }
+  #tab-userguide .userguide-left-rail:hover .ug-rail-title,
+  #tab-userguide .userguide-left-rail:focus-within .ug-rail-title { display: block; }
+  #tab-userguide .userguide-left-rail:hover .ug-rail-engine,
+  #tab-userguide .userguide-left-rail:focus-within .ug-rail-engine { display: block; }
+
+  #tab-userguide .ug-rail-panel nav a { white-space: nowrap; justify-content: center; padding-inline: 0; }
+  #tab-userguide .ug-rail-panel nav a > span:first-child { display: none; }
+  #tab-userguide .ug-rail-panel nav a > span:last-child { opacity: 1; font-weight: 700; }
+  #tab-userguide .userguide-left-rail:hover nav a,
+  #tab-userguide .userguide-left-rail:focus-within nav a { justify-content: space-between; padding-inline: 0.75rem; }
+  #tab-userguide .userguide-left-rail:hover nav a > span:first-child,
+  #tab-userguide .userguide-left-rail:focus-within nav a > span:first-child { display: inline; }
+  #tab-userguide .userguide-left-rail:hover nav a > span:last-child,
+  #tab-userguide .userguide-left-rail:focus-within nav a > span:last-child { opacity: .6; }
+}
+
+/* Tablet/HP: daftar modul menjadi chip horizontal yang bisa digeser */
+@media (max-width: 1024px) {
+  #tab-userguide .userguide-layout-grid { flex-direction: column; gap: 0.75rem; }
+  #tab-userguide .userguide-left-rail {
+    width: 100%; position: static; max-height: none; overflow: visible; padding: 0.5rem;
+  }
+  #tab-userguide .ug-rail-title,
+  #tab-userguide .ug-rail-engine { display: none; }
+  #tab-userguide #userguide-left-nav { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+  #tab-userguide #userguide-left-nav a { flex: 0 0 auto; white-space: nowrap; gap: 6px; }
+}
