@@ -172,7 +172,7 @@ const KNOWN_ERROR_RULES = [
     match: (err) => /PRECHECK_SOURCE/i.test(err.step || '') || /View.*tidak ditemukan di INFORMATION_SCHEMA/i.test(err.message || ''),
     format: (err) => ({
       title: 'Validasi View Sumber (SQL Server) Gagal',
-      humanMessage: 'Sistem tidak dapat menemukan view sumber data pada database SQL Server antam_scm.',
+      humanMessage: 'Sistem tidak dapat menemukan view sumber data pada database sumber.',
       cause: err.message || 'Nama schema atau view sumber tidak ada di database SQL Server sumber.',
       actionableSolution: 'Pastikan konfigurasi src_schema dan src_view pada migration_config sudah sesuai dengan view yang ada di SQL Server.',
       technicalCode: 'PRECHECK_SOURCE_FAILED'

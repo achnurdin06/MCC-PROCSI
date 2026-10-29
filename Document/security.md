@@ -2,7 +2,9 @@
 **Aplikasi:** Migration Command Center (PT ANTAM Tbk)  
 **Versi:** 1.0.0  
 **Tanggal Audit:** 22 Oktober 2026  
-**Status:** Audit Selesai - Tindak Lanjut Penutupan Celah Keamanan Dibutuhkan  
+**Status:** Audit awal (9 temuan) dan putaran remediasi lanjutan (21 temuan) **sudah ditutup** — lihat Bagian 7  
+**Terakhir diperbarui:** sesuai kode pada branch `dev` (lihat [CHANGELOG.md](./CHANGELOG.md))  
+**Dokumen terkait:** [ARCHITECTURE.md](./ARCHITECTURE.md) · [API_SPEC.md](./API_SPEC.md) · [ENVIRONMENT_CONFIG.md](./ENVIRONMENT_CONFIG.md) · [DEPLOYMENT_RUNBOOK.md](./DEPLOYMENT_RUNBOOK.md)  
 
 ---
 
@@ -10,7 +12,7 @@
 
 Pemeriksaan keamanan menyeluruh (*security screening & vulnerability assessment*) telah dilakukan terhadap arsitektur, kode sumber (*backend*, *frontend*, dan basis data), dependensi pustaka, serta alur pipeline data aplikasi **Migration Command Center**.
 
-Aplikasi ini bertugas memigrasikan data kritikal enterprise dari **Microsoft SQL Server (`antam_scm.dbo`)** ke **PostgreSQL (`db_procsi.vendor` / `stg_antam`)**, meliputi data profil vendor, akta perusahaan, rekening bank, hingga data akun pengguna (*user & password*). Oleh karena itu, integritas, kerahasiaan, dan kepatuhan terhadap **UU Pelindungan Data Pribadi (UU PDP No. 27/2022)** serta standar keamanan korporat menjadi prioritas mutlak.
+Aplikasi ini bertugas memigrasikan data kritikal enterprise dari **database sumber (`<SCHEMA_SUMBER>`)** ke **PostgreSQL (`<SCHEMA_TARGET>` / `<SCHEMA_STAGING>`)**, meliputi data profil vendor, akta perusahaan, rekening bank, hingga data akun pengguna (*user & password*). Oleh karena itu, integritas, kerahasiaan, dan kepatuhan terhadap **UU Pelindungan Data Pribadi (UU PDP No. 27/2022)** serta standar keamanan korporat menjadi prioritas mutlak.
 
 ### Ringkasan Tingkat Keparahan Temuan:
 | Tingkat Keparahan | Jumlah | Deskripsi Singkat |
@@ -28,7 +30,7 @@ Aplikasi ini bertugas memigrasikan data kritikal enterprise dari **Microsoft SQL
 ### 🔴 VULN-01: Broken Access Control – Endpoint Kritis Tidak Terproteksi Autentikasi
 - **Kategori OWASP:** A01:2021 – Broken Access Control
 - **Tingkat Keparahan:** 🔴 **CRITICAL (CVSS: 9.8)**
-- **Lokasi Kode:** [`src/routes/api.js`](file:///Users/macbookair/Documents/Projects/mig-antam/src/routes/api.js#L40-L135)
+- **Lokasi Kode:** [`src/routes/api.js`](../src/routes/api.js#L40-L135)
 - **Kondisi Saat Ini:**
   Hanya rute `/api/auth/*` yang menerapkan middleware `requireAuth` dan `requireRole`. Seluruh endpoint lainnya:
   - `/api/context/*` (manajemen master client, environment, koneksi database, trigger sync Apache Hop)
@@ -48,8 +50,8 @@ Aplikasi ini bertugas memigrasikan data kritikal enterprise dari **Microsoft SQL
 - **Kategori OWASP:** A02:2021 – Cryptographic Failures / A04:2021 – Insecure Design
 - **Tingkat Keparahan:** 🔴 **CRITICAL (CVSS: 9.1)**
 - **Lokasi Kode:**
-  - [`src/services/etl.service.js:L805-L826`](file:///Users/macbookair/Documents/Projects/mig-antam/src/services/etl.service.js#L805-L826) (`getConnections`)
-  - [`src/services/etl.service.js:L847-L852`](file:///Users/macbookair/Documents/Projects/mig-antam/src/services/etl.service.js#L847-L852) (`createConnection`)
+  - [`src/services/etl.service.js:L805-L826`](../src/services/etl.service.js#L805-L826) (`getConnections`)
+  - [`src/services/etl.service.js:L847-L852`](../src/services/etl.service.js#L847-L852) (`createConnection`)
   - Tabel `mc_center.master_connection` kolom `password` dan `ssh_password`
 - **Kondisi Saat Ini:**
   1. Password database target/source dan password SSH Tunnel disimpan dalam teks biasa (*plaintext*) di tabel `mc_center.master_connection`.
@@ -65,7 +67,7 @@ Aplikasi ini bertugas memigrasikan data kritikal enterprise dari **Microsoft SQL
 ### 🔴 VULN-03: Kunci Rahasia JWT Menggunakan Fallback Hardcoded & PBKDF2 Iterasi Rendah
 - **Kategori OWASP:** A02:2021 – Cryptographic Failures
 - **Tingkat Keparahan:** 🔴 **CRITICAL (CVSS: 8.8)**
-- **Lokasi Kode:** [`src/utils/jwt.js:L3, L93`](file:///Users/macbookair/Documents/Projects/mig-antam/src/utils/jwt.js#L3)
+- **Lokasi Kode:** [`src/utils/jwt.js:L3, L93`](../src/utils/jwt.js#L3)
 - **Kondisi Saat Ini:**
   - Nilai `JWT_SECRET` memiliki fallback statis: `'mig-antam-super-secret-jwt-key-2025'`. Di file `.env`, variabel `JWT_SECRET` belum didefinisikan secara unik.
   - Jumlah iterasi PBKDF2 untuk hashing password pengguna di fungsi `hashPassword` hanya disetel **1000 iterasi** (standar OWASP merekomendasikan minimal 600.000 iterasi untuk PBKDF2-HMAC-SHA512 atau penggunaan Argon2id / bcrypt).
@@ -83,9 +85,9 @@ Aplikasi ini bertugas memigrasikan data kritikal enterprise dari **Microsoft SQL
 - **Kategori OWASP:** A03:2021 – Injection
 - **Tingkat Keparahan:** 🟠 **HIGH (CVSS: 8.5)**
 - **Lokasi Kode:**
-  - [`src/services/source.service.js:L645-L663`](file:///Users/macbookair/Documents/Projects/mig-antam/src/services/source.service.js#L645-L663) (`validateQuery`)
-  - [`src/services/etl.service.js:L1412-L1427`](file:///Users/macbookair/Documents/Projects/mig-antam/src/services/etl.service.js#L1412-L1427) (`testPrecheckSql`)
-  - [`src/services/source.service.js:L594-L600`](file:///Users/macbookair/Documents/Projects/mig-antam/src/services/source.service.js#L594-L600) (`createOrAlterView`)
+  - [`src/services/source.service.js:L645-L663`](../src/services/source.service.js#L645-L663) (`validateQuery`)
+  - [`src/services/etl.service.js:L1412-L1427`](../src/services/etl.service.js#L1412-L1427) (`testPrecheckSql`)
+  - [`src/services/source.service.js:L594-L600`](../src/services/source.service.js#L594-L600) (`createOrAlterView`)
 - **Kondisi Saat Ini:**
   Endpoint `/source/validate-query` dan `/etl/configs/test-precheck` menerima input teks SQL mentah dari request body client dan menjalankannya langsung ke mesin database. Meskipun terdapat pengecekan sederhana `upper.startsWith('SELECT')`, string manipulatif seperti `SELECT 1; DROP TABLE ...;` atau fungsi database berbahaya masih dapat dieksekusi.
 - **Dampak:**
@@ -101,7 +103,7 @@ Aplikasi ini bertugas memigrasikan data kritikal enterprise dari **Microsoft SQL
 - **Kategori OWASP:** A02:2021 – Cryptographic Failures / Pelanggaran UU PDP No. 27/2022
 - **Tingkat Keparahan:** 🟠 **HIGH (CVSS: 7.9)**
 - **Lokasi Kode:**
-  - Pipeline Ingestion: [`src/services/ingestion.service.js`](file:///Users/macbookair/Documents/Projects/mig-antam/src/services/ingestion.service.js)
+  - Pipeline Ingestion: [`src/services/ingestion.service.js`](../src/services/ingestion.service.js)
   - Tabel Staging: Skema `stg_antam.*` (`stg_user_src`, `stg_bank_src`, `stg_vendors_src`)
 - **Kondisi Saat Ini:**
   Data yang ditarik dari SQL Server disimpan ke tabel staging PostgreSQL dalam bentuk teks polos (*plaintext*). Berdasarkan analisis skema, tabel staging menampung data sensitif tinggi:
@@ -118,7 +120,7 @@ Aplikasi ini bertugas memigrasikan data kritikal enterprise dari **Microsoft SQL
 ### 🟡 VULN-06: Kebijakan CORS Terbuka & Ketiadaan Security Headers (Helmet)
 - **Kategori OWASP:** A05:2021 – Security Misconfiguration
 - **Tingkat Keparahan:** 🟡 **MEDIUM (CVSS: 6.5)**
-- **Lokasi Kode:** [`src/app.js:L26`](file:///Users/macbookair/Documents/Projects/mig-antam/src/app.js#L26)
+- **Lokasi Kode:** [`src/app.js:L26`](../src/app.js#L26)
 - **Kondisi Saat Ini:**
   - Konfigurasi CORS hanya memanggil `app.use(cors())` default, yang memperbolehkan origin `*` (semua domain).
   - Tidak terdapat middleware `helmet` untuk menyuntikkan header proteksi browser seperti `Content-Security-Policy` (CSP), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, dan `Strict-Transport-Security`.
@@ -133,33 +135,34 @@ Aplikasi ini bertugas memigrasikan data kritikal enterprise dari **Microsoft SQL
 ### 🟡 VULN-07: Tidak Ada Mekanisme Rate Limiting pada Login & Endpoint Eksekusi
 - **Kategori OWASP:** A04:2021 – Insecure Design / Denial of Service
 - **Tingkat Keparahan:** 🟡 **MEDIUM (CVSS: 5.9)**
-- **Lokasi Kode:** [`src/routes/api.js`](file:///Users/macbookair/Documents/Projects/mig-antam/src/routes/api.js)
+- **Lokasi Kode:** [`src/routes/api.js`](../src/routes/api.js)
 - **Kondisi Saat Ini:**
   Endpoint `POST /api/auth/login` dan endpoint berat seperti `POST /api/flows/execute` tidak dibatasi kuota pemanggilannya (*rate limiter*).
 - **Dampak:**
   Penyerang dapat melakukan serangan *credential stuffing* / *brute force password* pada akun admin secara terus-menerus tanpa jeda, serta memicu serangan *Denial of Service* (DoS) dengan menjalankan alur berulang kali hingga memori server habis.
 - **Rekomendasi Remediasi:**
   Gunakan pustaka `express-rate-limit` untuk membatasi percobaan login maksimal 5x per menit per IP, serta rate limit umum untuk endpoint eksekusi alur data.
+- **Implementasi aktual (✅ ditutup):** sliding-window internal [`rate-limiter.middleware.js`](../src/middleware/rate-limiter.middleware.js) — login 10 req/menit per IP+username, captcha 30 req/menit (lihat Bagian 7).
 
 ---
 
 ### 🟡 VULN-08: Kerentanan pada Dependensi Dev (`nodemon` & Sub-packages)
 - **Kategori OWASP:** A06:2021 – Vulnerable and Outdated Components
 - **Tingkat Keparahan:** 🟡 **MEDIUM (CVSS: 5.3)**
-- **Lokasi:** [`package.json:L25`](file:///Users/macbookair/Documents/Projects/mig-antam/package.json#L25)
+- **Lokasi:** [`package.json:L25`](../package.json#L25)
 - **Kondisi Saat Ini:**
   Hasil `npm audit` menunjukkan 17 celah kerentanan (10 moderate, 7 high) yang bersumber dari `nodemon@^1.14.10` dan dependensi lawasnya (`micromatch`, `cross-spawn`, `undefsafe`, `braces`).
 - **Dampak:**
   ReDoS (Regular Expression Denial of Service) dan Prototype Pollution pada lingkungan development.
 - **Rekomendasi Remediasi:**
-  Jalankan pembaruan ke versi nodemon modern (`npm install --save-dev nodemon@latest`) atau gunakan runner bawaan `node --watch` (Node.js v18+).
+  Jalankan pembaruan ke versi nodemon modern (`npm install --save-dev nodemon@latest`) atau gunakan runner bawaan `node --watch` (Node.js v26.12.2+).
 
 ---
 
 ### 🟢 VULN-09: Pesan Error Internal Terlalu Verbose (Information Disclosure)
 - **Kategori OWASP:** A05:2021 – Security Misconfiguration
 - **Tingkat Keparahan:** 🟢 **LOW (CVSS: 3.7)**
-- **Lokasi Kode:** [`src/app.js:L59-L65`](file:///Users/macbookair/Documents/Projects/mig-antam/src/app.js#L59-L65)
+- **Lokasi Kode:** [`src/app.js:L59-L65`](../src/app.js#L59-L65)
 - **Kondisi Saat Ini:**
   Global error handler Express langsung merespons dengan `res.status(500).json({ error: err.message })`. Pada beberapa query database yang gagal, `err.message` berisi detail nama tabel, sintaks internal SQL, atau jalur file direktori.
 - **Dampak:**
@@ -209,7 +212,7 @@ Berdasarkan hasil pemindaian struktur kolom database yang dimigrasikan, berikut 
        │  - Mengambil ciphertext dari staging
        │  - Mendekripsi payload kolom menggunakan Key resmi
        ▼ (4) Target Insertion
-[PostgreSQL Target: db_procsi.vendor / users]
+[PostgreSQL Target: <NAMA_DB_TARGET>.<SCHEMA_TARGET> / users]
        * Data tersimpan siap pakai sesuai spesifikasi target *
 ```
 
@@ -231,7 +234,7 @@ Berdasarkan hasil pemindaian struktur kolom database yang dimigrasikan, berikut 
 | **Fase 2** | **Penguatan Kriptografi & JWT** | Perbarui `JWT_SECRET` unik dari `.env`, gunakan `timingSafeEqual`, tingkatkan iterasi hashing password ke standar aman. | ✅ **SELESAI (TERVALIDASI)** |
 | **Fase 3** | **Hardening Middleware & Sanitasi Input** | Pasang security headers (`nosniff`, `SAMEORIGIN`), terapkan sliding window rate limiting pada login, dan SQL injection guard pada validator query. | ✅ **SELESAI (TERVALIDASI)** |
 | **Fase 4** | **Implementasi Enkripsi Staging & Fitur Dekripsi** | Bangun modul `encryption.js` (AES-256-GCM / `pgcrypto`), pasang filter enkripsi otomatis pada `ingestion.service.js`, dan auto-decrypt pada `fn_build_target_mapping_sql` posting target. | ✅ **SELESAI (TERVALIDASI)** |
-| **Fase 5** | **Pembaruan Dependensi & Audit Akhir** | Update `nodemon` ke versi terbaru, verifikasi zero vulnerability pada `npm audit`, dan validasi pengujian regresi alur migrasi. | 🟡 Dalam Pemantauan |
+| **Fase 5** | **Pembaruan Dependensi & Audit Akhir** | Update `nodemon` ke versi terbaru, verifikasi zero vulnerability pada `npm audit`, dan validasi pengujian regresi alur migrasi. | ✅ **SELESAI** (`npm audit` = 0 vulnerability, override `@azure/msal-node`) |
 
 ---
 
@@ -243,7 +246,7 @@ Seluruh implementasi keamanan telah diverifikasi melalui pengujian eksekusi sist
    - Pemanggilan `GET /api/context/connections` tanpa token menghasilkan HTTP `401 Unauthorized`:
      `{"success": false, "error": "Akses ditolak. Token autentikasi tidak ditemukan. Silakan login terlebih dahulu."}`
    - Pemanggilan dengan valid Bearer Token berhasil mengembalikan HTTP `200 OK`.
-   - Frontend web dashboard dilengkapi *Transparent Fetch Interceptor* ([`src/public/js/app.js`](file:///Users/macbookair/Documents/Projects/mig-antam/src/public/js/app.js#L1-L28)) dan query token pada SSE EventSource ([`src/public/js/flow-canvas.js`](file:///Users/macbookair/Documents/Projects/mig-antam/src/public/js/flow-canvas.js#L2084)), sehingga antarmuka pengguna tetap berjalan mulus (*smooth zero-bug*).
+   - Frontend web dashboard dilengkapi *Transparent Fetch Interceptor* ([`src/public/js/app.js`](../src/public/js/app.js#L1-L28)) dan query token pada SSE EventSource ([`src/public/js/flow-canvas.js`](../src/public/js/flow-canvas.js#L2084)), sehingga antarmuka pengguna tetap berjalan mulus (*smooth zero-bug*).
 
 2. **Uji Masking Kredensial Database & SSH (VULN-02):**
    - Kolom `password` dan `ssh_password` pada response `GET /api/context/connections` kini dikembalikan dalam format tersamar `••••••••` beserta flag `has_password: true`.
@@ -259,7 +262,7 @@ Seluruh implementasi keamanan telah diverifikasi melalui pengujian eksekusi sist
      `{"success": false, "error": "Pernyataan SQL majemuk atau perintah DDL/DML destruktif dilarang dalam validasi query."}`
 
 5. **Uji Rate Limiting Login (VULN-07):**
-   - Pada percobaan login salah berulang kali, proteksi sliding-window rate limiter aktif pada request ke-9 dengan HTTP `429 Too Many Requests`:
+   - Pada percobaan login salah berulang kali, proteksi sliding-window rate limiter aktif pada request melewati batas (kini 10 req/menit per IP+username) dengan HTTP `429 Too Many Requests`:
      `{"success": false, "error": "Terlalu banyak percobaan login yang gagal. Silakan tunggu 1 menit sebelum mencoba kembali."}`
 
 6. **Uji Enkripsi Staging & Dekripsi Target (VULN-05):**
@@ -271,3 +274,51 @@ Seluruh implementasi keamanan telah diverifikasi melalui pengujian eksekusi sist
 
 ## 6. Kesimpulan
 Seluruh celah keamanan kategori **CRITICAL** dan **HIGH** yang teridentifikasi telah berhasil ditutup dengan pengamanan berlapis (*defense-in-depth*). Arsitektur perbaikan dirancang secara *backward-compatible* sehingga fungsionalitas visual canvas studio, pipeline ingestion streaming, dan antarmuka dashboard tetap beroperasi dengan lancar, cepat, dan aman.
+
+
+---
+
+## 7. Putaran Remediasi Lanjutan (21 Temuan) & Kontrol Keamanan Saat Ini
+
+Setelah audit awal, dilakukan pengujian keamanan ulang dan seluruh temuan ditutup. Berikut kontrol yang **aktif di kode saat ini**.
+
+### 7.1 Autentikasi & Kriptografi
+| Kontrol | Implementasi |
+| :--- | :--- |
+| JWT | `JWT_SECRET` wajib ≥ 32 karakter, **tanpa fallback**; algoritma HS256 saja; masa berlaku 8 jam (`src/utils/jwt.js`) |
+| Enkripsi | `ENCRYPTION_MASTER_KEY` wajib ≥ 32 karakter, **tanpa fallback** (`src/utils/encryption.js`) |
+| Hash password | PBKDF2-SHA512, 210.000 iterasi, format `pbkdf2:<iter>:<salt>:<hash>`; hash lama tetap diverifikasi memakai iterasi yang tersimpan |
+| Verifikasi hash/token | `crypto.timingSafeEqual` |
+| Brute force | Login: 10 req/menit per IP+username; captcha: 30 req/menit; respons `429` |
+| Anti-enumerasi | Forgot-password selalu memberi respons yang sama; registrasi menghasilkan akun `VIEWER` nonaktif menunggu persetujuan admin |
+| Sesi | `requireAuth` memeriksa ulang `is_active` dan role di DB pada setiap request. Jika lookup DB gagal sementara, request lanjut memakai payload token (**risiko diterima**) |
+| Token di URL | Query `?token=` hanya diterima pada `/api/flows/stream/:runId` (SSE `EventSource` tidak bisa mengirim header) |
+
+### 7.2 Otorisasi (RBAC)
+Dua guard: `requireAdmin` (`SUPERADMIN`) dan `requireOperations` (`SUPERADMIN` + `OPERATOR`) diterapkan pada 55+ endpoint tulis/eksekusi. `VIEWER` hanya dapat membaca. Matriks per endpoint ada di [API_SPEC.md](./API_SPEC.md).
+
+### 7.3 Input, SQL, dan Jaringan
+| Kontrol | Implementasi |
+| :--- | :--- |
+| SQL read-only guard | `assertReadOnlySelect` & `assertSafeIdentifier` di `src/utils/sql-guard.js` untuk validator/precheck/browse |
+| Input guard | `sqlInjectionGuard` (`input-guard.middleware.js`): hanya string, ≤ 255 karakter, pola SQLi ditolak |
+| Tabel terlarang | `BLOCKED_BROWSE_TABLES`: `sys_users`, `sys_roles`, `master_connection` |
+| SSRF | `testConnection` memvalidasi host tujuan |
+| Helmet/CSP | CSP aktif; `script-src` masih memuat `'unsafe-inline'`, `'unsafe-eval'`, dan CDN Tailwind (**risiko diterima** selama frontend memakai inline script & Tailwind CDN); HSTS hanya di `production` |
+| CORS | Allowlist via `CORS_ALLOWED_ORIGINS` |
+| Reverse proxy | `trust proxy` diatur lewat `TRUST_PROXY` |
+| Kredensial | Password DB/SSH dimask pada response; file `config/hop-configs/` diberi izin `0600` dan di-`.gitignore` |
+| Error handling | Error handler dengan correlation-ID; detail internal tidak dibocorkan ke klien |
+| Dependensi | `npm audit` = 0 vulnerability |
+
+### 7.4 Risiko Residual / Rekomendasi Lanjutan
+| # | Risiko | Tingkat | Rekomendasi |
+| :-: | :--- | :-: | :--- |
+| 1 | CSP masih mengizinkan `unsafe-inline`/`unsafe-eval` & CDN | 🟡 MEDIUM | Bundel Tailwind secara lokal, pindahkan inline script ke file, gunakan nonce |
+| 2 | Token disimpan di `localStorage` | 🟡 MEDIUM | Pertimbangkan cookie `HttpOnly` + CSRF token |
+| 3 | Rate limiter & state run berada di memori (single instance) | 🟡 MEDIUM | Gunakan Redis bila di-scale horizontal |
+| 4 | Fallback ke payload token saat DB lookup gagal | ⚪ LOW | Opsional: fail-closed untuk role `SUPERADMIN` |
+| 5 | Tidak ada MFA | ⚪ LOW | Tambahkan TOTP untuk `SUPERADMIN` |
+| 6 | Tidak ada rotasi otomatis `JWT_SECRET`/`ENCRYPTION_MASTER_KEY` | ⚪ LOW | Prosedur rotasi manual di [DEPLOYMENT_RUNBOOK.md](./DEPLOYMENT_RUNBOOK.md) |
+
+> Catatan: jika `ENCRYPTION_MASTER_KEY` diganti, data staging & kredensial yang sudah terenkripsi tidak dapat didekripsi. Jangan rotasi tanpa migrasi ulang.

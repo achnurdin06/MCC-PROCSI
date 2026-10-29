@@ -1,11 +1,21 @@
 const { querySqlServer, sql } = require('../config/sqlserver');
 const { queryPostgres, pool: defaultPgPool } = require('../config/postgres');
 const { decrypt } = require('../utils/encryption');
+const { assertReadOnlySelect } = require('../utils/sql-guard');
 
 function sanitizeIdentifier(name) {
   if (!name || typeof name !== 'string') return null;
   const clean = name.replace(/[^a-zA-Z0-9_]/g, '');
   return clean.length > 0 ? clean : null;
+}
+
+// Nama schema disisipkan ke SQL/DDL, sehingga hanya identifier aman yang diterima
+function assertSafeSchema(value, fallback) {
+  const raw = (value === undefined || value === null || value === '') ? fallback : value;
+  if (typeof raw !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(raw)) {
+    throw new Error('Nama schema tidak valid. Gunakan huruf, angka, dan underscore saja.');
+  }
+  return raw;
 }
 
 let inMemoryConfiguredViews = [];
@@ -73,8 +83,8 @@ class SourceService {
       return { totalViews: 0, totalRowsAllViews: 0, views: [] };
     }
     const dbType = conn.db_type.toUpperCase();
-    const schemaName = conn.db_schema || (dbType === 'MSSQL' ? 'dbo' : 'public');
-    const databaseName = conn.database_name || 'antam_scm';
+    const schemaName = assertSafeSchema(conn.db_schema, dbType === 'MSSQL' ? 'dbo' : 'public');
+    const databaseName = conn.database_name || process.env.MSSQL_DATABASE || '';
 
     let views = [];
 
@@ -302,7 +312,7 @@ class SourceService {
       throw new Error(`Koneksi database dengan ID ${connectionId} tidak ditemukan.`);
     }
     const dbType = conn.db_type.toUpperCase();
-    const schemaName = conn.db_schema || (dbType === 'MSSQL' ? 'dbo' : 'public');
+    const schemaName = assertSafeSchema(conn.db_schema, dbType === 'MSSQL' ? 'dbo' : 'public');
 
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 25));
@@ -432,7 +442,7 @@ class SourceService {
 
     const conn = await this.getConnectionMeta(connectionId);
     const dbType = conn ? conn.db_type.toUpperCase() : 'MSSQL';
-    const schemaName = conn ? (conn.db_schema || (dbType === 'MSSQL' ? 'dbo' : 'public')) : 'dbo';
+    const schemaName = conn ? assertSafeSchema(conn.db_schema, dbType === 'MSSQL' ? 'dbo' : 'public') : 'dbo';
 
     let dbDefinition = null;
     try {
@@ -513,7 +523,8 @@ class SourceService {
    * Simpan atau sinkronkan definisi query view ke tabel mc_center.master_source_view
    */
   async saveViewDefinition(payload) {
-    const { schema_name = 'dbo', view_name, query_sql, description = '', connection_id = null } = payload;
+    const { view_name, query_sql, description = '', connection_id = null } = payload;
+    const schema_name = assertSafeSchema(payload.schema_name, 'dbo');
     const cleanView = sanitizeIdentifier(view_name);
     if (!cleanView || !query_sql) throw new Error('Nama view dan Query SQL wajib diisi.');
 
@@ -575,13 +586,13 @@ class SourceService {
    * Eksekusi DDL CREATE OR ALTER VIEW di database target sesuai connection_id
    */
   async createOrAlterView(payload) {
-    const { schema_name = 'dbo', view_name, query_sql, description = '', connection_id = null } = payload;
+    const { schema_name, view_name, query_sql, description = '', connection_id = null } = payload;
     const cleanView = sanitizeIdentifier(view_name);
     if (!cleanView || !query_sql) throw new Error('Nama View dan Query SQL wajib diisi.');
 
     const conn = await this.getConnectionMeta(connection_id);
     const dbType = conn ? conn.db_type.toUpperCase() : 'MSSQL';
-    const effSchema = schema_name || (conn ? conn.db_schema : 'dbo') || 'dbo';
+    const effSchema = assertSafeSchema(schema_name || (conn ? conn.db_schema : null), 'dbo');
 
     let cleanQuery = this.extractSelectQuery(query_sql);
     if (!cleanQuery) cleanQuery = query_sql.trim();
@@ -636,11 +647,7 @@ class SourceService {
       cleanQuery = cleanQuery.slice(0, -1).trim();
     }
 
-    // SQL Guard: Cegah multiple statements & perintah berbahaya pada query validator
-    const dangerousPatterns = /;\s*(DROP|DELETE|INSERT|UPDATE|TRUNCATE|ALTER|EXEC|XP_|SHUTDOWN|CREATE)\b/i;
-    if (dangerousPatterns.test(cleanQuery)) {
-      throw new Error('Pernyataan SQL majemuk atau perintah DDL/DML destruktif dilarang dalam validasi query.');
-    }
+    cleanQuery = assertReadOnlySelect(cleanQuery);
 
     const startTime = Date.now();
     try {
@@ -721,7 +728,7 @@ class SourceService {
 
     const conn = await this.getConnectionMeta(connectionId);
     const dbType = conn ? conn.db_type.toUpperCase() : 'MSSQL';
-    const schemaName = conn ? (conn.db_schema || (dbType === 'MSSQL' ? 'dbo' : 'public')) : 'dbo';
+    const schemaName = conn ? assertSafeSchema(conn.db_schema, dbType === 'MSSQL' ? 'dbo' : 'public') : 'dbo';
 
     if (dbType === 'MSSQL') {
       await querySqlServer(`DROP VIEW IF EXISTS [${schemaName}].[${cleanView}]`);
@@ -752,7 +759,7 @@ class SourceService {
   async syncAllExistingViews(connectionId = null) {
     const conn = await this.getConnectionMeta(connectionId);
     const dbType = conn ? conn.db_type.toUpperCase() : 'MSSQL';
-    const schemaName = conn ? (conn.db_schema || (dbType === 'MSSQL' ? 'dbo' : 'public')) : 'dbo';
+    const schemaName = conn ? assertSafeSchema(conn.db_schema, dbType === 'MSSQL' ? 'dbo' : 'public') : 'dbo';
 
     const synced = [];
     if (dbType === 'MSSQL') {

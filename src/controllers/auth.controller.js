@@ -30,13 +30,15 @@ class AuthController {
 
   async forgotPassword(req, res) {
     if (this._rejectInvalidCaptcha(req, res)) return;
+    const message = 'Jika data username dan email cocok dengan akun terdaftar, permintaan reset kata sandi telah diteruskan kepada administrator.';
     try {
-      const { username, email, new_password } = req.body;
-      await authService.resetPasswordSelf({ username, email, new_password });
-      res.json({ success: true, message: 'Kata sandi berhasil diubah. Silakan masuk dengan kata sandi baru.' });
+      const { username, email } = req.body;
+      await authService.requestPasswordReset({ username, email });
     } catch (err) {
-      res.status(400).json({ success: false, error: err.message, message: err.message });
+      console.error('[AUTH] Gagal memproses permintaan reset kata sandi:', err.message);
     }
+    // Respons seragam agar tidak membocorkan keberadaan akun
+    res.json({ success: true, message });
   }
 
   // Login

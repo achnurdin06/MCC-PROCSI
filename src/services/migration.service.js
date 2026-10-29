@@ -10,6 +10,8 @@ function sanitizeIdentifier(name) {
   return clean.length > 0 ? clean : null;
 }
 
+const BLOCKED_BROWSE_TABLES = new Set(['sys_users', 'sys_roles', 'master_connection']);
+
 class MigrationService {
   /**
    * Cek status koneksi kedua database
@@ -201,6 +203,12 @@ class MigrationService {
     const cleanTable = sanitizeIdentifier(table);
     if (!cleanTable) {
       throw new Error('Nama tabel tidak valid.');
+    }
+    // Tabel berisi hash password & kredensial terenkripsi tidak boleh dibrowse
+    if (BLOCKED_BROWSE_TABLES.has(cleanTable.toLowerCase())
+      || ['pg_catalog', 'information_schema'].includes(String(schema || '').toLowerCase())
+      || /^(pg_|sys_)/i.test(cleanTable)) {
+      throw new Error('Akses ke tabel ini tidak diizinkan.');
     }
 
     const pageNum = Math.max(1, parseInt(page, 10) || 1);

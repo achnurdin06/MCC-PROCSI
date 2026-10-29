@@ -890,16 +890,16 @@ function setupEventListeners() {
         port: parseInt(document.getElementById('wz-src-port').value.trim(), 10) || 1433,
         database_name: document.getElementById('wz-src-db').value.trim(),
         username: document.getElementById('wz-src-user').value.trim(),
-        password: document.getElementById('wz-src-pass').value.trim(),
+        password: document.getElementById('wz-src-pass').value,
         use_ssh_tunnel: true,
         ssh_host: document.getElementById('wz-src-host').value.trim(),
         ssh_port: 22,
-        ssh_user: 'developer',
-        ssh_password: '***REDACTED***',
+        ssh_user: document.getElementById('wz-src-ssh-user')?.value.trim() || '',
+        ssh_password: document.getElementById('wz-src-ssh-pass')?.value || '',
       };
 
       try {
-        const res = await fetch('/api/context/connections/test', {
+        const res = await authFetch('/api/context/connections/test', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(connData),
@@ -935,15 +935,15 @@ function setupEventListeners() {
       const connData = {
         db_type: 'POSTGRESQL',
         host: document.getElementById('wz-tgt-host').value.trim(),
-        port: parseInt(document.getElementById('wz-tgt-port').value.trim(), 10) || 5433,
+        port: parseInt(document.getElementById('wz-tgt-port').value.trim(), 10) || 5432,
         database_name: document.getElementById('wz-tgt-db').value.trim(),
         username: document.getElementById('wz-tgt-user').value.trim(),
-        password: document.getElementById('wz-tgt-pass').value.trim(),
+        password: document.getElementById('wz-tgt-pass').value,
         use_ssh_tunnel: false,
       };
 
       try {
-        const res = await fetch('/api/context/connections/test', {
+        const res = await authFetch('/api/context/connections/test', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(connData),
@@ -1384,12 +1384,12 @@ async function checkHealth() {
     const m = data.sqlserver || data.mssql;
     if (m && m.connected) {
       mssqlBadge.className = 'db-badge connected';
-      if (mssqlTitle) mssqlTitle.textContent = `${m.database || 'antam_scm'} (Source)`;
+      if (mssqlTitle) mssqlTitle.textContent = `${m.database || 'database_sumber'} (Source)`;
       mssqlMeta.textContent = `${m.latencyMs}ms`;
       mssqlMeta.title = `Host: ${m.host || 'SQL Server'} (Connected)`;
     } else {
       mssqlBadge.className = 'db-badge error';
-      if (mssqlTitle) mssqlTitle.textContent = `${m?.database || 'antam_scm'} (Source)`;
+      if (mssqlTitle) mssqlTitle.textContent = `${m?.database || 'database_sumber'} (Source)`;
       const errText = m?.error ? (m.error.length > 25 ? m.error.slice(0, 22) + '...' : m.error) : 'Disconnected';
       mssqlMeta.textContent = errText;
       mssqlMeta.title = m?.error || 'SQL Server Disconnected';
@@ -1398,12 +1398,12 @@ async function checkHealth() {
     const p = data.postgres;
     if (p && p.connected) {
       pgBadge.className = 'db-badge connected';
-      if (pgTitle) pgTitle.textContent = `${p.database || 'db_procsi'} (Target)`;
+      if (pgTitle) pgTitle.textContent = `${p.database || 'database_target'} (Target)`;
       pgMeta.textContent = `${p.latencyMs}ms`;
       pgMeta.title = `Host: ${p.host || 'PostgreSQL'} (Connected)`;
     } else {
       pgBadge.className = 'db-badge error';
-      if (pgTitle) pgTitle.textContent = `${p?.database || 'db_procsi'} (Target)`;
+      if (pgTitle) pgTitle.textContent = `${p?.database || 'database_target'} (Target)`;
       const errText = p?.error ? (p.error.length > 25 ? p.error.slice(0, 22) + '...' : p.error) : 'Disconnected';
       pgMeta.textContent = errText;
       pgMeta.title = p?.error || 'PostgreSQL Disconnected';
@@ -1528,7 +1528,7 @@ async function resolveEnvironmentConnections(envId) {
   }
 
   try {
-    const res = await fetch(`/api/context/environments/${envId}/health`);
+    const res = await authFetch(`/api/context/environments/${envId}/health`);
     const json = await res.json();
     if (!json.success) return;
 
@@ -1566,12 +1566,12 @@ function updateHeaderConnectionUI(source, target) {
   if (mssqlBadge && mssqlMeta) {
     if (source && source.connected) {
       mssqlBadge.className = 'db-badge connected';
-      if (mssqlTitle) mssqlTitle.textContent = `${source.database || 'antam_scm'} (Source)`;
+      if (mssqlTitle) mssqlTitle.textContent = `${source.database || 'database_sumber'} (Source)`;
       mssqlMeta.textContent = `${source.latencyMs}ms`;
       mssqlMeta.title = `Host: ${source.host}:${source.port} (${source.version || 'Connected'})`;
     } else {
       mssqlBadge.className = 'db-badge error';
-      if (mssqlTitle) mssqlTitle.textContent = `${source?.database || 'antam_scm'} (Source)`;
+      if (mssqlTitle) mssqlTitle.textContent = `${source?.database || 'database_sumber'} (Source)`;
       const errStr = source ? (source.error ? (source.error.length > 25 ? source.error.slice(0, 22) + '...' : source.error) : 'Disconnected') : 'No Source Conn';
       mssqlMeta.textContent = errStr;
       mssqlMeta.title = source?.error || 'Tidak terhubung';
@@ -1581,12 +1581,12 @@ function updateHeaderConnectionUI(source, target) {
   if (pgBadge && pgMeta) {
     if (target && target.connected) {
       pgBadge.className = 'db-badge connected';
-      if (pgTitle) pgTitle.textContent = `${target.database || 'db_procsi'} (Target)`;
+      if (pgTitle) pgTitle.textContent = `${target.database || 'database_target'} (Target)`;
       pgMeta.textContent = `${target.latencyMs}ms`;
       pgMeta.title = `Host: ${target.host}:${target.port} (${target.version || 'Connected'})`;
     } else {
       pgBadge.className = 'db-badge error';
-      if (pgTitle) pgTitle.textContent = `${target?.database || 'db_procsi'} (Target)`;
+      if (pgTitle) pgTitle.textContent = `${target?.database || 'database_target'} (Target)`;
       const errStr = target ? (target.error ? (target.error.length > 25 ? target.error.slice(0, 22) + '...' : target.error) : 'Disconnected') : 'No Target Conn';
       pgMeta.textContent = errStr;
       pgMeta.title = target?.error || 'Tidak terhubung';
@@ -1608,7 +1608,7 @@ function updateHeaderConnectionUI(source, target) {
   // 4. Modal View Creator Select
   const veSelect = document.getElementById('ve-connection-id');
   if (veSelect && source && source.connection_id) {
-    veSelect.innerHTML = `<option value="${source.connection_id}">[${source.db_type}] ${escapeHtml(source.connection_name)} (${source.database})</option>`;
+    veSelect.innerHTML = `<option value="${escapeHtml(source.connection_id)}">[${escapeHtml(source.db_type)}] ${escapeHtml(source.connection_name)} (${escapeHtml(source.database)})</option>`;
   }
 }
 
@@ -1708,12 +1708,12 @@ function renderWizardSummary() {
   const clientName = document.getElementById('wz-client-name')?.value.trim() || 'PT ANTAM Tbk';
   const envCode = document.getElementById('wz-env-code')?.value.trim() || 'DEV';
   const envName = document.getElementById('wz-env-name')?.value.trim() || 'Development';
-  const srcHost = document.getElementById('wz-src-host')?.value.trim() || 'HOST_REDACTED';
+  const srcHost = document.getElementById('wz-src-host')?.value.trim() || '';
   const srcPort = document.getElementById('wz-src-port')?.value.trim() || '1433';
-  const srcDb = document.getElementById('wz-src-db')?.value.trim() || 'antam_scm';
-  const tgtHost = document.getElementById('wz-tgt-host')?.value.trim() || 'HOST_REDACTED';
-  const tgtPort = document.getElementById('wz-tgt-port')?.value.trim() || '5433';
-  const tgtDb = document.getElementById('wz-tgt-db')?.value.trim() || 'db_procsi';
+  const srcDb = document.getElementById('wz-src-db')?.value.trim() || '';
+  const tgtHost = document.getElementById('wz-tgt-host')?.value.trim() || '';
+  const tgtPort = document.getElementById('wz-tgt-port')?.value.trim() || '5432';
+  const tgtDb = document.getElementById('wz-tgt-db')?.value.trim() || '';
 
   box.innerHTML = `
     <div class="mb-2"><strong>🏢 Identitas Client:</strong> [${escapeHtml(clientCode)}] ${escapeHtml(clientName)}</div>
@@ -1726,11 +1726,16 @@ function renderWizardSummary() {
 
 async function finishWizard() {
   const btn = document.getElementById('btn-wz-finish');
+
+  const srcHost = document.getElementById('wz-src-host')?.value.trim() || '';
+  const tgtHost = document.getElementById('wz-tgt-host')?.value.trim() || '';
+  if (!srcHost || !tgtHost) {
+    alert('Host Source dan Target wajib diisi pada Langkah 3.');
+    return;
+  }
+
   btn.disabled = true;
   btn.textContent = 'Menyimpan Konfigurasi...';
-
-  const srcHost = document.getElementById('wz-src-host')?.value.trim() || 'HOST_REDACTED';
-  const tgtHost = document.getElementById('wz-tgt-host')?.value.trim() || 'HOST_REDACTED';
 
   const payload = {
     client: {
@@ -1750,32 +1755,32 @@ async function finishWizard() {
         db_role: 'SOURCE',
         host: srcHost,
         port: parseInt(document.getElementById('wz-src-port')?.value.trim(), 10) || 1433,
-        database_name: document.getElementById('wz-src-db')?.value.trim() || 'antam_scm',
-        username: document.getElementById('wz-src-user')?.value.trim() || 'sa',
-        password: document.getElementById('wz-src-pass')?.value.trim() || '***REDACTED***',
+        database_name: document.getElementById('wz-src-db')?.value.trim() || '',
+        username: document.getElementById('wz-src-user')?.value.trim() || '',
+        password: document.getElementById('wz-src-pass')?.value || '',
         use_ssh_tunnel: true,
         ssh_host: srcHost,
         ssh_port: 22,
-        ssh_user: 'developer',
-        ssh_password: '***REDACTED***',
+        ssh_user: document.getElementById('wz-src-ssh-user')?.value.trim() || '',
+        ssh_password: document.getElementById('wz-src-ssh-pass')?.value || '',
       },
       {
         connection_name: 'PostgreSQL Target (vendor/dwh)',
         db_type: 'POSTGRESQL',
         db_role: 'TARGET',
         host: tgtHost,
-        port: parseInt(document.getElementById('wz-tgt-port')?.value.trim(), 10) || 5433,
-        database_name: document.getElementById('wz-tgt-db')?.value.trim() || 'db_procsi',
+        port: parseInt(document.getElementById('wz-tgt-port')?.value.trim(), 10) || 5432,
+        database_name: document.getElementById('wz-tgt-db')?.value.trim() || '',
         db_schema: 'vendor',
-        username: document.getElementById('wz-tgt-user')?.value.trim() || 'procsi',
-        password: document.getElementById('wz-tgt-pass')?.value.trim() || '***REDACTED***',
+        username: document.getElementById('wz-tgt-user')?.value.trim() || '',
+        password: document.getElementById('wz-tgt-pass')?.value || '',
         use_ssh_tunnel: false,
       },
     ],
   };
 
   try {
-    const res = await fetch('/api/context/init-wizard', {
+    const res = await authFetch('/api/context/init-wizard', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -1821,7 +1826,7 @@ async function loadSettingsClients() {
   tbodyClients.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-muted">Memuat data client...</td></tr>`;
 
   try {
-    const res = await fetch('/api/context/clients');
+    const res = await authFetch('/api/context/clients');
     const json = await res.json();
     if (!json.success) throw new Error(json.error);
 
@@ -1859,14 +1864,14 @@ async function loadSettingsClients() {
             <div class="flex-gap-2" style="align-items: center;">
               <button class="btn btn-indigo btn-xs" onclick="openEnvManagerModal(${c.client_id}, null)" title="Setup Wizard Multi-Connection">⚙️ Setup Wizard</button>
               <button class="btn btn-secondary btn-xs" onclick="openEditSettingModal('client', ${c.client_id})" title="Edit Client">✏️</button>
-              <button class="btn btn-danger btn-xs" onclick="openDeleteModal('client', ${c.client_id}, '${escapeHtml(c.client_name)}')" title="Hapus Client">🗑️</button>
+              <button class="btn btn-danger btn-xs" onclick="openDeleteModal('client', ${c.client_id}, '${escapeJsArg(c.client_name)}')" title="Hapus Client">🗑️</button>
             </div>
           </td>
         </tr>
       `;
     }).join('');
   } catch (err) {
-    tbodyClients.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-rose">Error: ${err.message}</td></tr>`;
+    tbodyClients.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-rose">Error: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -1879,7 +1884,7 @@ async function loadSettingsEnvironments(filterClientId = null) {
 
   try {
     if (!state.clients || state.clients.length === 0) {
-      const cRes = await fetch('/api/context/clients');
+      const cRes = await authFetch('/api/context/clients');
       const cJson = await cRes.json();
       state.clients = cJson.data || [];
     }
@@ -1893,7 +1898,7 @@ async function loadSettingsEnvironments(filterClientId = null) {
 
     const currentFilterClient = filterClientId !== null ? filterClientId : (filterSelect?.value ? parseInt(filterSelect.value, 10) : null);
     const url = currentFilterClient ? `/api/context/environments?clientId=${currentFilterClient}` : '/api/context/environments';
-    const res = await fetch(url);
+    const res = await authFetch(url);
     const json = await res.json();
     if (!json.success) throw new Error(json.error);
 
@@ -1920,18 +1925,18 @@ async function loadSettingsEnvironments(filterClientId = null) {
           <td><span class="badge ${e.is_active ? 'badge-success' : 'badge-danger'}">${e.is_active ? 'Active' : 'Inactive'}</span></td>
           <td>
             <div class="flex-gap-2">
-              <button class="btn btn-warning btn-xs" onclick="syncHopConfig(${e.env_id}, '${escapeHtml(e.env_code)}', '${escapeHtml(e.client_code || '')}')" title="Generate & Sync Konfigurasi ke Apache Hop">⚡ Sync to Hop</button>
+              <button class="btn btn-warning btn-xs" onclick="syncHopConfig(${e.env_id}, '${escapeJsArg(e.env_code)}', '${escapeJsArg(e.client_code || '')}')" title="Generate & Sync Konfigurasi ke Apache Hop">⚡ Sync to Hop</button>
               <button class="btn btn-cyan btn-xs" onclick="filterConnectionByEnv(${e.client_id}, ${e.env_id})" title="Lihat Koneksi Terkait">🔌 Koneksi</button>
               <button class="btn btn-indigo btn-xs" onclick="openEnvManagerModal(${e.client_id}, ${e.env_id})" title="Kelola Koneksi Database di Wizard">⚙️ Setup</button>
               <button class="btn btn-secondary btn-xs" onclick="openEditSettingModal('environment', ${e.env_id})" title="Edit Environment">✏️</button>
-              <button class="btn btn-danger btn-xs" onclick="openDeleteModal('environment', ${e.env_id}, '${escapeHtml(e.env_name)}')" title="Hapus Environment">🗑️</button>
+              <button class="btn btn-danger btn-xs" onclick="openDeleteModal('environment', ${e.env_id}, '${escapeJsArg(e.env_name)}')" title="Hapus Environment">🗑️</button>
             </div>
           </td>
         </tr>
       `;
     }).join('');
   } catch (err) {
-    tbodyEnvs.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-rose">Error: ${err.message}</td></tr>`;
+    tbodyEnvs.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-rose">Error: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -1947,8 +1952,8 @@ async function loadSettingsConnections(filterClientId = null, filterEnvId = null
   try {
     if (!state.clients || state.clients.length === 0 || !state.environments || state.environments.length === 0) {
       const [cRes, eRes] = await Promise.all([
-        fetch('/api/context/clients'),
-        fetch('/api/context/environments'),
+        authFetch('/api/context/clients'),
+        authFetch('/api/context/environments'),
       ]);
       const cJson = await cRes.json();
       const eJson = await eRes.json();
@@ -1985,7 +1990,7 @@ async function loadSettingsConnections(filterClientId = null, filterEnvId = null
     if (currentClientId) params.push(`clientId=${currentClientId}`);
     if (params.length > 0) url += `?${params.join('&')}`;
 
-    const res = await fetch(url);
+    const res = await authFetch(url);
     const json = await res.json();
     if (!json.success) throw new Error(json.error);
 
@@ -2019,14 +2024,14 @@ async function loadSettingsConnections(filterClientId = null, filterEnvId = null
             <div class="flex-gap-2">
               <button class="btn btn-secondary btn-sm" onclick="testPingConnection(${conn.connection_id})" title="Uji Koneksi">⚡ Test</button>
               <button class="btn btn-secondary btn-sm" onclick="openEditSettingModal('connection', ${conn.connection_id})">Edit</button>
-              <button class="btn btn-danger btn-sm" onclick="openDeleteModal('connection', ${conn.connection_id}, '${escapeHtml(conn.connection_name)}')">Hapus</button>
+              <button class="btn btn-danger btn-sm" onclick="openDeleteModal('connection', ${conn.connection_id}, '${escapeJsArg(conn.connection_name)}')">Hapus</button>
             </div>
           </td>
         </tr>
       `;
     }).join('');
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="11" class="text-center py-4 text-rose">Error: ${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="11" class="text-center py-4 text-rose">Error: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -2096,7 +2101,7 @@ window.testPingConnection = async function (connId) {
   if (btn) btn.textContent = '...';
 
   try {
-    const res = await fetch('/api/context/connections/test', {
+    const res = await authFetch('/api/context/connections/test', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(conn),
@@ -2164,7 +2169,7 @@ async function loadSourceViews(forceRefresh = false) {
     const elViewsCount = document.getElementById('kpi-source-views-count');
     if (elViewsCount) elViewsCount.textContent = views.length;
     const elViewsFoot = document.getElementById('kpi-source-views-foot');
-    if (elViewsFoot) elViewsFoot.textContent = `Schema [${data.schema || 'dbo'}] di ${data.database || 'antam_scm'}`;
+    if (elViewsFoot) elViewsFoot.textContent = `Schema [${data.schema || 'dbo'}] di ${data.database || 'database_sumber'}`;
 
     // Card 2: Total Rows
     const elTotalRows = document.getElementById('kpi-source-total-rows');
@@ -2204,7 +2209,7 @@ async function loadSourceViews(forceRefresh = false) {
     renderSourceViewsTable();
   } catch (err) {
     if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-rose">${err.message}</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-rose">${escapeHtml(err.message)}</td></tr>`;
     }
   }
 }
@@ -2329,7 +2334,7 @@ function renderSourceViewsTable() {
           const activeTag = !mc.isActive ? ' <span class="badge badge-warning" style="font-size: 0.65rem; padding: 1px 4px;">Off</span>' : '';
           return `
             <div class="mig-config-pill" title="Target: [${escapeHtml(mc.tgtSchema || 'vendor')}].[${escapeHtml(mc.tgtTable || '-')}], Staging: [${escapeHtml(mc.stgTable || '-')}]">
-              <span class="badge badge-indigo font-mono text-xs font-semibold">✓ Config #${mc.configId}${activeTag}</span>
+              <span class="badge badge-indigo font-mono text-xs font-semibold">✓ Config #${escapeHtml(mc.configId)}${activeTag}</span>
               <span class="text-muted text-xs font-mono">➔</span>
               <span class="font-mono font-semibold text-xs" style="color: var(--accent-primary);">${escapeHtml(mc.tgtSchema || 'vendor')}.${escapeHtml(mc.tgtTable || '-')}</span>
             </div>
@@ -2362,11 +2367,11 @@ function renderSourceViewsTable() {
           <td class="col-mig-config">${migConfigBadge}</td>
           <td class="col-action">
             <div class="source-action-group">
-              <button class="btn btn-primary btn-xs" onclick="openSourceInspectorModal('${v.name}')" title="Buka dialog data inspector, skema kolom, dan DDL">🔍 Detail</button>
-              <button class="btn btn-secondary btn-xs" onclick="openViewEditor('${v.name}')" title="Edit query view di SQL Server">✏️ Edit</button>
+              <button class="btn btn-primary btn-xs" onclick="openSourceInspectorModal('${escapeJsArg(v.name)}')" title="Buka dialog data inspector, skema kolom, dan DDL">🔍 Detail</button>
+              <button class="btn btn-secondary btn-xs" onclick="openViewEditor('${escapeJsArg(v.name)}')" title="Edit query view di SQL Server">✏️ Edit</button>
               ${v.isMigrationConfigured
                 ? `<button class="btn btn-secondary btn-xs text-muted" style="opacity: 0.55; cursor: not-allowed;" title="Diproteksi: View ini terdaftar di ${v.migrationConfigs.length} Migration Config (${escapeHtml(v.migrationConfigs.map(c => `Config #${c.configId}`).join(', '))})" onclick="showToast('View [${escapeHtml(v.name)}] diproteksi: Sedang digunakan oleh ${v.migrationConfigs.length} Migration Config!', 'warning')">🔒</button>`
-                : `<button class="btn btn-danger btn-xs" onclick="openDeleteModal('source_view', '${v.name}', '${v.name}')" title="Hapus view dari DB">🗑️</button>`
+                : `<button class="btn btn-danger btn-xs" onclick="openDeleteModal('source_view', '${escapeJsArg(v.name)}', '${escapeJsArg(v.name)}')" title="Hapus view dari DB">🗑️</button>`
               }
             </div>
           </td>
@@ -2405,7 +2410,7 @@ window.openSourceInspectorModal = function (viewName) {
   modal.classList.remove('hidden');
 
   document.getElementById('si-modal-title').textContent = `🔍 Data Inspector: ${viewName}`;
-  document.getElementById('si-modal-subtitle').textContent = `Database: antam_scm • Schema: dbo • Inspeksi data aktual, struktur kolom, dan DDL`;
+  document.getElementById('si-modal-subtitle').textContent = `Database: sumber • Schema: dbo • Inspeksi data aktual, struktur kolom, dan DDL`;
 
   const viewObj = (state.source.views || []).find((v) => v.name === viewName);
 
@@ -2413,7 +2418,7 @@ window.openSourceInspectorModal = function (viewName) {
   if (footerLeft) {
     if (viewObj && !viewObj.isConfigured) {
       footerLeft.innerHTML = `
-        <button class="btn btn-emerald btn-sm" onclick="quickRegisterViewToConfig('${viewName}')">
+        <button class="btn btn-emerald btn-sm" onclick="quickRegisterViewToConfig('${escapeJsArg(viewName)}')">
           ⚡ Daftarkan View Ini ke Migration Config
         </button>
       `;
@@ -2588,10 +2593,10 @@ async function loadModalSourceViewData() {
     renderSourceViewProfiling(data.columns || [], data.rows || []);
   } catch (err) {
     thead.innerHTML = `<tr><th class="text-center py-6 text-rose">Gagal memuat data</th></tr>`;
-    tbody.innerHTML = `<tr><td class="text-center py-8 text-rose">${err.message}</td></tr>`;
-    schemaTbody.innerHTML = `<tr><td colspan="6" class="text-center py-8 text-rose">${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td class="text-center py-8 text-rose">${escapeHtml(err.message)}</td></tr>`;
+    schemaTbody.innerHTML = `<tr><td colspan="6" class="text-center py-8 text-rose">${escapeHtml(err.message)}</td></tr>`;
     const profTbody = document.getElementById('si-profiling-tbody');
-    if (profTbody) profTbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-rose">${err.message}</td></tr>`;
+    if (profTbody) profTbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-rose">${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -2661,7 +2666,7 @@ function renderSourceViewProfiling(columns, rows) {
         <td class="font-mono ${nullCount > 0 ? 'text-amber font-semibold' : 'text-muted'}">${nullCount} (${nullPct}%)</td>
         <td class="font-mono ${emptyCount > 0 ? 'text-amber' : 'text-muted'}">${emptyCount}</td>
         <td class="font-mono font-semibold">${distinctCount}</td>
-        <td class="text-xs text-muted" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${topValues}">
+        <td class="text-xs text-muted" style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(topValues)}">
           ${topValues || '<span class="font-italic">Semua NULL</span>'}
         </td>
         <td>${charBadge}</td>
@@ -3381,7 +3386,7 @@ async function validateViewQuery() {
     }
   } catch (err) {
     box.className = 'p-3 rounded border text-xs mb-2 alert-box-warning';
-    box.innerHTML = `<strong>⚠️ Error Jaringan / Server:</strong> ${err.message}`;
+    box.innerHTML = `<strong>⚠️ Error Jaringan / Server:</strong> ${escapeHtml(err.message)}`;
     return false;
   }
 }
@@ -3644,7 +3649,7 @@ function renderConfigTable(tableKey) {
         <td class="font-mono text-center"><span class="badge badge-indigo font-mono text-xs">${c.exec_order}</span></td>
         <td class="text-center">
           <div class="flex-gap-1 justify-center text-xs">
-            <span class="badge badge-neutral font-mono" title="Client ID: ${c.client_id || '-'}">${escapeHtml(clientCode)}</span>
+            <span class="badge badge-neutral font-mono" title="Client ID: ${escapeHtml(c.client_id || '-')}">${escapeHtml(clientCode)}</span>
             <span class="badge badge-info font-mono" title="Env ID: ${c.env_id || '-'}">${escapeHtml(envCode)}</span>
           </div>
         </td>
@@ -3668,7 +3673,7 @@ function renderConfigTable(tableKey) {
           <div class="flex-gap-2 justify-center">
             <button class="btn btn-secondary btn-xs btn-icon-only" onclick="cloneConfig(${c.config_id})" title="Duplikat" aria-label="Duplikat">📋</button>
             <button class="btn btn-secondary btn-xs btn-icon-only" onclick="openEditConfigModal('migration_config', ${c.config_id})" title="Edit" aria-label="Edit">✏️</button>
-            <button class="btn btn-danger btn-xs btn-icon-only" onclick="openDeleteModal('migration_config', ${c.config_id}, '${escapeHtml(c.name_config || `Config #${c.config_id}`)}')" title="Hapus" aria-label="Hapus">🗑️</button>
+            <button class="btn btn-danger btn-xs btn-icon-only" onclick="openDeleteModal('migration_config', ${c.config_id}, '${escapeJsArg(c.name_config || `Config #${c.config_id}`)}')" title="Hapus" aria-label="Hapus">🗑️</button>
           </div>
         </td>
       </tr>
@@ -3762,8 +3767,8 @@ function renderConfigTable(tableKey) {
         <td class="wrap-col text-muted text-xs" style="max-width: 180px;">${escapeHtml(l.description || '-')}</td>
         <td class="sticky-action-col">
           <div class="flex-gap-2 justify-center">
-            <button class="btn btn-secondary btn-xs btn-icon-only" onclick="openEditConfigModal('migration_lookup', '${escapeHtml(l.lookup_name)}')" title="Edit" aria-label="Edit">✏️</button>
-            <button class="btn btn-danger btn-xs btn-icon-only" onclick="openDeleteModal('migration_lookup', '${escapeHtml(l.lookup_name)}', '${escapeHtml(l.lookup_name)}')" title="Hapus" aria-label="Hapus">🗑️</button>
+            <button class="btn btn-secondary btn-xs btn-icon-only" onclick="openEditConfigModal('migration_lookup', '${escapeJsArg(l.lookup_name)}')" title="Edit" aria-label="Edit">✏️</button>
+            <button class="btn btn-danger btn-xs btn-icon-only" onclick="openDeleteModal('migration_lookup', '${escapeJsArg(l.lookup_name)}', '${escapeJsArg(l.lookup_name)}')" title="Hapus" aria-label="Hapus">🗑️</button>
           </div>
         </td>
       </tr>
@@ -3897,9 +3902,9 @@ const FORM_DEFINITIONS = {
       { name: 'connection_name', label: 'Nama Koneksi Database', type: 'text', placeholder: 'Koneksi SQL Server Source DEV', required: true },
       { name: 'db_role', label: 'Peran Database (Role)', type: 'select', options: ['SOURCE', 'STAGING', 'TARGET'], default: 'SOURCE' },
       { name: 'db_type', label: 'Tipe Mesin Database', type: 'select', options: ['MSSQL', 'POSTGRESQL'], default: 'POSTGRESQL' },
-      { name: 'host', label: 'Host / IP Server', type: 'text', placeholder: 'HOST_REDACTED atau localhost', required: true },
+      { name: 'host', label: 'Host / IP Server', type: 'text', placeholder: 'hostname atau IP (mis. localhost)', required: true },
       { name: 'port', label: 'Port Database', type: 'number', default: 5432, required: true },
-      { name: 'database_name', label: 'Nama Database', type: 'text', placeholder: 'db_procsi', required: true },
+      { name: 'database_name', label: 'Nama Database', type: 'text', placeholder: 'nama database', required: true },
       { name: 'db_schema', label: 'Schema Database', type: 'text', default: 'dbo' },
       { name: 'username', label: 'Username Database', type: 'text', required: true },
       { name: 'password', label: 'Password Database', type: 'password', placeholder: 'Kosongkan jika password tidak diubah' },
@@ -4005,7 +4010,7 @@ function openUniversalForm(entityType, id = null, existingData = null) {
       if (f.name === 'src_precheck_sql' || f.name === 'precheck_sql') {
         extraTester = `
           <div class="precheck-test-container">
-            <button type="button" class="btn btn-secondary btn-xs" onclick="testPrecheckQuery('${f.name}')">
+            <button type="button" class="btn btn-secondary btn-xs" onclick="testPrecheckQuery('${escapeJsArg(f.name)}')">
               🧪 Uji Precheck SQL
             </button>
             <span id="precheck-status-${f.name}" class="precheck-status-badge text-muted">Belum diuji</span>
@@ -4023,7 +4028,7 @@ function openUniversalForm(entityType, id = null, existingData = null) {
     } else if (f.type === 'select') {
       inputHtml = `
         <select name="${f.name}" class="form-input">
-          ${f.options.map((opt) => `<option value="${opt}" ${val === opt ? 'selected' : ''}>${opt}</option>`).join('')}
+          ${f.options.map((opt) => `<option value="${escapeHtml(opt)}" ${val === opt ? 'selected' : ''}>${escapeHtml(opt)}</option>`).join('')}
         </select>
       `;
     } else if (f.type === 'select_config') {
@@ -4034,7 +4039,7 @@ function openUniversalForm(entityType, id = null, existingData = null) {
       }
       let configOptions = '';
       if (selectedVal && !configs.some((c) => String(c.config_id) === String(selectedVal))) {
-        configOptions += `<option value="${selectedVal}" selected>[Config #${selectedVal}]</option>`;
+        configOptions += `<option value="${escapeHtml(selectedVal)}" selected>[Config #${escapeHtml(selectedVal)}]</option>`;
       }
       if (configs.length > 0) {
         configOptions += configs.map((c) => `
@@ -4043,7 +4048,7 @@ function openUniversalForm(entityType, id = null, existingData = null) {
           </option>
         `).join('');
       } else {
-        configOptions = `<option value="${selectedVal || ''}">-- Belum ada Migration Config (Isi manual ID: ${selectedVal || 1}) --</option>`;
+        configOptions = `<option value="${escapeHtml(selectedVal || '')}">-- Belum ada Migration Config (Isi manual ID: ${escapeHtml(selectedVal || 1)}) --</option>`;
       }
       inputHtml = `
         <select name="${f.name}" class="form-input" required>
@@ -4315,7 +4320,7 @@ async function handleCrudSubmit(e) {
       url = isEdit ? `/api/context/connections/${id}` : `/api/context/connections`;
     }
 
-    const res = await fetch(url, {
+    const res = await authFetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
@@ -4439,8 +4444,7 @@ async function executeDeleteConfirm() {
       url = `/api/auth/roles/${id}`;
     }
 
-    const isAuthRoute = ['user', 'role'].includes(type);
-    const res = await (isAuthRoute ? authFetch(url, { method: 'DELETE' }) : fetch(url, { method: 'DELETE' }));
+    const res = await authFetch(url, { method: 'DELETE' });
     const json = await res.json();
     if (!json.success) throw new Error(json.message || json.error);
 
@@ -4849,7 +4853,7 @@ async function loadEtlRuns() {
         statusBadge = `<span class="badge badge-warning font-bold" title="Tidak ada aktivitas lebih dari 10 menit, kemungkinan koneksi/proses terputus">⏳ RUNNING (Tidak Responsif)</span>`;
       } else {
         const badgeClass = run.status === 'RUNNING' ? 'badge-primary' : 'badge-warning';
-        statusBadge = `<span class="badge ${badgeClass}">${run.status}</span>`;
+        statusBadge = `<span class="badge ${badgeClass}">${escapeHtml(run.status)}</span>`;
       }
 
       // Posting & Rollback Badges
@@ -4908,7 +4912,7 @@ async function loadEtlRuns() {
         ? 'opacity: 0.7; background-color: rgba(241, 245, 249, 0.4);' 
         : (!run.is_posted && isSuccess && !isPurgeFlow ? 'background-color: rgba(240, 253, 244, 0.35);' : '');
 
-      let workflowDisplay = `<span class="font-mono text-cyan" style="font-size: 0.75rem;">${run.main_workflow || '-'}</span>`;
+      let workflowDisplay = `<span class="font-mono text-cyan" style="font-size: 0.75rem;">${escapeHtml(run.main_workflow || '-')}</span>`;
       if (run.main_workflow === 'flow_2_post') {
         workflowDisplay = `<span class="badge badge-purple font-mono font-bold" title="Tahap 2: Posting Target">flow_2_post</span>`;
       } else if (run.main_workflow === 'flow_4_purge') {
@@ -4922,7 +4926,7 @@ async function loadEtlRuns() {
           <td class="font-mono font-bold">#${run.run_id}</td>
           <td>${clientBadge}</td>
           <td>${envBadge}</td>
-          <td class="font-mono text-muted" style="font-size: 0.75rem;">${run.run_ts || '-'}</td>
+          <td class="font-mono text-muted" style="font-size: 0.75rem;">${escapeHtml(run.run_ts || '-')}</td>
           <td>${workflowDisplay}</td>
           <td class="font-mono text-muted">${run.config_id ? `Config #${run.config_id}` : '-'}</td>
           <td>${statusBadge}</td>
@@ -4930,7 +4934,7 @@ async function loadEtlRuns() {
           <td class="font-mono">${run.duration_seconds ? run.duration_seconds + 's' : '-'}</td>
           <td>${postBadge}</td>
           <td>${rollbackBadge}</td>
-          <td class="font-mono text-muted" style="font-size: 0.75rem;">${run.hop_host || '-'}</td>
+          <td class="font-mono text-muted" style="font-size: 0.75rem;">${escapeHtml(run.hop_host || '-')}</td>
           <td style="max-width: 280px; min-width: 180px; ${noteStyle}" title="${escapeHtml(run.note || '')}">
             ${(() => {
               if (!run.note) return '-';
@@ -4967,7 +4971,7 @@ async function loadEtlRuns() {
                 </button>
               ` : ''}
               ${(isFailed && !isSuperseded) ? `
-                <button class="btn btn-warning btn-sm" onclick="resumeWorkflow(${run.run_id}, '${isPostFailed ? 'flow_2_post' : (run.main_workflow || 'flow_1_staging')}', '${run.config_id || ''}')" title="${resumeLabel.title}">
+                <button class="btn btn-warning btn-sm" onclick="resumeWorkflow(${run.run_id}, '${escapeJsArg(isPostFailed ? 'flow_2_post' : (run.main_workflow || 'flow_1_staging'))}', '${escapeJsArg(run.config_id || '')}')" title="${resumeLabel.title}">
                   ▶️ ${resumeLabel.text}
                 </button>
                 <button class="btn btn-secondary btn-sm" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.35);" onclick="cancelWorkflowRun(${run.run_id})" title="Batalkan status sesi gagal ini (tandai CANCELLED)">
@@ -4980,7 +4984,7 @@ async function loadEtlRuns() {
       `;
     }).join('');
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="14" class="text-center py-8 text-rose">${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="14" class="text-center py-8 text-rose">${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -5182,11 +5186,11 @@ window.filterLogsByRun = function (runId) {
   }
 
   const stepDesc = document.getElementById('steplogs-filter-desc');
-  if (stepDesc) stepDesc.innerHTML = `Menampilkan log langkah untuk <strong>Run #${runId}</strong>`;
+  if (stepDesc) stepDesc.innerHTML = `Menampilkan log langkah untuk <strong>Run #${escapeHtml(runId)}</strong>`;
   document.getElementById('btn-clear-step-filter')?.classList.remove('hidden');
 
   const errDesc = document.getElementById('errorlogs-filter-desc');
-  if (errDesc) errDesc.innerHTML = `Menampilkan log error untuk <strong>Run #${runId}</strong>`;
+  if (errDesc) errDesc.innerHTML = `Menampilkan log error untuk <strong>Run #${escapeHtml(runId)}</strong>`;
   document.getElementById('btn-clear-error-filter')?.classList.remove('hidden');
 
   switchCanvasBottomTab('canvas-tab-steplogs');
@@ -5262,7 +5266,7 @@ async function loadEtlStepLogs(runId = null) {
     });
 
     if (list.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="12" class="text-center py-8 text-muted">Tidak ada log langkah ${runId ? `untuk Run #${runId}` : ''}.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="12" class="text-center py-8 text-muted">Tidak ada log langkah ${runId ? `untuk Run #${escapeHtml(runId)}` : ''}.</td></tr>`;
       return;
     }
 
@@ -5277,7 +5281,7 @@ async function loadEtlStepLogs(runId = null) {
           <td class="font-mono font-bold text-center">#${s.run_id}</td>
           <td class="font-mono text-cyan text-center">${s.config_id ? `#${s.config_id}` : '-'}</td>
           <td><strong>${escapeHtml(s.step_name)}</strong></td>
-          <td class="text-center"><span class="badge ${badgeClass}">${s.status}</span></td>
+          <td class="text-center"><span class="badge ${badgeClass}">${escapeHtml(s.status)}</span></td>
           <td class="font-mono text-center">${s.rows_src ?? '-'}</td>
           <td class="font-mono text-center">${s.rows_stg ?? '-'}</td>
           <td class="font-mono text-emerald text-center">${s.rows_new ?? '-'}</td>
@@ -5289,7 +5293,7 @@ async function loadEtlStepLogs(runId = null) {
       `;
     }).join('');
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="12" class="text-center py-8 text-rose">${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="12" class="text-center py-8 text-rose">${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -5362,7 +5366,7 @@ async function loadEtlErrorLogs(runId = null) {
     });
 
     if (list.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="10" class="text-center py-8 text-muted">Tidak ada log error ${runId ? `pada Run #${runId}` : ''}.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="10" class="text-center py-8 text-muted">Tidak ada log error ${runId ? `pada Run #${escapeHtml(runId)}` : ''}.</td></tr>`;
       return;
     }
 
@@ -5402,7 +5406,7 @@ async function loadEtlErrorLogs(runId = null) {
       `;
     }).join('');
   } catch (err) {
-    tbody.innerHTML = `<tr><td colspan="10" class="text-center py-8 text-rose">${err.message}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="10" class="text-center py-8 text-rose">${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -5428,7 +5432,7 @@ function isStagingActionStatus(actionStatus) {
 function renderActionStatusBadge(actionStatus, postedAt, rolledBackAt) {
   if (actionStatus === 'POSTED') {
     const titleStr = postedAt ? `Sudah diposting ke target (${formatDate(postedAt)})` : 'Sudah diposting ke target vendor';
-    return `<span class="badge badge-success font-bold" title="${titleStr}" style="font-size: 0.78rem;">🚀 Posted</span>`;
+    return `<span class="badge badge-success font-bold" title="${escapeHtml(titleStr)}" style="font-size: 0.78rem;">🚀 Posted</span>`;
   }
   if (isStagingActionStatus(actionStatus)) {
     return `<span class="badge badge-info font-bold" title="Tahap Staging selesai sukses, siap untuk diposting ke target" style="font-size: 0.78rem;">📥 Staging Only</span>`;
@@ -5438,7 +5442,7 @@ function renderActionStatusBadge(actionStatus, postedAt, rolledBackAt) {
   }
   if (actionStatus === 'ROLLED_BACK') {
     const titleStr = rolledBackAt ? `Data di-rollback dari target (${formatDate(rolledBackAt)})` : 'Data di-rollback dari target';
-    return `<span class="badge badge-danger font-bold" title="${titleStr}" style="font-size: 0.78rem;">↩️ Rolled Back</span>`;
+    return `<span class="badge badge-danger font-bold" title="${escapeHtml(titleStr)}" style="font-size: 0.78rem;">↩️ Rolled Back</span>`;
   }
   return `<span class="badge badge-neutral" style="font-size: 0.78rem;">-</span>`;
 }
@@ -5610,14 +5614,14 @@ function renderPipelineMasterRows(pipelines) {
           ${p.nameConfig ? `<div class="text-xs text-white font-semibold mt-0.5">${escapeHtml(p.nameConfig)}</div>` : ''}
         </td>
         <td class="font-mono text-center pipeline-merge-cell" rowspan="${spanCount}">${p.execOrder}</td>
-        <td class="pipeline-merge-cell" rowspan="${spanCount}"><strong class="text-cyan">[${p.source.schema}].[${p.source.view}]</strong></td>
-        <td class="pipeline-merge-cell" rowspan="${spanCount}"><strong class="text-amber">stg_antam.${p.staging.table}</strong></td>
+        <td class="pipeline-merge-cell" rowspan="${spanCount}"><strong class="text-cyan">[${escapeHtml(p.source.schema)}].[${escapeHtml(p.source.view)}]</strong></td>
+        <td class="pipeline-merge-cell" rowspan="${spanCount}"><strong class="text-amber">stg_antam.${escapeHtml(p.staging.table)}</strong></td>
       ` : '';
 
       return `
         <tr class="${isSelected ? 'active-row' : ''} ${isFirst ? 'pipeline-row-start' : 'pipeline-row-child'}" data-config-id="${p.configId}">
           ${firstCols}
-          <td><strong class="text-emerald">${t.schema}.${t.table}</strong></td>
+          <td><strong class="text-emerald">${escapeHtml(t.schema)}.${escapeHtml(t.table)}</strong></td>
           <td class="font-mono text-center font-bold text-emerald">${t.sumSource !== null && t.sumSource !== undefined ? formatNumber(t.sumSource) : (p.source.rows !== undefined ? formatNumber(p.source.rows) : '-')}</td>
           <td class="font-mono text-center font-bold text-emerald">${t.sumStaging !== null && t.sumStaging !== undefined ? formatNumber(t.sumStaging) : (p.staging.rows !== undefined ? formatNumber(p.staging.rows) : '-')}</td>
           <td class="font-mono text-center font-bold text-emerald">${t.sumBefore !== null && t.sumBefore !== undefined ? formatNumber(t.sumBefore) : '<span class="text-muted">-</span>'}</td>
@@ -5625,11 +5629,11 @@ function renderPipelineMasterRows(pipelines) {
           <td class="font-mono text-center font-bold text-emerald">${t.lastRunId ? t.lastRunId : '-'}</td>
           <td class="text-center">${actionBadge}</td>
           <td class="text-center">${statusBadge}</td>
-          <td class="text-center"><span class="${errorClass}">${errorText}</span></td>
+          <td class="text-center"><span class="${errorClass}">${escapeHtml(errorText)}</span></td>
           <td class="text-center">
             <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
               <button class="btn btn-secondary btn-xs" onclick="openStagingHistoryModal(${p.configId})" title="Riwayat staging per Run ID (staging_data_history)">🕘<span class="btn-label"> History</span></button>
-              <button class="btn btn-compare-pipeline btn-xs" onclick="openPipelineCompareModal(${p.configId}, '${t.table}', ${t.lastRunId ? `'${t.lastRunId}'` : 'null'})" title="Komparasi kolom 3-Tier &amp; evaluasi sukses migrasi (Run: #${t.lastRunId || '-'})">⚖️<span class="btn-label"> Compare</span></button>
+              <button class="btn btn-compare-pipeline btn-xs" onclick="openPipelineCompareModal(${p.configId}, '${escapeJsArg(t.table)}', ${t.lastRunId ? `'${escapeJsArg(t.lastRunId)}'` : 'null'})" title="Komparasi kolom 3-Tier &amp; evaluasi sukses migrasi (Run: #${t.lastRunId || '-'})">⚖️<span class="btn-label"> Compare</span></button>
             </div>
           </td>
         </tr>
@@ -5683,7 +5687,7 @@ async function loadPipelineReconciliation(force = false) {
     state.pipeline.selectedConfigId = targetConfigId;
   } catch (err) {
     if (!state.pipeline.pipelines || state.pipeline.pipelines.length === 0) {
-      masterTbody.innerHTML = `<tr><td colspan="14" class="text-center py-8 text-rose">${err.message}</td></tr>`;
+      masterTbody.innerHTML = `<tr><td colspan="14" class="text-center py-8 text-rose">${escapeHtml(err.message)}</td></tr>`;
     }
   } finally {
     if (refreshBtn) {
@@ -6013,7 +6017,7 @@ async function loadPipelineComparison(configId, targetTableName, runId) {
         runSelect.innerHTML = allRuns.map((r) => {
           const statusIcon = r.status === 'SUCCESS' ? '✓' : (r.status === 'FAILED' ? '✕' : '⏳');
           const isSel = String(r.run_id) === String(data.effectiveRunId);
-          return `<option value="${r.run_id}" ${isSel ? 'selected' : ''}>${statusIcon} #${r.run_id} (${r.status || 'RUN'})</option>`;
+          return `<option value="${escapeHtml(r.run_id)}" ${isSel ? 'selected' : ''}>${statusIcon} #${escapeHtml(r.run_id)} (${escapeHtml(r.status || 'RUN')})</option>`;
         }).join('');
       } else {
         runWrapper.style.display = 'none';
@@ -6330,8 +6334,8 @@ function renderCompareSamples(data) {
   if (tgtTag) {
     const hasMigrated = data.target.sampleRows && data.target.sampleRows.length > 0;
     tgtTag.innerHTML = hasMigrated 
-      ? `${data.target.schema}.${data.target.table} <span style="margin-left: 4px;">(✓ Termigrasi)</span>`
-      : `${data.target.schema}.${data.target.table} <span style="margin-left: 4px;">(Belum Ada Data)</span>`;
+      ? `${escapeHtml(data.target.schema)}.${escapeHtml(data.target.table)} <span style="margin-left: 4px;">(✓ Termigrasi)</span>`
+      : `${escapeHtml(data.target.schema)}.${escapeHtml(data.target.table)} <span style="margin-left: 4px;">(Belum Ada Data)</span>`;
     tgtTag.className = `badge ${hasMigrated ? 'badge-success' : 'badge-warning'} text-xs font-bold`;
   }
 
@@ -6404,7 +6408,7 @@ function renderCompareAudit(data) {
         <div class="audit-card-item ${cardClass}">
           <div class="audit-card-top">
             <span class="text-xs text-muted font-bold">${escapeHtml(chk.category)}</span>
-            <span class="badge ${badgeClass} text-xs font-bold">${chk.status}</span>
+            <span class="badge ${badgeClass} text-xs font-bold">${escapeHtml(chk.status)}</span>
           </div>
           <div class="audit-card-title flex-center gap-1" style="justify-content: flex-start;">
             <span>${icon}</span>
@@ -6426,7 +6430,7 @@ function renderCompareAudit(data) {
       errTbody.innerHTML = errs.map((e) => `
         <tr>
           <td class="font-mono text-muted">${formatDate(e.created_at || e.error_time)}</td>
-          <td class="font-mono font-bold text-cyan">#${e.run_id || '-'}</td>
+          <td class="font-mono font-bold text-cyan">#${escapeHtml(e.run_id || '-')}</td>
           <td>${escapeHtml(e.target_table || '-')}</td>
           <td class="text-rose font-bold">${escapeHtml(e.error_message || e.message || '-')}</td>
         </tr>
@@ -7709,6 +7713,12 @@ function formatDate(isoStr) {
   }
 }
 
+// Aman untuk string literal JS bertanda kutip tunggal di dalam atribut onclick="..."
+function escapeJsArg(str) {
+  if (str === null || str === undefined) return '';
+  return escapeHtml(String(str).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/[\r\n\u2028\u2029]+/g, ' '));
+}
+
 function escapeHtml(str) {
   if (str === null || str === undefined) return '';
   return String(str)
@@ -7836,7 +7846,7 @@ async function loadSourceConnectionsSelect(envId = null) {
   try {
     const targetEnvId = envId !== null ? envId : state.selectedEnvId;
     const url = targetEnvId ? `/api/context/connections?envId=${targetEnvId}` : '/api/context/connections';
-    const res = await fetch(url);
+    const res = await authFetch(url);
     const json = await res.json();
     if (!json.success) return;
 
@@ -7853,7 +7863,7 @@ async function loadSourceConnectionsSelect(envId = null) {
 
     const optionsHtml = state.sourceConnectionsList.map((c) => {
       const selected = String(c.connection_id) === String(state.selectedSourceConnectionId) ? 'selected' : '';
-      return `<option value="${c.connection_id}" ${selected}>${escapeHtml(c.connection_name)} (${c.db_type} - ${escapeHtml(c.database_name)})</option>`;
+      return `<option value="${escapeHtml(c.connection_id)}" ${selected}>${escapeHtml(c.connection_name)} (${escapeHtml(c.db_type)} - ${escapeHtml(c.database_name)})</option>`;
     }).join('');
 
     selectEl.innerHTML = optionsHtml || '<option value="">(Belum ada koneksi SOURCE)</option>';
@@ -7914,7 +7924,7 @@ window.openEnvManagerModal = async function (clientId, envId = null) {
     document.getElementById('em-env-id').value = envId;
 
     try {
-      const res = await fetch(`/api/context/environments/${envId}/details`);
+      const res = await authFetch(`/api/context/environments/${envId}/details`);
       const json = await res.json();
       if (!json.success) throw new Error(json.error);
 
@@ -8061,7 +8071,7 @@ async function testEnvConnPing() {
   };
 
   try {
-    const res = await fetch('/api/context/connections/test', {
+    const res = await authFetch('/api/context/connections/test', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -8076,7 +8086,7 @@ async function testEnvConnPing() {
     }
   } catch (err) {
     testBox.className = 'p-2 rounded text-xs mb-3 alert-box-warning';
-    testBox.innerHTML = `<strong>⚠️ Error:</strong> ${err.message}`;
+    testBox.innerHTML = `<strong>⚠️ Error:</strong> ${escapeHtml(err.message)}`;
   }
 }
 
@@ -8150,7 +8160,7 @@ async function saveEnvironmentAndConnections() {
       connections: currentEnvConnections,
     };
 
-    const res = await fetch('/api/context/environments/save-with-connections', {
+    const res = await authFetch('/api/context/environments/save-with-connections', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -8256,6 +8266,10 @@ window.syncHopConfig = async function (envId, envCode, clientCode) {
 async function authFetch(url, options = {}) {
   const token = state.userToken || localStorage.getItem('antam_token');
   const headers = Object.assign({}, options.headers || {});
+  const hasContentType = Object.keys(headers).some(k => k.toLowerCase() === 'content-type');
+  if (typeof options.body === 'string' && !hasContentType) {
+    headers['Content-Type'] = 'application/json';
+  }
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
@@ -8270,32 +8284,46 @@ async function authFetch(url, options = {}) {
 async function initAuth() {
   const token = localStorage.getItem('antam_token');
   const loginScreen = document.getElementById('screen-login');
-  
+  const clearPending = () => document.documentElement.classList.remove('auth-pending');
+
   if (!token) {
+    clearPending();
     if (loginScreen) { loginScreen.classList.remove('hidden'); showAuthView('login'); }
     return;
   }
 
-  try {
-    const res = await authFetch('/api/auth/me');
-    const json = await res.json();
-    if (json.success && json.data) {
-      state.userToken = token;
-      state.currentUser = json.data.user;
-      state.userMenus = json.data.menus || [];
-      updateAuthUserBadge(state.currentUser);
-      applyMenuPermissions(state.userMenus);
-      if (loginScreen) loginScreen.classList.add('hidden');
-      await initApplication();
-    } else {
-      localStorage.removeItem('antam_token');
-      state.userToken = null;
-      if (loginScreen) { loginScreen.classList.remove('hidden'); showAuthView('login'); }
+  // Token hanya dibuang jika server menolaknya (401/403). Error sementara
+  // (jaringan, timeout DB, 5xx) dicoba ulang agar sesi tidak hilang saat refresh.
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const res = await authFetch('/api/auth/me');
+      if (res.status === 401 || res.status === 403) {
+        localStorage.removeItem('antam_token');
+        state.userToken = null;
+        break;
+      }
+      const json = await res.json();
+      if (res.ok && json.success && json.data) {
+        state.userToken = token;
+        state.currentUser = json.data.user;
+        state.userMenus = json.data.menus || [];
+        updateAuthUserBadge(state.currentUser);
+        applyMenuPermissions(state.userMenus);
+        if (loginScreen) loginScreen.classList.add('hidden');
+        clearPending();
+        await initApplication();
+        return;
+      }
+      console.warn(`Verifikasi sesi gagal (percobaan ${attempt}/${maxAttempts}):`, json.message || res.status);
+    } catch (err) {
+      console.error(`Error saat verifikasi sesi auth (percobaan ${attempt}/${maxAttempts}):`, err);
     }
-  } catch (err) {
-    console.error('Error saat verifikasi sesi auth:', err);
-    if (loginScreen) { loginScreen.classList.remove('hidden'); showAuthView('login'); }
+    if (attempt < maxAttempts) await new Promise(r => setTimeout(r, 1000 * attempt));
   }
+
+  clearPending();
+  if (loginScreen) { loginScreen.classList.remove('hidden'); showAuthView('login'); }
 }
 
 async function handleLoginSubmit(event) {
@@ -8361,6 +8389,7 @@ async function handleLoginSubmit(event) {
 }
 
 function handleLogout() {
+  document.documentElement.classList.remove('auth-pending');
   const token = state.userToken || localStorage.getItem('antam_token');
   if (token) {
     fetch('/api/auth/logout', {
@@ -8522,16 +8551,11 @@ async function handleForgotSubmit(event) {
   const val = id => document.getElementById(id).value;
   const btn = document.getElementById('btn-submit-forgot');
   hideAuthAlert('forgot');
-  if (val('forgot-password') !== val('forgot-password2')) {
-    showAuthAlert('forgot', 'Konfirmasi kata sandi baru tidak sama.');
-    return;
-  }
   btn.disabled = true;
   try {
     const json = await postAuth('/api/auth/forgot-password', {
       username: val('forgot-username').trim(),
       email: val('forgot-email').trim(),
-      new_password: val('forgot-password'),
       captchaAnswer: val('forgot-captcha'),
     });
     if (!json.success) {
@@ -9000,7 +9024,7 @@ async function loadSysUsers() {
     renderSysUsers(state.system.users);
   } catch (err) {
     console.error('Gagal memuat users:', err);
-    if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="text-center py-8 text-danger">Gagal memuat pengguna: ${err.message}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="9" class="text-center py-8 text-danger">Gagal memuat pengguna: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -9170,8 +9194,8 @@ function renderSysUsers(users) {
         <td class="text-center">
           <div class="flex-center gap-1-5" style="justify-content: center; flex-wrap: nowrap;">
             <button class="btn btn-secondary btn-action-pill" title="Edit Pengguna" onclick="openEditUserModal(${u.user_id})">✏️ Edit</button>
-            <button class="btn btn-secondary btn-action-pill" title="Reset Password" onclick="openResetPwdModal(${u.user_id}, '${escapeHtml(u.username)}')">🔑 Reset</button>
-            <button class="btn btn-danger btn-action-pill" title="Hapus Pengguna" onclick="deleteUser(${u.user_id}, '${escapeHtml(u.username)}')">🗑️ Hapus</button>
+            <button class="btn btn-secondary btn-action-pill" title="Reset Password" onclick="openResetPwdModal(${u.user_id}, '${escapeJsArg(u.username)}')">🔑 Reset</button>
+            <button class="btn btn-danger btn-action-pill" title="Hapus Pengguna" onclick="deleteUser(${u.user_id}, '${escapeJsArg(u.username)}')">🗑️ Hapus</button>
           </div>
         </td>
       </tr>
@@ -9216,7 +9240,7 @@ function populateRoleSelectOptions(roles) {
   const userRoleSelect = document.getElementById('select-user-role');
   const matrixRoleSelect = document.getElementById('select-matrix-role');
 
-  const optionsHtml = roles.map(r => `<option value="${r.role_id}">${escapeHtml(r.role_name)} (${r.role_code})</option>`).join('');
+  const optionsHtml = roles.map(r => `<option value="${r.role_id}">${escapeHtml(r.role_name)} (${escapeHtml(r.role_code)})</option>`).join('');
 
   if (userRoleSelect) {
     userRoleSelect.innerHTML = `<option value="">-- Pilih Role --</option>` + optionsHtml;
@@ -9571,7 +9595,7 @@ async function loadSysRoles() {
     }
   } catch (err) {
     console.error('Gagal memuat roles:', err);
-    if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-danger">Gagal memuat role: ${err.message}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="text-center py-8 text-danger">Gagal memuat role: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -9713,7 +9737,7 @@ function renderSysRoles(roles) {
         <td class="text-center">
           <div class="flex-center gap-1-5" style="justify-content: center; flex-wrap: nowrap;">
             <button class="btn btn-secondary btn-action-pill" title="Edit Role" onclick="openEditRoleModal(${r.role_id})">✏️ Edit</button>
-            <button class="btn btn-danger btn-action-pill" title="Hapus Role" onclick="deleteRole(${r.role_id}, '${escapeHtml(r.role_name)}')" ${isProtected ? 'disabled style="opacity:0.35;cursor:not-allowed;"' : ''}>🗑️ Hapus</button>
+            <button class="btn btn-danger btn-action-pill" title="Hapus Role" onclick="deleteRole(${r.role_id}, '${escapeJsArg(r.role_name)}')" ${isProtected ? 'disabled style="opacity:0.35;cursor:not-allowed;"' : ''}>🗑️ Hapus</button>
           </div>
         </td>
       </tr>
@@ -9839,7 +9863,7 @@ async function loadMenuMatrixForSelectedRole(roleId) {
     renderMenuMatrix(state.system.menuMatrix);
   } catch (err) {
     console.error('Gagal memuat matriks role menus:', err);
-    if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-danger">Gagal memuat matriks: ${err.message}</td></tr>`;
+    if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-danger">Gagal memuat matriks: ${escapeHtml(err.message)}</td></tr>`;
   }
 }
 
@@ -9858,9 +9882,9 @@ function renderMenuMatrix(matrix) {
         <td class="text-center text-muted text-xs">${idx + 1}</td>
         <td>
           <div class="flex-center gap-2" style="justify-content: flex-start;">
-            <span style="font-size: 1.15rem;">${m.menu_icon || '📄'}</span>
+            <span style="font-size: 1.15rem;">${escapeHtml(m.menu_icon || '📄')}</span>
             <strong>${escapeHtml(m.menu_name)}</strong>
-            <span class="text-muted font-mono text-2xs">(${m.menu_code})</span>
+            <span class="text-muted font-mono text-2xs">(${escapeHtml(m.menu_code)})</span>
           </div>
         </td>
         <td>
@@ -10398,7 +10422,17 @@ function loadCustomTabView(tabId) {
 
   if (bodyEl) {
     if (menu.content_html && menu.content_html.trim()) {
-      bodyEl.innerHTML = menu.content_html;
+      // Konten menu disimpan oleh admin dan dapat berisi HTML sembarang.
+      // Render dalam iframe sandboxed (tanpa allow-scripts/allow-same-origin)
+      // agar skrip apa pun di dalamnya tidak dapat berjalan pada origin aplikasi.
+      bodyEl.innerHTML = '';
+      const frame = document.createElement('iframe');
+      frame.setAttribute('sandbox', '');
+      frame.style.width = '100%';
+      frame.style.minHeight = '70vh';
+      frame.style.border = 'none';
+      frame.srcdoc = menu.content_html;
+      bodyEl.appendChild(frame);
     } else {
       bodyEl.innerHTML = `
         <div style="text-align: center; padding: 4rem 2rem; color: var(--text-muted);">
@@ -10530,7 +10564,7 @@ function inspectViewMock(viewName) {
     v.tax_number, 
     v.is_active, 
     v.created_at
-FROM antam_scm.dbo.${viewName} v 
+FROM database_sumber.dbo.${viewName} v 
 WHERE v.is_deleted = 0;`;
   }
   const container = document.getElementById('inspector-preview');

@@ -289,31 +289,22 @@ class AuthService {
   }
 
   /**
-   * Reset kata sandi mandiri dengan verifikasi pasangan username + email terdaftar
+   * Permintaan reset kata sandi. Tidak mengubah kata sandi: hanya mencatat permintaan
+   * agar administrator (SUPERADMIN) memprosesnya lewat menu User Management.
+   * Verifikasi hanya berdasarkan username+email tidak cukup aman untuk reset otomatis.
    */
-  async resetPasswordSelf({ username, email, new_password }) {
+  async requestPasswordReset({ username, email }) {
     const cleanUser = String(username || '').trim().toLowerCase();
     const cleanEmail = String(email || '').trim().toLowerCase();
-    if (!cleanUser || !cleanEmail) {
-      throw new Error('Username dan email wajib diisi.');
-    }
-    if (typeof new_password !== 'string' || new_password.length < 8 || new_password.length > 128) {
-      throw new Error('Kata sandi baru minimal 8 karakter.');
-    }
+    if (!cleanUser || !cleanEmail) return false;
 
-    const genericError = 'Data username dan email tidak cocok dengan akun terdaftar. Hubungi administrator jika email belum terdaftar.';
     const res = await queryPostgres(
       `SELECT user_id FROM mc_center.sys_users WHERE LOWER(username) = $1 AND LOWER(email) = $2`,
       [cleanUser, cleanEmail]
     );
-    if (res.rows.length === 0) {
-      throw new Error(genericError);
-    }
+    if (res.rows.length === 0) return false;
 
-    await queryPostgres(
-      `UPDATE mc_center.sys_users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2`,
-      [hashPassword(new_password), res.rows[0].user_id]
-    );
+    console.warn(`[SECURITY] Permintaan reset kata sandi diterima untuk user_id=${res.rows[0].user_id}`);
     return true;
   }
 

@@ -6,7 +6,24 @@ const { Pool } = require('pg');
 const { checkSqlServerConnection, getSqlServerPool, querySqlServer } = require('../config/sqlserver');
 const { ensureTunnel } = require('../config/tunnel');
 const { encrypt, decrypt, isEncrypted, maskCredential } = require('../utils/encryption');
+const { assertReadOnlySelect, assertSafeIdentifier } = require('../utils/sql-guard');
 const pipelineService = require('./pipeline.service');
+
+// Kolom identifier pada migration_config yang nantinya disisipkan ke SQL dinamis
+const CONFIG_IDENTIFIER_FIELDS = ['src_schema', 'src_view', 'src_table', 'tgt_schema', 'tgt_table', 'stg_table', 'stg_schema'];
+function assertConfigIdentifiers(data) {
+  for (const f of CONFIG_IDENTIFIER_FIELDS) {
+    const v = data && data[f];
+    if (v !== undefined && v !== null && String(v).trim() !== '') assertSafeIdentifier(String(v).trim(), f);
+  }
+}
+
+// Tolak target uji koneksi ke metadata cloud / link-local / multicast (SSRF)
+function isBlockedTestHost(host) {
+  const h = String(host).trim().toLowerCase();
+  return /^169\.254\./.test(h) || /^(22[4-9]|23\d)\./.test(h) || /^0\./.test(h)
+    || h === '0.0.0.0' || h === 'metadata.google.internal' || /^fe80:/.test(h) || /^ff/.test(h);
+}
 
 // Run RUNNING tanpa aktivitas log selama ini dianggap terputus
 const STALE_RUN_MINUTES = 10;
@@ -414,7 +431,7 @@ class EtlService {
         connection_id: sourceConn?.connection_id || null,
         connection_name: sourceConn?.connection_name || 'Tidak ada koneksi SOURCE',
         db_type: sourceConn?.db_type || 'MSSQL',
-        database: sourceConn?.database_name || 'antam_scm',
+        database: sourceConn?.database_name || process.env.MSSQL_DATABASE || '',
         db_schema: sourceConn?.db_schema || 'dbo',
         host: sourceConn?.host || 'localhost',
         port: sourceConn?.port || 1433,
@@ -428,7 +445,7 @@ class EtlService {
         connection_id: targetConn?.connection_id || null,
         connection_name: targetConn?.connection_name || 'Tidak ada koneksi TARGET',
         db_type: targetConn?.db_type || 'POSTGRESQL',
-        database: targetConn?.database_name || 'db_procsi',
+        database: targetConn?.database_name || process.env.APP_DB_NAME || process.env.PG_DATABASE || '',
         db_schema: targetConn?.db_schema || 'vendor',
         host: targetConn?.host || 'localhost',
         port: targetConn?.port || 5432,
@@ -1024,24 +1041,28 @@ class EtlService {
     let { db_type = 'POSTGRESQL', host, port, database_name, username, password, connection_id } = data;
     const startTime = Date.now();
 
-    // Resolusi password jika di-mask atau terenkripsi
-    if (password === '••••••••' && connection_id) {
-      try {
-        const cur = await queryPostgres('SELECT password FROM mc_center.master_connection WHERE connection_id = $1', [parseInt(connection_id, 10)]);
-        if (cur.rows.length > 0 && cur.rows[0].password) {
-          password = decrypt(cur.rows[0].password);
-        }
-      } catch (_) {}
-    } else if (password) {
-      password = decrypt(password);
+    // Password hanya dari DB (via connection_id) atau plaintext baru; ciphertext kiriman klien tidak pernah didekripsi
+    if (password === '••••••••' || (typeof password === 'string' && password.startsWith('ENC:'))) {
+      password = undefined;
+      if (connection_id) {
+        try {
+          const cur = await queryPostgres('SELECT password FROM mc_center.master_connection WHERE connection_id = $1', [parseInt(connection_id, 10)]);
+          if (cur.rows.length > 0 && cur.rows[0].password) {
+            password = decrypt(cur.rows[0].password);
+          }
+        } catch (_) {}
+      }
+    }
+    if (host && isBlockedTestHost(host)) {
+      return { success: false, latencyMs: 0, error: 'Host tujuan tidak diizinkan.' };
     }
 
     if (db_type.toUpperCase() === 'MSSQL') {
-      const isAntamHost = !host || host === 'HOST_REDACTED' || host === process.env.MSSQL_SERVER || host === process.env.MSSQL_SSH_HOST || host === '127.0.0.1' || host === 'localhost';
-      const isAntamDb = !database_name || database_name === process.env.MSSQL_DATABASE || database_name === 'antam_scm';
+      const isAntamHost = !host || host === process.env.MSSQL_SERVER || host === process.env.MSSQL_SSH_HOST || host === '127.0.0.1' || host === 'localhost';
+      const isAntamDb = !database_name || database_name === process.env.MSSQL_DATABASE;
       const isAntamUser = !username || username === process.env.MSSQL_USER || username === 'sa';
 
-      // 1. Jika ini koneksi default ANTAM (HOST_REDACTED / antam_scm / sa), gunakan managed connection pool langsung
+      // 1. Jika ini koneksi default dari .env (host / database / user sama), gunakan managed connection pool langsung
       if (isAntamHost && isAntamDb && isAntamUser) {
         try {
           const sqlResult = await checkSqlServerConnection();
@@ -1072,7 +1093,7 @@ class EtlService {
       let targetServer = host || 'localhost';
       let targetPort = parseInt(port, 10) || 1433;
 
-      const requiresTunnel = (process.env.MSSQL_USE_SSH_TUNNEL === 'true' && isAntamHost) || host === 'HOST_REDACTED';
+      const requiresTunnel = (process.env.MSSQL_USE_SSH_TUNNEL === 'true' && isAntamHost) || (!!process.env.MSSQL_SSH_HOST && host === process.env.MSSQL_SSH_HOST);
       if (requiresTunnel) {
         try {
           await ensureTunnel();
@@ -1092,7 +1113,7 @@ class EtlService {
         port: targetPort,
         user: username || process.env.MSSQL_USER || 'sa',
         password: password || process.env.MSSQL_PASSWORD || '',
-        database: database_name || process.env.MSSQL_DATABASE || 'antam_scm',
+        database: database_name || process.env.MSSQL_DATABASE || '',
         options: {
           encrypt: process.env.MSSQL_ENCRYPT === 'true',
           trustServerCertificate: process.env.MSSQL_TRUST_SERVER_CERTIFICATE !== 'false',
@@ -1337,6 +1358,7 @@ class EtlService {
     if (!meta) throw new Error(`Tabel "${tableName}" tidak diizinkan untuk operasi konfigurasi.`);
 
     if (tableName === 'migration_config') {
+      assertConfigIdentifiers(data);
       await this.autoPopulateMigrationConfigFields(data);
 
       // Staging Collision Guard (Point 7)
@@ -1397,6 +1419,7 @@ class EtlService {
     if (!meta) throw new Error(`Tabel "${tableName}" tidak diizinkan untuk operasi konfigurasi.`);
 
     if (tableName === 'migration_config') {
+      assertConfigIdentifiers(data);
       await this.autoPopulateMigrationConfigFields(data, id);
 
       // Staging Collision Guard (Point 7)
@@ -1492,16 +1515,7 @@ class EtlService {
     if (!querySql || typeof querySql !== 'string' || !querySql.trim()) {
       throw new Error('Query SQL Precheck tidak boleh kosong.');
     }
-    const cleanSql = querySql.trim();
-    const upper = cleanSql.toUpperCase();
-    if (!upper.startsWith('SELECT') && !upper.startsWith('WITH')) {
-      throw new Error('Query Precheck hanya boleh berupa statement SELECT atau WITH.');
-    }
-    // SQL Guard: Cegah multiple statements & perintah berbahaya pada query precheck
-    const dangerousPatterns = /;\s*(DROP|DELETE|INSERT|UPDATE|TRUNCATE|ALTER|EXEC|XP_|SHUTDOWN|CREATE)\b/i;
-    if (dangerousPatterns.test(cleanSql)) {
-      throw new Error('Pernyataan SQL majemuk atau perintah DDL/DML destruktif dilarang dalam pengujian precheck.');
-    }
+    const cleanSql = assertReadOnlySelect(querySql);
     const { querySqlServer } = require('../config/sqlserver');
     const start = Date.now();
     const testQuery = querySqlServer(`SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; ${cleanSql}`);
@@ -2177,20 +2191,20 @@ class EtlService {
         { name: "ENV_CODE", value: envCode, description: "Kode Environment" },
         { name: "ENV_NAME", value: String(env.env_name || ''), description: "Nama Environment Master" },
         { name: "ENV_DESC", value: String(env.env_desc || ''), description: "Deskripsi Environment" },
-        { name: "PG_HOST", value: String(targetConn.host || 'HOST_REDACTED'), description: "" },
-        { name: "PG_PORT", value: String(targetConn.port || 5433), description: "" },
-        { name: "PG_DB", value: String(targetConn.database_name || 'db_procsi'), description: "" },
-        { name: "PG_USER", value: String(targetConn.username || 'procsi'), description: "" },
-        { name: "PG_PASSWORD", value: String(decrypt(targetConn.password || '***REDACTED***')), description: "" },
+        { name: "PG_HOST", value: String(targetConn.host || process.env.APP_DB_HOST || process.env.PG_HOST || ''), description: "" },
+        { name: "PG_PORT", value: String(targetConn.port || process.env.APP_DB_PORT || process.env.PG_PORT || 5432), description: "" },
+        { name: "PG_DB", value: String(targetConn.database_name || process.env.APP_DB_NAME || process.env.PG_DATABASE || ''), description: "" },
+        { name: "PG_USER", value: String(targetConn.username || process.env.APP_DB_USER || process.env.PG_USER || ''), description: "" },
+        { name: "PG_PASSWORD", value: String(decrypt(targetConn.password || '')), description: "" },
         { name: "MSSQL_HOST", value: String(sourceConn.host || 'localhost'), description: "" },
         { name: "MSSQL_PORT", value: String(sourceConn.port || 1433), description: "" },
-        { name: "MSSQL_DB", value: String(sourceConn.database_name || 'antam_scm'), description: "" },
+        { name: "MSSQL_DB", value: String(sourceConn.database_name || process.env.MSSQL_DATABASE || ''), description: "" },
         { name: "MSSQL_USER", value: String(sourceConn.username || 'sa'), description: "" },
-        { name: "MSSQL_PASSWORD", value: String(decrypt(sourceConn.password || '***REDACTED***')), description: "" },
-        { name: "MSSQL_USER_SSH", value: String(sourceConn.ssh_user || 'developer'), description: "" },
-        { name: "MSSQL_PASSWORD_SSH", value: String(decrypt(sourceConn.ssh_password || '***REDACTED***')), description: "" },
+        { name: "MSSQL_PASSWORD", value: String(decrypt(sourceConn.password || '')), description: "" },
+        { name: "MSSQL_USER_SSH", value: String(sourceConn.ssh_user || process.env.MSSQL_SSH_USER || ''), description: "" },
+        { name: "MSSQL_PASSWORD_SSH", value: String(decrypt(sourceConn.ssh_password || '')), description: "" },
         { name: "MSSQL_PORT_SSH", value: String(sourceConn.ssh_port || 22), description: "" },
-        { name: "MSSQL_HOST_SSH", value: String(sourceConn.ssh_host || sourceConn.host || 'HOST_REDACTED'), description: "" },
+        { name: "MSSQL_HOST_SSH", value: String(sourceConn.ssh_host || sourceConn.host || process.env.MSSQL_SSH_HOST || ''), description: "" },
       ]
     };
 
@@ -2209,13 +2223,13 @@ class EtlService {
       if (!fs.existsSync(hopConfigDir)) {
         fs.mkdirSync(hopConfigDir, { recursive: true });
       }
-      fs.writeFileSync(hopConfigPath, JSON.stringify(hopConfig, null, 2), 'utf-8');
+      fs.writeFileSync(hopConfigPath, JSON.stringify(hopConfig, null, 2), { encoding: 'utf-8', mode: 0o600 });
       writtenPaths.push(hopConfigPath);
 
       // Jika envCode === 'DEV', perbarui juga dev-config.json
       if (envCode === 'DEV') {
         const devConfigPath = path.join(hopConfigDir, 'dev-config.json');
-        fs.writeFileSync(devConfigPath, JSON.stringify(hopConfig, null, 2), 'utf-8');
+        fs.writeFileSync(devConfigPath, JSON.stringify(hopConfig, null, 2), { encoding: 'utf-8', mode: 0o600 });
         writtenPaths.push(devConfigPath);
       }
     } catch (fsErr) {
@@ -2227,7 +2241,7 @@ class EtlService {
       if (!fs.existsSync(localConfigDir)) {
         fs.mkdirSync(localConfigDir, { recursive: true });
       }
-      fs.writeFileSync(localConfigPath, JSON.stringify(hopConfig, null, 2), 'utf-8');
+      fs.writeFileSync(localConfigPath, JSON.stringify(hopConfig, null, 2), { encoding: 'utf-8', mode: 0o600 });
       writtenPaths.push(localConfigPath);
     } catch (locErr) {
       console.warn(`Gagal menulis config ke local backup: ${locErr.message}`);

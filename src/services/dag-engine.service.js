@@ -124,16 +124,16 @@ class DagEngineService extends EventEmitter {
         // Fallback hanya jika tidak ada envId sama sekali
         hasSourceConn = true;
         hasTargetConn = true;
-        srcHost = 'HOST_REDACTED';
-        srcPort = 1433;
-        srcDb = 'antam_scm';
+        srcHost = process.env.MSSQL_SERVER || null;
+        srcPort = parseInt(process.env.MSSQL_PORT, 10) || 1433;
+        srcDb = process.env.MSSQL_DATABASE || null;
         srcSchema = 'dbo';
         srcUseSsh = true;
-        srcSshHost = 'HOST_REDACTED';
+        srcSshHost = process.env.MSSQL_SSH_HOST || process.env.MSSQL_SERVER || null;
         srcSshPort = 22;
-        tgtHost = 'HOST_REDACTED';
-        tgtPort = 5433;
-        tgtDb = 'db_procsi';
+        tgtHost = process.env.APP_DB_HOST || process.env.PG_HOST || null;
+        tgtPort = parseInt(process.env.APP_DB_PORT || process.env.PG_PORT, 10) || 5432;
+        tgtDb = process.env.APP_DB_NAME || process.env.PG_DATABASE || null;
         tgtSchema = 'public';
       }
 
@@ -2757,10 +2757,10 @@ class DagEngineService extends EventEmitter {
     switch (node.type) {
       // 0a. Check DB Connections & Schema Prerequisite (wf_main.hwf: Check DB connections & Exists migration_* tables)
       case 'CHECK_DB_PREREQ': {
-        // Pengecekan konektivitas SQL Server (antam_scm)
+        // Pengecekan konektivitas database sumber
         const sqlRes = await querySqlServer('SELECT 1 AS ok');
         if (!sqlRes.recordset || sqlRes.recordset.length === 0) {
-          throw new Error('Koneksi ke SQL Server (antam_scm) gagal atau tidak merespons.');
+          throw new Error('Koneksi ke database sumber gagal atau tidak merespons.');
         }
 
         // Pengecekan konektivitas PostgreSQL (mc_center)

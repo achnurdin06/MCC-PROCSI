@@ -1,18 +1,13 @@
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-// Dynamic Environment Loader (DEV vs PROD)
-const nodeEnv = (process.env.NODE_ENV || 'development').toLowerCase();
-const envFileName = nodeEnv === 'production' ? '.env.production' : '.env.development';
-const envFilePath = path.resolve(process.cwd(), envFileName);
-
-if (fs.existsSync(envFilePath)) {
-  require('dotenv').config({ path: envFilePath });
-} else {
-  require('dotenv').config();
-}
+// Dynamic Environment Loader (Local & dev branch -> .env.development; main repo branch -> .env.production)
+const envInfo = require('./config/env');
+const nodeEnv = envInfo.nodeEnv;
 
 const apiRoutes = require('./routes/api');
 const { getPostgresPool } = require('./config/postgres');
@@ -22,20 +17,75 @@ const { closeTunnel } = require('./config/tunnel');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Security Headers & Hardening Middleware
-app.disable('x-powered-by');
-app.use((req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-  res.setHeader('X-XSS-Protection', '1; mode=block');
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  next();
-});
+// Trust Proxy konfigurasi (mencegah IP spoofing pada rate limiter)
+app.set('trust proxy', process.env.TRUST_PROXY || 'loopback');
 
-// Middleware
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Security Headers & Hardening via Helmet
+app.disable('x-powered-by');
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: [
+          "'self'",
+          "'unsafe-inline'",
+          "'unsafe-eval'",
+          'https://cdn.tailwindcss.com',
+        ],
+        scriptSrcAttr: ["'unsafe-inline'"],
+        styleSrc: [
+          "'self'",
+          "'unsafe-inline'",
+          'https://fonts.googleapis.com',
+        ],
+        fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+        imgSrc: ["'self'", 'data:', 'blob:'],
+        connectSrc: ["'self'"],
+        frameSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+        upgradeInsecureRequests: nodeEnv === 'production' ? [] : null,
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+    crossOriginResourcePolicy: { policy: 'same-origin' },
+    hsts: nodeEnv === 'production'
+      ? { maxAge: 31536000, includeSubDomains: true, preload: true }
+      : false,
+  })
+);
+
+// CORS Policy: batasi origin hanya untuk host yang diizinkan
+const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Izinkan permintaan same-origin (tanpa header origin, misal fetch dari halaman yang sama)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.length === 0) {
+        // Default: izinkan localhost / origin yang sama di development
+        const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+        return callback(null, isLocalhost || nodeEnv !== 'production');
+      }
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error('Origin tidak diizinkan oleh CORS policy.'));
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  })
+);
+
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Sajikan Frontend Dashboard statis dari direktori public (tanpa cache browser lokal)
 app.use(express.static(path.join(__dirname, 'public'), {
@@ -67,11 +117,21 @@ app.use((req, res, next) => {
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error('Unhandled server error:', err);
+  const errorId = crypto.randomBytes(6).toString('hex');
+  console.error(`[ERROR:${errorId}] Unhandled server error on ${req.method} ${req.originalUrl}:`, err);
+
+  // Jika CORS menolak
+  if (err && err.message === 'Origin tidak diizinkan oleh CORS policy.') {
+    return res.status(403).json({ success: false, error: err.message, errorId });
+  }
+
   const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
   res.status(500).json({
     success: false,
-    error: isProd ? 'Terjadi kesalahan internal pada server. Silakan hubungi administrator.' : (err.message || 'Internal Server Error'),
+    error: isProd
+      ? 'Terjadi kesalahan internal pada server. Silakan hubungi administrator.'
+      : (err && err.message ? err.message : 'Internal Server Error'),
+    errorId,
   });
 });
 
@@ -80,9 +140,10 @@ const server = app.listen(PORT, () => {
   const currentEnv = (process.env.APP_ENV || (nodeEnv === 'production' ? 'PROD' : 'DEV')).toUpperCase();
   console.log(`=======================================================`);
   console.log(`🚀 Migration Command Center [${currentEnv}] Mode berjalan!`);
+  console.log(`🌱 Git Branch: ${envInfo.gitBranch} | Config File: ${envInfo.loadedEnvFile}`);
   console.log(`👉 Akses Dashboard: http://localhost:${PORT}`);
   console.log(`👉 API Health Check: http://localhost:${PORT}/api/health`);
-  console.log(`⚙️  Database Aplikasi: ${process.env.APP_DB_NAME || process.env.PG_DATABASE || 'db_procsi'} (skema ${process.env.APP_DB_SCHEMA || 'mc_center'})`);
+  console.log(`⚙️  Database Aplikasi: ${process.env.APP_DB_NAME || process.env.PG_DATABASE || '(belum diset)'} (skema ${process.env.APP_DB_SCHEMA || 'mc_center'})`);
   console.log(`=======================================================`);
 
   // Hanya run tanpa aktivitas > batas stale; run milik instance lain yang masih hidup tidak disentuh

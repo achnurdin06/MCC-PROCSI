@@ -1,6 +1,6 @@
 const net = require('net');
 const { Client } = require('ssh2');
-require('dotenv').config();
+require('./env');
 
 let sshClient = null;
 let netServer = null;
@@ -9,9 +9,9 @@ let initPromise = null;
 
 const tunnelConfig = {
   enabled: process.env.MSSQL_USE_SSH_TUNNEL === 'true',
-  sshHost: process.env.MSSQL_SSH_HOST || process.env.MSSQL_SERVER || 'HOST_REDACTED',
+  sshHost: process.env.MSSQL_SSH_HOST || process.env.MSSQL_SERVER || '',
   sshPort: parseInt(process.env.MSSQL_SSH_PORT, 10) || 22,
-  sshUser: process.env.MSSQL_SSH_USER || 'developer',
+  sshUser: process.env.MSSQL_SSH_USER || '',
   sshPassword: process.env.MSSQL_SSH_PASSWORD || '',
   remoteHost: '127.0.0.1', // Dari perspektif SSH server
   remotePort: parseInt(process.env.MSSQL_PORT, 10) || 1433,

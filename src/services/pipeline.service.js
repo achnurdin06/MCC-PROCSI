@@ -509,21 +509,21 @@ class PipelineService {
         execOrder: cfg.exec_order,
         isActive: cfg.is_active,
         source: {
-          database: 'antam_scm (SQL Server)',
+          database: `${process.env.MSSQL_DATABASE || 'database_sumber'} (Sumber)`,
           schema: cleanSrcSchema,
           view: cleanSrcView,
           rows: srcRows,
           error: srcError
         },
         staging: {
-          database: 'db_procsi (PostgreSQL)',
+          database: `${process.env.APP_DB_NAME || process.env.PG_DATABASE || 'database_target'} (PostgreSQL)`,
           schema: cleanStgSchema,
           table: cleanStgTable,
           rows: stgRows,
           error: stgError
         },
         target: {
-          database: 'db_procsi (PostgreSQL)',
+          database: `${process.env.APP_DB_NAME || process.env.PG_DATABASE || 'database_target'} (PostgreSQL)`,
           schema: primaryTarget.schema,
           table: primaryTarget.table,
           rows: primaryTarget.sumAfter,
@@ -903,19 +903,19 @@ class PipelineService {
       execOrder: cfg.exec_order,
       modName,
       source: {
-        database: 'antam_scm',
+        database: process.env.MSSQL_DATABASE || 'database_sumber',
         schema: cleanSrcSchema,
         view: cleanSrcView,
         rows: srcRows,
       },
       staging: {
-        database: 'db_procsi',
+        database: process.env.APP_DB_NAME || process.env.PG_DATABASE || 'database_target',
         schema: cleanStgSchema,
         table: cleanStgTable,
         rows: stgRows,
       },
       target: {
-        database: 'db_procsi',
+        database: process.env.APP_DB_NAME || process.env.PG_DATABASE || 'database_target',
         schema: cleanTgtSchema,
         table: cleanTgtTable,
         rows: tgtRows,
@@ -1517,7 +1517,7 @@ class PipelineService {
       source: {
         schema: cleanSrcSchema,
         view: cleanSrcView,
-        database: 'antam_scm (SQL Server)',
+        database: `${process.env.MSSQL_DATABASE || 'database_sumber'} (Sumber)`,
         rowsCount: sourceRowsCount,
         columnsCount: sourceCols.length,
         columns: sourceCols,
@@ -1527,7 +1527,7 @@ class PipelineService {
       staging: {
         schema: cleanStgSchema,
         table: cleanStgTable,
-        database: 'db_procsi (PostgreSQL)',
+        database: `${process.env.APP_DB_NAME || process.env.PG_DATABASE || 'database_target'} (PostgreSQL)`,
         exists: stagingExists,
         rowsCount: stagingRowsCount,
         columnsCount: stagingCols.length,
@@ -1538,7 +1538,7 @@ class PipelineService {
       target: {
         schema: cleanTgtSchema,
         table: cleanTgtTable,
-        database: 'db_procsi (PostgreSQL)',
+        database: `${process.env.APP_DB_NAME || process.env.PG_DATABASE || 'database_target'} (PostgreSQL)`,
         exists: targetExists,
         rowsCount: targetRowsCount,
         columnsCount: targetCols.length,

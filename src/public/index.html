@@ -3,14 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ETL Migration Command Center | SQL Server ➔ PostgreSQL</title>
+  <title>ETL Migration Command Center | Multi-Database ➔ PostgreSQL</title>
   <meta name="description" content="Dashboard pemantauan sumber data SQL Server Views, master config, log proses migrasi, dan rekonsiliasi hasil migrasi data">
+  <script>try{if(localStorage.getItem('antam_token'))document.documentElement.classList.add('auth-pending');}catch(e){}</script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
   <link rel="icon" type="image/webp" href="img/logo-sisi.webp?v=2">
-  <link rel="stylesheet" href="css/style.css?v=4.7">
+  <link rel="stylesheet" href="css/style.css?v=4.8">
   <link rel="stylesheet" href="css/flow-canvas.css?v=1.8">
   <link rel="stylesheet" href="css/userguide-modern.css?v=1.2">
   <script src="https://cdn.tailwindcss.com"></script>
@@ -370,7 +371,7 @@
         <div id="login-view-forgot" class="login-view hidden">
           <div class="login-card-header">
             <h2 class="text-lg font-bold text-slate-800">Lupa Kata Sandi</h2>
-            <p class="text-xs text-muted">Verifikasi username dan email terdaftar, lalu buat kata sandi baru</p>
+            <p class="text-xs text-muted">Masukkan username dan email terdaftar. Permintaan reset akan diteruskan ke administrator, yang akan memproses reset kata sandi Anda melalui menu manajemen pengguna.</p>
           </div>
           <div id="forgot-alert-box" class="alert-box alert-danger hidden mb-4"><span id="forgot-alert-text"></span></div>
           <form id="form-forgot" onsubmit="handleForgotSubmit(event)" autocomplete="off">
@@ -384,18 +385,6 @@
               <div class="input-with-icon"><span class="input-icon">✉️</span>
                 <input type="email" id="forgot-email" class="form-input" placeholder="nama@perusahaan.com" required maxlength="150" autocomplete="email"></div>
             </div>
-            <div class="form-group mb-3">
-              <label class="form-label text-xs font-semibold text-slate-700" for="forgot-password">Kata Sandi Baru</label>
-              <div class="input-with-icon"><span class="input-icon">🔒</span>
-                <input type="password" id="forgot-password" class="form-input has-toggle" placeholder="Minimal 8 karakter..." required minlength="8" maxlength="128" autocomplete="new-password">
-                <button type="button" class="pwd-toggle" data-pwd-toggle="forgot-password" onclick="togglePasswordVisibility('forgot-password', this)" aria-label="Tampilkan kata sandi"></button></div>
-            </div>
-            <div class="form-group mb-3">
-              <label class="form-label text-xs font-semibold text-slate-700" for="forgot-password2">Ulangi Kata Sandi Baru</label>
-              <div class="input-with-icon"><span class="input-icon">🔒</span>
-                <input type="password" id="forgot-password2" class="form-input has-toggle" placeholder="Ulangi kata sandi..." required minlength="8" maxlength="128" autocomplete="new-password">
-                <button type="button" class="pwd-toggle" data-pwd-toggle="forgot-password2" onclick="togglePasswordVisibility('forgot-password2', this)" aria-label="Tampilkan kata sandi"></button></div>
-            </div>
             <div class="form-group mb-4" data-captcha-block>
               <label class="form-label text-xs font-semibold text-slate-700">Verifikasi Captcha</label>
               <div class="captcha-row">
@@ -404,7 +393,7 @@
                 <input type="text" id="forgot-captcha" class="form-input captcha-input" placeholder="Kode" required maxlength="8" autocomplete="off" autocapitalize="characters" spellcheck="false" data-captcha-input>
               </div>
             </div>
-            <button type="submit" id="btn-submit-forgot" class="btn btn-primary w-full py-2-5 font-bold shadow-md"><span>Ubah Kata Sandi</span></button>
+            <button type="submit" id="btn-submit-forgot" class="btn btn-primary w-full py-2-5 font-bold shadow-md"><span>Kirim Permintaan Reset</span></button>
           </form>
           <div class="login-switch-text"><button type="button" class="btn-text" onclick="showAuthView('login')">&larr; Kembali ke halaman masuk</button></div>
         </div>
@@ -507,7 +496,7 @@
           <div id="mssql-status" class="db-badge loading">
             <span class="status-dot"></span>
             <div class="db-info">
-              <span class="db-name" id="mssql-title">antam_scm (Source)</span>
+              <span class="db-name" id="mssql-title">database_sumber (Source)</span>
               <span class="db-meta" id="mssql-meta">Memeriksa...</span>
             </div>
           </div>
@@ -515,7 +504,7 @@
           <div id="pg-status" class="db-badge loading">
             <span class="status-dot"></span>
             <div class="db-info">
-              <span class="db-name" id="pg-title">db_procsi (Target)</span>
+              <span class="db-name" id="pg-title">database_target (Target)</span>
               <span class="db-meta" id="pg-meta">Memeriksa...</span>
             </div>
           </div>
@@ -562,7 +551,7 @@
         <span class="tab-icon">🌐</span>
         <div class="tab-label-group">
           <span class="tab-title">1. Source Data (SQL Server Views)</span>
-          <span class="tab-sub">antam_scm • schema dbo</span>
+          <span class="tab-sub">database_sumber • schema dbo</span>
         </div>
       </button>
 
@@ -642,7 +631,7 @@
                   <span>👋 Selamat Datang di Migration Command Center</span>
                 </h1>
                 <p class="welcome-hero-sub">
-                  Pusat kendali operasional migrasi data dari sistem sumber <strong>SQL Server (antam_scm.dbo)</strong> menuju target <strong>PostgreSQL (db_procsi.vendor &amp; staging)</strong> didukung mesin orkestrasi <strong>mc_center</strong> dengan audit otomatis rekonsiliasi 3-Tahap.
+                  Pusat kendali operasional migrasi data dari sistem sumber <strong>Database Sumber (schema dbo)</strong> menuju target <strong>PostgreSQL (database_target.vendor &amp; staging)</strong> didukung mesin orkestrasi <strong>mc_center</strong> dengan audit otomatis rekonsiliasi 3-Tahap.
                 </p>
               </div>
               <div>
@@ -757,7 +746,7 @@
                 <div class="connection-config-card">
                   <div class="flex-between mb-3">
                     <div class="font-bold text-cyan flex-gap-2">
-                      <span>1. Database Sumber (SQL Server antam_scm.dbo)</span>
+                      <span>1. Database Sumber (Database Sumber)</span>
                       <span class="badge badge-cyan text-xs">SOURCE</span>
                     </div>
                     <button type="button" id="btn-wz-test-src" class="btn btn-secondary btn-sm">
@@ -767,7 +756,7 @@
                   <div class="grid-2-cols gap-3 mb-2">
                     <div class="form-group mb-0">
                       <label class="form-label">Host Server</label>
-                      <input type="text" id="wz-src-host" class="form-input text-xs font-mono" value="HOST_REDACTED">
+                      <input type="text" id="wz-src-host" class="form-input text-xs font-mono" placeholder="hostname atau IP" autocomplete="off">
                     </div>
                     <div class="form-group mb-0">
                       <label class="form-label">Port</label>
@@ -777,21 +766,31 @@
                   <div class="grid-2-cols gap-3 mb-2">
                     <div class="form-group mb-0">
                       <label class="form-label">Nama Database</label>
-                      <input type="text" id="wz-src-db" class="form-input text-xs font-mono" value="antam_scm">
+                      <input type="text" id="wz-src-db" class="form-input text-xs font-mono" value="" placeholder="nama database sumber">
                     </div>
                     <div class="form-group mb-0">
                       <label class="form-label">Username</label>
-                      <input type="text" id="wz-src-user" class="form-input text-xs font-mono" value="sa">
+                      <input type="text" id="wz-src-user" class="form-input text-xs font-mono" placeholder="username database" autocomplete="off">
                     </div>
                   </div>
                   <div class="grid-2-cols gap-3">
                     <div class="form-group mb-0">
                       <label class="form-label">Password Database</label>
-                      <input type="password" id="wz-src-pass" class="form-input text-xs font-mono" value="***REDACTED***">
+                      <input type="password" id="wz-src-pass" class="form-input text-xs font-mono" placeholder="password database" autocomplete="new-password">
                     </div>
                     <div class="form-group mb-0 flex-between pt-5">
                       <label class="text-xs text-muted">SSH Tunnel Terintegrasi:</label>
-                      <span class="badge badge-success text-xs">Aktif via HOST_REDACTED</span>
+                      <span class="badge badge-success text-xs">Aktif via host sumber</span>
+                    </div>
+                  </div>
+                  <div class="grid-2-cols gap-3 mt-2">
+                    <div class="form-group mb-0">
+                      <label class="form-label">SSH Username</label>
+                      <input type="text" id="wz-src-ssh-user" class="form-input text-xs font-mono" placeholder="username SSH" autocomplete="off">
+                    </div>
+                    <div class="form-group mb-0">
+                      <label class="form-label">SSH Password</label>
+                      <input type="password" id="wz-src-ssh-pass" class="form-input text-xs font-mono" placeholder="password SSH" autocomplete="new-password">
                     </div>
                   </div>
                   <div id="wz-src-test-feedback" class="hidden text-xs mt-2 p-2 rounded border"></div>
@@ -811,26 +810,26 @@
                   <div class="grid-2-cols gap-3 mb-2">
                     <div class="form-group mb-0">
                       <label class="form-label">Host Server</label>
-                      <input type="text" id="wz-tgt-host" class="form-input text-xs font-mono" value="HOST_REDACTED">
+                      <input type="text" id="wz-tgt-host" class="form-input text-xs font-mono" placeholder="hostname atau IP" autocomplete="off">
                     </div>
                     <div class="form-group mb-0">
                       <label class="form-label">Port</label>
-                      <input type="number" id="wz-tgt-port" class="form-input text-xs font-mono" value="5433">
+                      <input type="number" id="wz-tgt-port" class="form-input text-xs font-mono" value="5432">
                     </div>
                   </div>
                   <div class="grid-2-cols gap-3 mb-2">
                     <div class="form-group mb-0">
                       <label class="form-label">Nama Database</label>
-                      <input type="text" id="wz-tgt-db" class="form-input text-xs font-mono" value="db_procsi">
+                      <input type="text" id="wz-tgt-db" class="form-input text-xs font-mono" value="" placeholder="nama database target">
                     </div>
                     <div class="form-group mb-0">
                       <label class="form-label">Username</label>
-                      <input type="text" id="wz-tgt-user" class="form-input text-xs font-mono" value="procsi">
+                      <input type="text" id="wz-tgt-user" class="form-input text-xs font-mono" placeholder="username database" autocomplete="off">
                     </div>
                   </div>
                   <div class="form-group mb-0">
                     <label class="form-label">Password Database Target</label>
-                    <input type="password" id="wz-tgt-pass" class="form-input text-xs font-mono" value="***REDACTED***">
+                    <input type="password" id="wz-tgt-pass" class="form-input text-xs font-mono" placeholder="password database target" autocomplete="new-password">
                   </div>
                   <div id="wz-tgt-test-feedback" class="hidden text-xs mt-2 p-2 rounded border"></div>
                 </div>
@@ -923,7 +922,7 @@
               <div class="kpi-h-value font-mono" id="kpi-source-views-count">-</div>
               <div class="kpi-h-foot">
                 <span class="kpi-h-dot bg-blue"></span>
-                <span id="kpi-source-views-foot">Schema [dbo] di antam_scm</span>
+                <span id="kpi-source-views-foot">Schema [dbo] di database_sumber</span>
               </div>
             </div>
             <div class="kpi-h-arrow">
@@ -1004,7 +1003,7 @@
           <div class="panel-header flex-wrap flex-between">
             <div>
               <h2 class="panel-title">Daftar Views di dbo (SQL Server)</h2>
-              <p class="panel-desc">Seluruh object VIEW pada schema dbo antam_scm beserta status pemetaan ke target PostgreSQL</p>
+              <p class="panel-desc">Seluruh object VIEW pada schema dbo database_sumber beserta status pemetaan ke target PostgreSQL</p>
             </div>
             <div class="panel-actions">
               <input type="text" id="search-source-views" class="search-input" placeholder="🔍 Cari view...">
@@ -2251,7 +2250,7 @@
                       </div>
                       <h1 class="font-headline-xl text-headline-xl text-on-surface tracking-tight mb-2 font-bold">Buku Panduan Operasional Sistem</h1>
                       <p class="font-body-lg text-body-lg text-on-surface-variant mb-space-md">
-                        Arsitektur Migrasi Data Enterprise Multi-Tenant &amp; Multi-Database dari SQL Server (<code class="font-code-sm text-code-sm px-1.5 py-0.5 rounded bg-surface-container-low text-primary">antam_scm.dbo</code>) menuju PostgreSQL (<code class="font-code-sm text-code-sm px-1.5 py-0.5 rounded bg-surface-container-low text-primary">db_procsi.vendor</code>) dengan proteksi transaksi terpadu Dual-Guard.
+                        Arsitektur Migrasi Data Enterprise Multi-Tenant &amp; Multi-Database dari SQL Server (<code class="font-code-sm text-code-sm px-1.5 py-0.5 rounded bg-surface-container-low text-primary">database_sumber.dbo</code>) menuju PostgreSQL (<code class="font-code-sm text-code-sm px-1.5 py-0.5 rounded bg-surface-container-low text-primary">database_target.vendor</code>) dengan proteksi transaksi terpadu Dual-Guard.
                       </p>
                       <!-- Executive Metrics Grid -->
                       <div class="grid grid-cols-2 sm:grid-cols-4 gap-space-sm pt-space-sm">
@@ -2290,7 +2289,7 @@
                     <div class="space-y-space-sm text-on-surface-variant font-body-md text-body-md leading-relaxed">
                       <h3 class="font-headline-sm text-headline-sm text-on-surface mt-2 font-bold">1.1 Latar Belakang &amp; Tujuan Rekayasa</h3>
                       <p class="">
-                        ETL Migration Command Center didesain secara khusus untuk menjawab tantangan migrasi data kritikal berskala enterprise pada ekosistem rantai pasok PT ANTAM Tbk. Sistem ini menghubungkan database warisan Microsoft SQL Server (<code class="font-code-sm text-code-sm px-1 py-0.5 rounded bg-surface-container">antam_scm</code>) dengan platform inti modern berbasis PostgreSQL (<code class="font-code-sm text-code-sm px-1 py-0.5 rounded bg-surface-container">db_procsi</code>). Seluruh operasi data dipagari oleh mekanisme isolasi ketat untuk menjamin ketiadaan mutasi pada data asli sistem sumber.
+                        ETL Migration Command Center didesain secara khusus untuk menjawab tantangan migrasi data kritikal berskala enterprise pada ekosistem rantai pasok PT ANTAM Tbk. Sistem ini menghubungkan database warisan Microsoft SQL Server (<code class="font-code-sm text-code-sm px-1 py-0.5 rounded bg-surface-container">database_sumber</code>) dengan platform inti modern berbasis PostgreSQL (<code class="font-code-sm text-code-sm px-1 py-0.5 rounded bg-surface-container">database_target</code>). Seluruh operasi data dipagari oleh mekanisme isolasi ketat untuk menjamin ketiadaan mutasi pada data asli sistem sumber.
                       </p>
                       <h3 class="font-headline-sm text-headline-sm text-on-surface pt-space-sm font-bold">1.2 Diagram Arsitektur 3-Tier Pipeline</h3>
                       <p class="">
@@ -2307,7 +2306,7 @@
                                 <span class="material-symbols-outlined text-secondary">database</span>
                               </div>
                               <h4 class="font-headline-sm text-headline-sm text-on-surface mb-1 font-bold">Source DB (Read Only)</h4>
-                              <p class="font-code-sm text-code-sm text-primary mb-2">MS SQL Server (antam_scm)</p>
+                              <p class="font-code-sm text-code-sm text-primary mb-2">MS SQL Server (database_sumber)</p>
                               <p class="font-body-sm text-body-sm text-on-surface-variant mb-3">Schema <code class="font-code-sm text-code-sm">dbo</code>. Hanya diakses melalui objek View terkontrol.</p>
                             </div>
                             <div class="p-2 rounded bg-surface-container-low font-code-sm text-code-sm text-[11px] text-on-surface-variant">
@@ -2323,7 +2322,7 @@
                                 <span class="material-symbols-outlined text-primary">swap_horiz</span>
                               </div>
                               <h4 class="font-headline-sm text-headline-sm text-on-surface mb-1 font-bold">Staging Engine</h4>
-                              <p class="font-code-sm text-code-sm text-primary mb-2">PostgreSQL (db_procsi)</p>
+                              <p class="font-code-sm text-code-sm text-primary mb-2">PostgreSQL (database_target)</p>
                               <p class="font-body-sm text-body-sm text-on-surface-variant mb-3">Schema isolasi <code class="font-code-sm text-code-sm">stg_antam</code>. Transformasi struktur &amp; normalisasi kode.</p>
                             </div>
                             <div class="p-2 rounded bg-surface-container-low font-code-sm text-code-sm text-[11px] text-on-surface-variant">
@@ -2339,7 +2338,7 @@
                                 <span class="material-symbols-outlined text-tertiary">inventory_2</span>
                               </div>
                               <h4 class="font-headline-sm text-headline-sm text-on-surface mb-1 font-bold">Target Production</h4>
-                              <p class="font-code-sm text-code-sm text-primary mb-2">PostgreSQL (db_procsi)</p>
+                              <p class="font-code-sm text-code-sm text-primary mb-2">PostgreSQL (database_target)</p>
                               <p class="font-body-sm text-body-sm text-on-surface-variant mb-3">Schema <code class="font-code-sm text-code-sm">vendor / core</code>. Data hidup dengan tagging audit permanen.</p>
                             </div>
                             <div class="p-2 rounded bg-surface-container-low font-code-sm text-code-sm text-[11px] text-on-surface-variant">
@@ -2398,7 +2397,7 @@
                           <span class="">TOPOLOGI JARINGAN AMAN</span>
                           <span class="">PORT FORWARDING</span>
                         </div>
-                        <div class="text-primary font-bold">HOST_REDACTED:22 (SSH Gateway) ➔ 127.0.0.1:11433 ➔ MS SQL Server (antam_scm:1433)</div>
+                        <div class="text-primary font-bold">&lt;host-sumber&gt;:22 (SSH Gateway) ➔ 127.0.0.1:11433 ➔ MS SQL Server (database_sumber:1433)</div>
                         <div class="text-[12px] text-on-surface-variant">Auto-Healing Daemon: Memeriksa koneksi setiap 30 detik. Jika putus, proses re-handshake dieksekusi dalam tempo &lt; 2.500 ms tanpa menghentikan worker pipeline.</div>
                       </div>
                     </div>
@@ -2595,7 +2594,7 @@
     v.tax_number, 
     v.is_active, 
     v.created_at
-FROM antam_scm.dbo.v_migration_vendor_master v 
+FROM database_sumber.dbo.v_migration_vendor_master v 
 WHERE v.is_deleted = 0;</code></pre>
                         <p class="font-body-sm text-body-sm text-on-surface-variant">
                           <strong>Proteksi Integritas:</strong> Tombol hapus objek SQL View dinonaktifkan secara otomatis bilamana nama view tersebut terdaftar di dalam foreign-key dependensi <code>migration_config</code>.
@@ -2845,7 +2844,7 @@ WHERE v.is_deleted = 0;</code></pre>
                         <div class="p-3 rounded-lg bg-surface-container-lowest space-y-1">
                           <span class="font-label-sm text-label-sm text-on-surface-variant font-bold">Poin [3 &amp; 4] Ruang Lingkup &amp; Klausul Jaminan Dual-Guard</span>
                           <p class="font-body-sm text-body-sm text-on-surface-variant">
-                            "Seluruh 43.230 baris data rekanan telah berhasil dipindahkan dari antam_scm ke db_procsi dengan presisi 100%. Data dilindungi oleh tag unik migration_run_id dan diverifikasi tidak merusak integritas data eksisting."
+                            "Seluruh 43.230 baris data rekanan telah berhasil dipindahkan dari database_sumber ke database_target dengan presisi 100%. Data dilindungi oleh tag unik migration_run_id dan diverifikasi tidak merusak integritas data eksisting."
                           </p>
                         </div>
                       </div>
@@ -3388,7 +3387,7 @@ WHERE v.is_deleted = 0;</code></pre>
               <div class="grid-4-cols gap-3 mb-3">
                 <div class="form-group">
                   <label class="form-label">Host / IP <span class="text-rose">*</span></label>
-                  <input type="text" id="em-conn-host" class="form-input font-mono" placeholder="HOST_REDACTED">
+                  <input type="text" id="em-conn-host" class="form-input font-mono" placeholder="hostname atau IP">
                 </div>
                 <div class="form-group">
                   <label class="form-label">Port</label>
@@ -3396,7 +3395,7 @@ WHERE v.is_deleted = 0;</code></pre>
                 </div>
                 <div class="form-group">
                   <label class="form-label">Database Name <span class="text-rose">*</span></label>
-                  <input type="text" id="em-conn-dbname" class="form-input font-mono" placeholder="antam_scm">
+                  <input type="text" id="em-conn-dbname" class="form-input font-mono" placeholder="nama database">
                 </div>
                 <div class="form-group">
                   <label class="form-label">Schema</label>
@@ -3425,7 +3424,7 @@ WHERE v.is_deleted = 0;</code></pre>
               <div id="em-conn-ssh-fields" class="hidden grid-3-cols gap-3 mb-3 p-3 rounded border" style="background: #f1f5f9; border-color: var(--border-subtle);">
                 <div class="form-group">
                   <label class="form-label">SSH Host</label>
-                  <input type="text" id="em-conn-ssh-host" class="form-input font-mono" placeholder="HOST_REDACTED">
+                  <input type="text" id="em-conn-ssh-host" class="form-input font-mono" placeholder="hostname atau IP">
                 </div>
                 <div class="form-group">
                   <label class="form-label">SSH Port</label>
@@ -3433,7 +3432,7 @@ WHERE v.is_deleted = 0;</code></pre>
                 </div>
                 <div class="form-group">
                   <label class="form-label">SSH User</label>
-                  <input type="text" id="em-conn-ssh-user" class="form-input font-mono" placeholder="developer">
+                  <input type="text" id="em-conn-ssh-user" class="form-input font-mono" placeholder="username SSH">
                 </div>
               </div>
 
@@ -5316,7 +5315,7 @@ WHERE v.is_deleted = 0;</code></pre>
 
     <!-- Footer -->
     <footer class="app-footer">
-      <div>Migration Command Center • SQL Server (antam_scm.dbo) ➔ PostgreSQL (db_procsi.vendor) • Engine: mc_center</div>
+      <div>Migration Command Center • Database Sumber (schema dbo) ➔ PostgreSQL (database_target.vendor) • Engine: mc_center</div>
       <div class="footer-links">
         <a href="/api/health" target="_blank">Health API</a>
         <span>•</span>
@@ -5330,7 +5329,7 @@ WHERE v.is_deleted = 0;</code></pre>
   <!-- Floating Toast Notification Container (Pojok Kanan Atas) -->
   <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-  <script src="js/app.js?v=4.9"></script>
+  <script src="js/app.js?v=5.0"></script>
   <script src="js/flow-canvas.js?v=1.7"></script>
 </body>
 </html>

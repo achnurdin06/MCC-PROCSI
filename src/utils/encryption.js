@@ -11,7 +11,10 @@ const IV_LENGTH = 12; // 12 bytes / 96 bits disarankan NIST untuk GCM
 const TAG_LENGTH = 16; // 16 bytes / 128 bits auth tag
 
 function getMasterKey() {
-  const rawKey = process.env.ENCRYPTION_MASTER_KEY || process.env.JWT_SECRET || 'mig-antam-default-master-key-32b';
+  const rawKey = process.env.ENCRYPTION_MASTER_KEY;
+  if (!rawKey || rawKey.length < 32) {
+    throw new Error('ENCRYPTION_MASTER_KEY wajib diisi minimal 32 karakter pada environment.');
+  }
   // Selalu pastikan buffer key tepat 32 bytes (256 bits) menggunakan SHA-256
   return crypto.createHash('sha256').update(rawKey).digest();
 }

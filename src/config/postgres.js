@@ -1,5 +1,5 @@
 const { Pool } = require('pg');
-require('dotenv').config();
+require('./env');
 
 const config = {
   host: process.env.APP_DB_HOST || process.env.PG_HOST || 'localhost',
@@ -10,6 +10,9 @@ const config = {
   connectionTimeoutMillis: parseInt(process.env.PG_CONNECTION_TIMEOUT_MILLIS, 10) || 10000,
   max: parseInt(process.env.APP_DB_MAX_POOL, 10) || 10,
   idleTimeoutMillis: 30000,
+  ssl: process.env.PG_SSL === 'true' ? {
+    rejectUnauthorized: process.env.PG_SSL_REJECT_UNAUTHORIZED !== 'false',
+  } : false,
 };
 
 const DB_CONTROL_SCHEMA = process.env.APP_DB_SCHEMA || 'mc_center';

@@ -1,7 +1,16 @@
 const crypto = require('crypto');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'mig-antam-super-secret-jwt-key-2025';
-const DEFAULT_EXPIRATION_SECONDS = 24 * 60 * 60; // 24 jam
+const DEFAULT_EXPIRATION_SECONDS = 8 * 60 * 60; // 8 jam
+const PBKDF2_ITERATIONS = 210000;
+
+// Secret dibaca saat dipakai agar dotenv sudah termuat; tanpa fallback hardcoded
+function getJwtSecret() {
+  const secret = process.env.JWT_SECRET;
+  if (!secret || secret.length < 32) {
+    throw new Error('JWT_SECRET wajib diisi minimal 32 karakter pada environment.');
+  }
+  return secret;
+}
 
 function base64UrlEncode(str) {
   return Buffer.from(str)
@@ -39,7 +48,7 @@ function signToken(payload, expiresInSeconds = DEFAULT_EXPIRATION_SECONDS) {
   const encodedPayload = base64UrlEncode(JSON.stringify(fullPayload));
 
   const signature = crypto
-    .createHmac('sha256', JWT_SECRET)
+    .createHmac('sha256', getJwtSecret())
     .update(`${encodedHeader}.${encodedPayload}`)
     .digest('base64')
     .replace(/=/g, '')
@@ -64,8 +73,15 @@ function verifyToken(token) {
 
   const [encodedHeader, encodedPayload, signature] = parts;
 
+  try {
+    const header = JSON.parse(base64UrlDecode(encodedHeader));
+    if (header.alg !== 'HS256') throw new Error('alg');
+  } catch (_) {
+    throw new Error('Format token JWT tidak valid.');
+  }
+
   const expectedSignature = crypto
-    .createHmac('sha256', JWT_SECRET)
+    .createHmac('sha256', getJwtSecret())
     .update(`${encodedHeader}.${encodedPayload}`)
     .digest('base64')
     .replace(/=/g, '')
@@ -92,7 +108,7 @@ function verifyToken(token) {
  */
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
-  const iterations = 10000; // Increased security iteration
+  const iterations = PBKDF2_ITERATIONS;
   const hash = crypto.pbkdf2Sync(password, salt, iterations, 64, 'sha512').toString('hex');
   return `pbkdf2:${iterations}:${salt}:${hash}`;
 }
@@ -133,6 +149,7 @@ function verifyPassword(password, storedHash) {
 }
 
 module.exports = {
+  getJwtSecret,
   signToken,
   verifyToken,
   hashPassword,
