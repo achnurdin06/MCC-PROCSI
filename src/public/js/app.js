@@ -1143,7 +1143,27 @@ function setupSearchFilter(inputId, tbodyId) {
 // =========================================================================
 // TAB SWITCHING LOGIC
 // =========================================================================
+function isTabAllowedForUser(tabId) {
+  const user = state.currentUser;
+  if (!user || user.role_code === 'SUPERADMIN') return true;
+  const codeByTab = {
+    'tab-source': 'TAB_SOURCE',
+    'tab-config': 'TAB_CONFIG',
+    'tab-canvas': 'TAB_PROCESS',
+    'tab-process': 'TAB_PROCESS',
+    'tab-pipeline': 'TAB_PIPELINE',
+    'tab-system': 'TAB_SYSTEM',
+  };
+  const code = tabId && tabId.startsWith('tab-custom-') ? tabId.replace('tab-custom-', '') : codeByTab[tabId];
+  if (!code) return true;
+  return (state.userMenus || []).some(m => m.menu_code === code && m.can_view);
+}
+
 function switchMainTab(tabId) {
+  if (!isTabAllowedForUser(tabId)) {
+    const fallback = ['tab-source', 'tab-config', 'tab-canvas', 'tab-pipeline', 'tab-system'].find(isTabAllowedForUser);
+    tabId = fallback || 'tab-userguide';
+  }
   if (tabId === 'tab-welcome' && state.isInitialized) {
     tabId = 'tab-source';
   }
@@ -7815,6 +7835,7 @@ window.alert = function (msg) {
 
 // Global Window Function Bindings for HTML onclick events
 window.switchMainTab = switchMainTab;
+window.state = state;
 window.openSettingsModal = openSettingsModal;
 window.openCreateConfigModal = openCreateConfigModal;
 window.openEditConfigModal = openEditConfigModal;
@@ -8306,12 +8327,13 @@ async function initAuth() {
       const json = await res.json();
       if (res.ok && json.success && json.data) {
         state.userToken = token;
-        state.currentUser = json.data.user;
+        state.currentUser = normalizeAuthUser(json.data.user);
         state.userMenus = json.data.menus || [];
         updateAuthUserBadge(state.currentUser);
         applyMenuPermissions(state.userMenus);
         if (loginScreen) loginScreen.classList.add('hidden');
         clearPending();
+        startPermissionAutoRefresh();
         await initApplication();
         return;
       }
@@ -8341,8 +8363,7 @@ async function handleLoginSubmit(event) {
   const password = passwordInput ? passwordInput.value : '';
 
   if (!username || !password) {
-    if (alertBox) alertBox.classList.remove('hidden');
-    if (alertText) alertText.textContent = 'Harap isi username dan kata sandi.';
+    showAuthAlert('login', 'Harap isi username dan kata sandi.', 'danger');
     return;
   }
 
@@ -8359,7 +8380,7 @@ async function handleLoginSubmit(event) {
     const json = await res.json();
 
     if (!json.success) {
-      showAuthAlert('login', json.message || 'Login gagal. Periksa username dan password Anda.');
+      showAuthAlert('login', json.message || 'Login gagal. Periksa username dan password Anda.', 'danger');
       loadCaptcha();
       return;
     }
@@ -8367,7 +8388,7 @@ async function handleLoginSubmit(event) {
     // Login Berhasil
     localStorage.setItem('antam_token', json.data.token);
     state.userToken = json.data.token;
-    state.currentUser = json.data.user;
+    state.currentUser = normalizeAuthUser(json.data.user);
     state.userMenus = json.data.menus || [];
 
     updateAuthUserBadge(state.currentUser);
@@ -8377,11 +8398,11 @@ async function handleLoginSubmit(event) {
     if (captchaInput) captchaInput.value = '';
     if (loginScreen) loginScreen.classList.add('hidden');
 
+    startPermissionAutoRefresh();
     await initApplication();
   } catch (err) {
     console.error('Kesalahan saat login:', err);
-    if (alertBox) alertBox.classList.remove('hidden');
-    if (alertText) alertText.textContent = 'Terjadi kesalahan koneksi server: ' + err.message;
+    showAuthAlert('login', 'Terjadi kesalahan koneksi server: ' + err.message, 'danger');
   } finally {
     if (submitBtn) submitBtn.disabled = false;
     if (submitBtnText) submitBtnText.textContent = 'Masuk Sekarang ➔';
@@ -8450,11 +8471,20 @@ let currentAuthView = 'login';
 const AUTH_VIEW_IDS = { login: 'login-view-login', forgot: 'login-view-forgot', register: 'login-view-register' };
 const AUTH_ALERT_IDS = { login: 'login-alert-box', forgot: 'forgot-alert-box', register: 'register-alert-box' };
 
+const ALERT_ICONS = {
+  danger: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+  success: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>'
+};
+
 function showAuthAlert(view, message, type = 'danger') {
   const box = document.getElementById(AUTH_ALERT_IDS[view]);
   if (!box) return;
-  const span = box.querySelector('span');
-  if (span) span.textContent = message;
+  const iconEl = box.querySelector('.alert-icon');
+  if (iconEl) {
+    iconEl.innerHTML = ALERT_ICONS[type] || ALERT_ICONS.danger;
+  }
+  const textEl = box.querySelector(`#${view}-alert-text`) || box.querySelector('.alert-text') || box.querySelector('span:not(.alert-icon)') || box.querySelector('span');
+  if (textEl) textEl.textContent = message;
   box.classList.toggle('alert-danger', type === 'danger');
   box.classList.toggle('login-alert-success', type === 'success');
   box.classList.remove('hidden');
@@ -8572,6 +8602,48 @@ async function handleForgotSubmit(event) {
   } finally {
     btn.disabled = false;
   }
+}
+
+// API mengirim profil dalam camelCase; UI memakai snake_case. Sediakan keduanya agar konsisten.
+function normalizeAuthUser(u) {
+  if (!u) return u;
+  const pick = (snake, camel) => (u[snake] !== undefined ? u[snake] : u[camel]);
+  return Object.assign({}, u, {
+    user_id: pick('user_id', 'userId'),
+    full_name: pick('full_name', 'fullName'),
+    role_id: pick('role_id', 'roleId'),
+    role_code: pick('role_code', 'roleCode'),
+    role_name: pick('role_name', 'roleName'),
+    client_id: pick('client_id', 'clientId'),
+    client_code: pick('client_code', 'clientCode'),
+    client_name: pick('client_name', 'clientName'),
+    env_id: pick('env_id', 'envId'),
+    env_code: pick('env_code', 'envCode'),
+    env_name: pick('env_name', 'envName'),
+  });
+}
+
+// Ambil ulang menu & hak akses role dari server lalu terapkan ke navigasi.
+async function refreshUserPermissions() {
+  if (!state.userToken || !state.currentUser) return;
+  try {
+    const res = await authFetch('/api/auth/me');
+    if (!res.ok) return;
+    const json = await res.json();
+    if (!json.success || !json.data) return;
+    state.currentUser = normalizeAuthUser(json.data.user);
+    state.userMenus = json.data.menus || [];
+    applyMenuPermissions(state.userMenus);
+  } catch (_) {}
+}
+
+function startPermissionAutoRefresh() {
+  if (window.__permRefreshStarted) return;
+  window.__permRefreshStarted = true;
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) refreshUserPermissions();
+  });
+  setInterval(() => { if (!document.hidden) refreshUserPermissions(); }, 60000);
 }
 
 function isCurrentUserAdmin() {
@@ -9951,15 +10023,8 @@ async function saveMenuMatrix() {
 
     alert('✓ Matriks perizinan menu berhasil disimpan!');
 
-    // Jika role yang diperbarui sama dengan role user aktif saat ini, perbarui session & navigasi
-    if (state.currentUser && state.currentUser.role_id == roleId) {
-      const meRes = await authFetch('/api/auth/me');
-      const meJson = await meRes.json();
-      if (meJson.success && meJson.data) {
-        state.userMenus = meJson.data.menus || [];
-        applyMenuPermissions(state.userMenus);
-      }
-    }
+    // Terapkan ulang hak akses sesi aktif (berlaku langsung bila role yang diubah = role sendiri)
+    await refreshUserPermissions();
   } catch (err) {
     alert('Gagal menyimpan matriks perizinan: ' + err.message);
   } finally {

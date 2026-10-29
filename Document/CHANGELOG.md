@@ -9,7 +9,16 @@ Format mengikuti [Keep a Changelog](https://keepachangelog.com/id-ID/1.1.0/). Ta
 - **Nilai dev tidak lagi di-hardcode di `src/`**: IP, user SSH, port dan nama database dev di `tunnel.js`, `dag-engine.service.js`, `etl.service.js`, `pipeline.service.js`, `source.service.js`, `error-formatter.js`, `app.js`, `index.html` dan `public/js/app.js` diganti nilai dari `process.env` atau placeholder generik. Port default wizard menjadi 5432.
 - **Cakupan aplikasi**: dideskripsikan sebagai platform migrasi **multi-database → PostgreSQL** (README, AGENTS, ARCHITECTURE, USER_GUIDE, `<title>`, `package.json`). Driver yang aktif saat ini: SQL Server dan PostgreSQL.
 
+### Diperbaiki
+- **Role / Menu / Matrix Menu tidak berpengaruh**: API mengirim profil user dalam camelCase (`roleCode`, `roleId`, ...) sedangkan UI membaca snake_case (`role_code`, `role_id`), sehingga `applyMenuPermissions` salah mengenali role dan hak akses tidak diterapkan. Kini profil dinormalisasi (`normalizeAuthUser`).
+- Perubahan matriks kini ikut berlaku pada sesi yang sedang aktif tanpa login ulang: `refreshUserPermissions()` dipanggil setelah simpan matriks, saat tab browser kembali aktif, dan setiap 60 detik.
+- Guard navigasi `isTabAllowedForUser()` di `switchMainTab` agar tab yang tidak diizinkan tidak bisa dibuka lewat state tersimpan (`antam_active_main_tab`).
+- `app.js` naik ke `?v=5.1` untuk menghindari cache lama.
+
 ### Ditambahkan
+- **Chatbot Helpdesk** (pojok kanan bawah): asisten berbasis aturan (tanpa API eksternal) untuk kendala operasional — koneksi/timeout, login & RBAC, Flow 1–4, konfigurasi, canvas, rekonsiliasi & Berita Acara. Fitur: chip saran, tombol pintasan ke tab terkait, dan diagnosa langsung via `/api/health`. Berkas: `src/public/js/helpdesk-bot.js`; widget disembunyikan di layar login dan saat cetak.
+- **Materi chatbot role Operator**: basis pengetahuan dan chip saran otomatis menyesuaikan saat `role_code` pengguna adalah `OPERATOR`/`SUPERADMIN` — SOP end-to-end, hak & batas operator, troubleshooting Flow 1 (`DUPLICATE_SOURCE_KEY`, `MISSING_BUSINESS_KEYS`), Flow 2 (`ALREADY_POSTED`, `ALREADY_ROLLED_BACK`, FK/`exec_order`), Flow 3 Rollback, Flow 4 Purge (Dual-Guard), run macet (cancel/force-stop), dan panduan eskalasi. Materi ini disembunyikan untuk role `VIEWER`.
+- Perbaikan deskripsi flow pada entri `flow` bot: Flow 3 = **Rollback** (sebelumnya salah tertulis Compare/rekonsiliasi) dan Flow 4 = **Purge** (sebelumnya tertulis Purge/rollback), sesuai [MIGRATION_FLOWS.md](./MIGRATION_FLOWS.md).
 - Resolusi environment otomatis berdasarkan branch git: `main`/`master`/`production`/`workstation-main` → `.env.production`, selain itu → `.env.development` ([`src/config/env.js`](../src/config/env.js)); `NODE_ENV` eksplisit tetap diutamakan. Skrip `start:dev` dan `start:prod`.
 - [`src/utils/sql-guard.js`](../src/utils/sql-guard.js) (`assertReadOnlySelect`, `assertSafeIdentifier`) dan [`input-guard.middleware.js`](../src/middleware/input-guard.middleware.js) untuk endpoint auth.
 - Panduan instalasi server on-premise lengkap (PostgreSQL, Node, PM2, Nginx+SSE, firewall, smoke test) di README.
