@@ -1,7 +1,7 @@
 # 🚀 Migration Command Center (MCC-PROCSI)
 ### Dashboard Audit, Orkestrasi & Rekonsiliasi Migrasi Data Multi-Database ➔ PostgreSQL
 
-Aplikasi web enterprise berbasis **Node.js / Express** untuk mengelola, mengeksekusi, memantau secara real-time, dan merekonsiliasi proses migrasi data dari **SQL Server (`antam_scm.dbo`)** melalui **ETL Apache Hop / PostgreSQL (`db_procsi.mc_center`)** hingga ke tabel **Staging (`stg_antam`)** dan **Target (`vendor`)**.
+Aplikasi web enterprise berbasis **Node.js / Express** untuk mengelola, mengeksekusi, memantau secara real-time, dan merekonsiliasi proses migrasi data dari **Database Asal** melalui **PostgreSQL ** hingga ke tabel **Staging ** dan **Target**.
 
 ---
 
