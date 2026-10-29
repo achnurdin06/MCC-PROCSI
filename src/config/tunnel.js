@@ -21,7 +21,13 @@ const tunnelConfig = {
 function createTunnel() {
   if (initPromise) return initPromise;
 
-  initPromise = new Promise((resolve, reject) => {
+  initPromise = new Promise((resolve, rejectRaw) => {
+    let settled = false;
+    const reject = (err) => {
+      if (settled) return;
+      settled = true;
+      rejectRaw(err);
+    };
     if (!tunnelConfig.enabled) {
       return resolve(null);
     }
@@ -99,11 +105,13 @@ function createTunnel() {
 
     client.on('error', (err) => {
       console.warn('SSH Connection warning/error:', err.message);
+      reject(err);
       closeTunnel().catch(() => {});
     });
 
     client.on('close', () => {
       console.log('SSH connection closed.');
+      reject(new Error('Koneksi SSH tunnel terputus sebelum siap'));
       closeTunnel().catch(() => {});
     });
 

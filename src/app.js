@@ -84,6 +84,32 @@ const server = app.listen(PORT, () => {
   console.log(`👉 API Health Check: http://localhost:${PORT}/api/health`);
   console.log(`⚙️  Database Aplikasi: ${process.env.APP_DB_NAME || process.env.PG_DATABASE || 'db_procsi'} (skema ${process.env.APP_DB_SCHEMA || 'mc_center'})`);
   console.log(`=======================================================`);
+
+  // Hanya run tanpa aktivitas > batas stale; run milik instance lain yang masih hidup tidak disentuh
+  require('./services/etl.service')
+    .recoverInterruptedRuns({
+      reason: 'Sesi terputus (server restart / koneksi putus). Klik Lanjutkan untuk meneruskan.',
+    })
+    .then((rows) => {
+      if (rows.length > 0) console.log(`⚠️  ${rows.length} run RUNNING yang terputus ditandai FAILED: #${rows.map((r) => r.run_id).join(', #')}`);
+    })
+    .catch((err) => console.warn('Gagal memulihkan run terputus:', err.message));
+
+  // Sapu berkala: run RUNNING tanpa aktivitas > batas stale (mis. koneksi putus tanpa restart) ditandai FAILED.
+  // Run yang masih dieksekusi oleh proses ini tidak disentuh meski langkahnya lama.
+  const sweepTimer = setInterval(() => {
+    const dagEngine = require('./services/dag-engine.service');
+    require('./services/etl.service')
+      .recoverInterruptedRuns({
+        excludeRunIds: Array.from(dagEngine.activeRuns.keys()),
+        reason: 'Sesi terputus (tidak ada aktivitas melebihi batas). Klik Lanjutkan untuk meneruskan.',
+      })
+      .then((rows) => {
+        if (rows.length > 0) console.log(`⚠️  Sweeper: run #${rows.map((r) => r.run_id).join(', #')} ditandai FAILED (stale).`);
+      })
+      .catch((err) => console.warn('Sweeper run stale gagal:', err.message));
+  }, 5 * 60 * 1000);
+  sweepTimer.unref();
 });
 
 // Graceful shutdown

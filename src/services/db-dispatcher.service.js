@@ -1,4 +1,5 @@
 const { queryPostgres, getPostgresPool } = require('../config/postgres');
+const { formatHumanError } = require('../utils/error-formatter');
 
 /**
  * DB Dispatcher Service
@@ -176,6 +177,16 @@ class DbDispatcherService {
     errorField = null,
     rowData = null
   }) {
+    const human = formatHumanError({
+      code: errorCode,
+      message: errorMessage,
+      stepName
+    }, { runId, configId, stepName });
+
+    const cleanErrMsg = human.isHumanFormatted
+      ? `[${human.title}] ${human.humanMessage}${human.actionableSolution ? ` (Solusi: ${human.actionableSolution.split('\n')[0]})` : ''}`
+      : (errorMessage || 'Kesalahan eksekusi');
+
     const sql = `
       INSERT INTO mc_center.migration_error_log (
         run_id, config_id, step_name, pipeline_name, transform_name,
@@ -188,27 +199,36 @@ class DbDispatcherService {
       stepName,
       pipelineName,
       transformName,
-      errorCode,
-      errorMessage,
+      human.technicalCode || errorCode,
+      cleanErrMsg,
       errorField,
       rowData
     ]);
   }
 
   /**
-   * Tandai run gagal via pr_fail
+   * Tandai run gagal via pr_fail dengan pesan ramah manusia
    */
   async failRun({ runId, configId, stepName, errorCode, errorMessage, errorDetail = null }) {
+    const human = formatHumanError({
+      code: errorCode,
+      message: errorMessage,
+      detail: errorDetail,
+      stepName
+    }, { runId, configId, stepName });
+
+    const readableNote = `[GAGAL: ${human.title}] ${human.humanMessage}${human.actionableSolution ? ` | Solusi: ${human.actionableSolution.replace(/\n/g, ' ')}` : ''}`;
+
     try {
       await queryPostgres(`
         CALL mc_center.pr_fail(
           $1::bigint, $2::int, $3::varchar, $4::varchar, $5::text, $6::text
         )
-      `, [runId, configId || null, stepName, errorCode, errorMessage, errorDetail]);
+      `, [runId, configId || null, stepName, human.technicalCode || errorCode, errorMessage, errorDetail]);
     } catch (err) {
       console.warn('[DB-DISPATCHER] pr_fail warning:', err.message);
     } finally {
-      // Pastikan status migration_run dan end_time selalu diperbarui menjadi FAILED
+      // Pastikan status migration_run dan end_time selalu diperbarui menjadi FAILED dengan pesan bahasa manusia
       try {
         await queryPostgres(`
           UPDATE mc_center.migration_run
@@ -219,7 +239,7 @@ class DbDispatcherService {
                 ELSE note || ' | ' || $2
               END
           WHERE run_id = $1 AND (status = 'RUNNING' OR status IS NULL)
-        `, [runId, `FAILED at ${stepName}: ${errorMessage}`]);
+        `, [runId, readableNote]);
       } catch (updErr) {
         console.error('[DB-DISPATCHER] Gagal update status FAILED pada migration_run:', updErr.message);
       }

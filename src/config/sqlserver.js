@@ -112,8 +112,68 @@ async function querySqlServer(queryString, inputs = {}) {
   return await request.query(queryString);
 }
 
+/**
+ * Baca hasil query SQL Server secara streaming per batch (tanpa memuat seluruh recordset ke RAM).
+ * Stream di-pause selama onBatch berjalan sehingga memori dibatasi ~batchSize baris.
+ * Jika onBatch/stream gagal, request dibatalkan agar koneksi kembali bersih ke pool.
+ */
+async function streamSqlServerRows(queryString, batchSize, onBatch) {
+  const currentPool = await getSqlServerPool();
+  const request = currentPool.request();
+  request.stream = true;
+
+  return new Promise((resolve, reject) => {
+    let buffer = [];
+    let chain = Promise.resolve();
+    let failed = false;
+
+    const fail = (err) => {
+      if (failed) return;
+      failed = true;
+      buffer = [];
+      try { request.cancel(); } catch (e) {}
+      reject(err);
+    };
+
+    const enqueue = (batch) => {
+      chain = chain
+        .then(() => (failed ? null : onBatch(batch)))
+        .then(() => { if (!failed) request.resume(); })
+        .catch(fail);
+    };
+
+    request.on('row', (row) => {
+      if (failed) return;
+      buffer.push(row);
+      if (buffer.length >= batchSize) {
+        const batch = buffer;
+        buffer = [];
+        request.pause();
+        enqueue(batch);
+      }
+    });
+
+    request.on('error', fail);
+
+    request.on('done', () => {
+      chain = chain.then(async () => {
+        if (failed) return;
+        if (buffer.length > 0) {
+          const batch = buffer;
+          buffer = [];
+          await onBatch(batch);
+        }
+        resolve();
+      }).catch(fail);
+    });
+
+    request.query(queryString);
+  });
+}
+
 module.exports = {
   sql,
+  streamSqlServerRows,
   getEffectiveConfig,
   getSqlServerPool,
   checkSqlServerConnection,

@@ -1,7 +1,9 @@
 const EventEmitter = require('events');
 const dbDispatcher = require('./db-dispatcher.service');
+const purgePrecheck = require('./purge-precheck.service');
 const pipelineService = require('./pipeline.service');
 const ingestionService = require('./ingestion.service');
+const { formatHumanError } = require('../utils/error-formatter');
 const { querySqlServer } = require('../config/sqlserver');
 const { queryPostgres } = require('../config/postgres');
 
@@ -15,6 +17,7 @@ class DagEngineService extends EventEmitter {
     super();
     this.activeRuns = new Map(); // runId => { status, currentStep, events }
     this.runEvents = new Map();  // runId => Array<EventPayload> (Event Buffer)
+    this.purgeState = new Map(); // runId => { plan, results } (state pre-check Flow 4)
   }
 
   recordAndEmit(eventType, data) {
@@ -408,8 +411,8 @@ class DagEngineService extends EventEmitter {
           {
             id: 'node_delta_stg',
             type: 'DELTA_CHECK',
-            label: '8. Analisis Delta & Integritas',
-            x: 2090,
+            label: '9. Analisis Delta & Integritas',
+            x: 2370,
             y: 150,
             connectionContext,
             dbFunction: `${ctlSchema}.fn_check_delta(p_run, p_cfg)`,
@@ -418,7 +421,7 @@ class DagEngineService extends EventEmitter {
             tablesInvolved: hasTargetConn ? `${stgSchema}.[stg_table]_src ➔ ${ctlSchema}.migration_run` : '⚠️ [Target PG Belum Dikonfigurasi]',
             signature: '$1: run_id, $2: config_id',
             description: (hasSourceConn && hasTargetConn)
-              ? `Menganalisis delta selisih data staging (${stgSchema}) terhadap target (${tgtDb}) sebelum konversi master.`
+              ? `Menganalisis delta selisih data staging (${stgSchema}) terhadap target (${tgtDb}) setelah konversi kode master (business key sudah dalam format target).`
               : `⚠️ Analisis delta memerlukan target database PostgreSQL aktif.`,
             inputs: {
               params: ['run_id: ID sesi migrasi', 'config_id: ID konfigurasi tabel'],
@@ -426,19 +429,19 @@ class DagEngineService extends EventEmitter {
                 `${stgSchema}.[stg_table]_src`,
                 hasTargetConn ? `Tabel target PostgreSQL (${tgtDb}.${tgtSchema})` : `⚠️ Target PostgreSQL belum dikonfigurasi`
               ],
-              prereq: 'Data staging telah lolos rekonsiliasi jumlah baris (fn_check_staging OK).'
+              prereq: 'Staging lolos rekonsiliasi jumlah baris dan konversi kode master (fn_convert_staging OK).'
             },
             outputs: {
               results: [`Field rows_new terisi di ${ctlSchema}.migration_run`, 'Pencatatan step log DELTA', 'Metrik proporsi data baru'],
               status: 'OK, analisis delta berhasil',
-              contextPass: 'Proporsi data baru & berubah terpetakan 100% untuk evaluasi posting'
+              contextPass: 'Proporsi data baru & berubah terpetakan 100%, tabel tuntas dan bersiap looping ke tabel berikutnya'
             }
           },
           {
             id: 'node_convert',
             type: 'CONVERT_LOOKUP',
-            label: '9. Konversi Kode Master & Lookup',
-            x: 2370,
+            label: '8. Konversi Kode Master & Lookup',
+            x: 2090,
             y: 150,
             connectionContext,
             dbFunction: `${ctlSchema}.fn_convert_staging(p_run, p_cfg)`,
@@ -455,7 +458,7 @@ class DagEngineService extends EventEmitter {
             outputs: {
               results: ['Kolom referensi/foreign key terkonversi ke ID target PostgreSQL', 'Nilai default fallback jika lookup tidak ditemukan', 'Pencatatan step log CONVERT'],
               status: 'OK, seluruh aturan konversi selesai dieksekusi',
-              contextPass: 'Tabel saat ini tuntas diproses, bersiap looping ke tabel berikutnya'
+              contextPass: 'Staging terkonversi ke format target, siap dianalisis delta'
             }
           },
           {
@@ -490,9 +493,9 @@ class DagEngineService extends EventEmitter {
           { source: 'node_precheck_src', target: 'node_prep_stg' },
           { source: 'node_prep_stg', target: 'node_count_stream' },
           { source: 'node_count_stream', target: 'node_check_stg' },
-          { source: 'node_check_stg', target: 'node_delta_stg' },
-          { source: 'node_delta_stg', target: 'node_convert' },
-          { source: 'node_convert', target: 'node_loop_ctrl', isLoop: true, label: '🔁 Loop Next Table', loopOffset: 150 },
+          { source: 'node_check_stg', target: 'node_convert' },
+          { source: 'node_convert', target: 'node_delta_stg' },
+          { source: 'node_delta_stg', target: 'node_loop_ctrl', isLoop: true, label: '🔁 Loop Next Table', loopOffset: 150 },
           { source: 'node_loop_ctrl', target: 'node_finish_flow1', route: 'top', routeOffset: -125, label: '✓ Selesai Looping (Semua Tabel Beres)' }
         ]
       },
@@ -917,22 +920,22 @@ class DagEngineService extends EventEmitter {
           {
             id: 'node_purge_guard',
             type: 'DUAL_GUARD_PURGE',
-            label: '3. Dual-Guard Protection: Flag & Staging Check',
+            label: '3. Dual-Guard Protection: Flag & Staging History Check',
             x: 720,
             y: 150,
             connectionContext,
-            dbFunction: 'Dual-Guard Flag & Staging Existence Check',
+            dbFunction: 'Dual-Guard Flag & Staging History Check',
             dbType: 'Pre-Purge Logic',
             auditStep: 'PURGE_GUARD',
-            tablesInvolved: hasTargetConn ? `${stgSchema} vs ${tgtDb} target tables` : '⚠️ [Target PG Belum Dikonfigurasi]',
-            signature: 'migration = 1 AND exists in staging',
-            description: 'Memastikan data yang akan dihapus memiliki flag migration=1 dan tercatat di staging; data produksi dijamin 100% aman.',
+            tablesInvolved: hasTargetConn ? `${stgSchema}.staging_data_history vs ${tgtDb} target tables` : '⚠️ [Target PG Belum Dikonfigurasi]',
+            signature: 'migration = 1 OR exists in staging_data_history',
+            description: 'Memastikan data yang akan dihapus ber-flag migration=1 atau tercatat di riwayat staging (staging_data_history); data produksi/non-migrasi dijamin 100% aman.',
             inputs: {
               params: ['config_id: ID konfigurasi tabel aktif', 'Flag filter: migration = 1'],
               sources: [
-                hasTargetConn ? `Tabel target ${tgtDb} dan tabel staging ${stgSchema}` : '⚠️ Target PostgreSQL belum dikonfigurasi'
+                hasTargetConn ? `Tabel target ${tgtDb} dan riwayat ${stgSchema}.staging_data_history` : '⚠️ Target PostgreSQL belum dikonfigurasi'
               ],
-              prereq: 'Tabel target memiliki kolom penanda migrasi.'
+              prereq: 'Data pernah dimigrasi (flag migrasi aktif atau tercatat di staging_data_history).'
             },
             outputs: {
               results: ['Validasi keamanan dual-guard terkonfirmasi', 'Data berstatus produksi dikecualikan dari proses purge'],
@@ -1088,6 +1091,21 @@ class DagEngineService extends EventEmitter {
     customEdges = null,
     params = {}
   }) {
+    // Flow 4 resume: pakai kembali ID purge dari eksekusi awal agar cakupan penghapusan tidak melebar
+    if (flowId === 'flow_4_purge' && runId && params && params.resume) {
+      const stored = await queryPostgres(
+        `SELECT message FROM mc_center.migration_step_log
+         WHERE run_id = $1 AND step_name = 'PURGE_PARAMS'
+         ORDER BY log_id DESC LIMIT 1`,
+        [parseInt(runId, 10)]
+      );
+      const match = stored.rows.length > 0 ? /deleteIds=(.*)$/s.exec(stored.rows[0].message || '') : null;
+      if (!match) {
+        throw new Error(`Run #${runId} tidak memiliki catatan parameter ID purge (dijalankan sebelum fitur ini ada), sehingga tidak bisa diulang otomatis demi keamanan data. Jalankan ulang Flow 4 dengan mengisi ID yang akan dihapus.`);
+      }
+      params = { ...params, deleteIds: match[1].trim() };
+    }
+
     // 1. Tentukan template atau custom DAG
     let nodes, edges, flowName;
     if (customNodes && customNodes.length > 0) {
@@ -1140,7 +1158,7 @@ class DagEngineService extends EventEmitter {
 
     if (isBatchAll) {
       let q = `
-        SELECT config_id, name_config, exec_order, src_schema, src_view, tgt_schema, tgt_table, stg_table, is_active
+        SELECT config_id, name_config, exec_order, src_schema, src_view, tgt_schema, tgt_table, stg_table, is_active, error_policy, business_keys, pk_columns
         FROM mc_center.migration_config
         WHERE is_active = true
       `;
@@ -1157,7 +1175,7 @@ class DagEngineService extends EventEmitter {
       }
     } else {
       const cfgRes = await queryPostgres(`
-        SELECT config_id, name_config, exec_order, src_schema, src_view, tgt_schema, tgt_table, stg_table, is_active
+        SELECT config_id, name_config, exec_order, src_schema, src_view, tgt_schema, tgt_table, stg_table, is_active, error_policy, business_keys, pk_columns
         FROM mc_center.migration_config
         WHERE is_active = true AND config_id = ANY($1::int[])
         ORDER BY exec_order ASC, config_id ASC
@@ -1280,7 +1298,7 @@ class DagEngineService extends EventEmitter {
       });
       if (runConfigIds.length > 0) {
         const cfgRes = await queryPostgres(`
-          SELECT config_id, name_config, exec_order, src_schema, src_view, tgt_schema, tgt_table, stg_table, is_active
+          SELECT config_id, name_config, exec_order, src_schema, src_view, tgt_schema, tgt_table, stg_table, is_active, error_policy, business_keys, pk_columns
           FROM mc_center.migration_config
           WHERE config_id = ANY($1::int[])
         `, [runConfigIds]);
@@ -1357,7 +1375,7 @@ class DagEngineService extends EventEmitter {
       });
       if (runConfigIds.length > 0) {
         const cfgRes = await queryPostgres(`
-          SELECT config_id, name_config, exec_order, src_schema, src_view, tgt_schema, tgt_table, stg_table, is_active
+          SELECT config_id, name_config, exec_order, src_schema, src_view, tgt_schema, tgt_table, stg_table, is_active, error_policy, business_keys, pk_columns
           FROM mc_center.migration_config
           WHERE config_id = ANY($1::int[])
         `, [runConfigIds]);
@@ -1395,6 +1413,8 @@ class DagEngineService extends EventEmitter {
 
     // 3. Inisialisasi atau gunakan runId eksisting (Resume Mode)
     let currentRun;
+    let isResumedRun = false;
+    let lastSuccessfulStaging = {}; // config_id => {rowsSrc, rowsStg}
     try {
       if (flowId === 'flow_2_post') {
         currentRun = targetRuns[0];
@@ -1404,6 +1424,24 @@ class DagEngineService extends EventEmitter {
         const res = await queryPostgres('SELECT * FROM mc_center.migration_run WHERE run_id = $1', [parseInt(runId, 10)]);
         if (res.rows.length === 0) throw new Error(`Run ID ${runId} tidak ditemukan.`);
         currentRun = res.rows[0];
+        isResumedRun = true;
+
+        // Reuse staging hanya bila belum ada CONVERT sesudahnya (CONVERT mengubah staging in-place)
+        const stagingLog = await queryPostgres(`
+          SELECT l.config_id, l.rows_src, l.rows_stg FROM mc_center.migration_step_log l
+          WHERE l.run_id = $1 AND l.step_name = 'STAGING' AND l.status = 'OK'
+            AND NOT EXISTS (
+              SELECT 1 FROM mc_center.migration_step_log c
+              WHERE c.run_id = l.run_id AND c.config_id = l.config_id
+                AND c.step_name = 'CONVERT' AND c.log_id > l.log_id
+            )
+          ORDER BY l.log_id DESC
+        `, [parseInt(runId, 10)]);
+        stagingLog.rows.forEach(row => {
+          if (!lastSuccessfulStaging[row.config_id]) {
+            lastSuccessfulStaging[row.config_id] = { rowsSrc: row.rows_src, rowsStg: row.rows_stg };
+          }
+        });
 
         // Reset status migration_run kembali ke RUNNING untuk sesi yang dilanjutkan (in-place resume)
         await queryPostgres(`
@@ -1433,6 +1471,13 @@ class DagEngineService extends EventEmitter {
     }
 
     const actualRunId = currentRun.run_id;
+
+    // Flow 2/3 memakai ulang run_id Flow sebelumnya: buang event lama (mis. FLOW_COMPLETED Flow 1)
+    // agar stream SSE tidak memutar ulang event selesai lalu menutup koneksi sebelum flow ini berakhir.
+    if (this.runEvents) {
+      const staleKeys = [actualRunId, ...targetRuns.map(r => r.run_id), ...targetRollbackRuns.map(r => r.run_id)];
+      staleKeys.forEach(k => this.runEvents.delete(String(k)));
+    }
 
     for (const note of skippedNotes) {
       try {
@@ -1488,7 +1533,9 @@ class DagEngineService extends EventEmitter {
         flowId,
         lockKey,
         isMultiBatch,
-        isMultiRun: (flowId === 'flow_3_rollback') ? isMultiRollback : isMultiRun
+        isMultiRun: (flowId === 'flow_3_rollback') ? isMultiRollback : isMultiRun,
+        isResumedRun,
+        lastSuccessfulStaging
       });
     }, 200);
 
@@ -1542,7 +1589,7 @@ class DagEngineService extends EventEmitter {
    * Background Execution Loop (Mendukung Single Config, Multi-Config Looping, & Multi-Run Looping Flow 2)
    */
   async _runExecutionLoop(optsOrRunId, ...args) {
-    let actualRunId, targetConfigs, targetRuns, executionQueue, params, flowName, flowId, lockKey, isMultiBatch, isMultiRun;
+    let actualRunId, targetConfigs, targetRuns, executionQueue, params, flowName, flowId, lockKey, isMultiBatch, isMultiRun, isResumedRun, lastSuccessfulStaging;
     if (typeof optsOrRunId === 'object' && optsOrRunId !== null && optsOrRunId.actualRunId) {
       ({
         actualRunId,
@@ -1554,12 +1601,16 @@ class DagEngineService extends EventEmitter {
         flowId = 'flow_1_staging',
         lockKey = 4242,
         isMultiBatch = false,
-        isMultiRun = false
+        isMultiRun = false,
+        isResumedRun = false,
+        lastSuccessfulStaging = {}
       } = optsOrRunId);
     } else {
       actualRunId = optsOrRunId;
       [targetConfigs, executionQueue, params, flowName, flowId, lockKey, isMultiBatch] = args;
       targetRuns = [];
+      isResumedRun = false;
+      lastSuccessfulStaging = {};
       isMultiRun = false;
     }
 
@@ -1605,10 +1656,12 @@ class DagEngineService extends EventEmitter {
     });
 
     let overallStepIndex = 0;
+    let lastNodeId = null;
     const totalOverallSteps = executionQueue.length * targetConfigs.length;
     const successfulConfigs = [];
     const failedConfigs = [];
     const errorStrategy = params.errorStrategy || (isMultiBatch ? 'CONTINUE_ON_ERROR' : 'ABORT');
+    let activeContext = null;
 
     try {
       // Looping sekuensial per konfigurasi (Paritas Hop exec_per_row = Y)
@@ -1639,8 +1692,15 @@ class DagEngineService extends EventEmitter {
           currentNodeId: null,
           currentNodeLabel: null,
           currentStep: null,
-          nodeResults: {}
+          nodeResults: {},
+          skipPrepare: isResumedRun && lastSuccessfulStaging[currentConfigId] ? true : false // STG-03
         };
+        activeContext = context;
+        // Jika skip, set context rows untuk digunakan di PRECHECK
+        if (context.skipPrepare && lastSuccessfulStaging[currentConfigId]) {
+          context.rowsSrc = lastSuccessfulStaging[currentConfigId].rowsSrc;
+          context.rowsStg = lastSuccessfulStaging[currentConfigId].rowsStg;
+        }
 
         try {
           for (const node of executionQueue) {
@@ -1657,6 +1717,7 @@ class DagEngineService extends EventEmitter {
             }
 
             overallStepIndex++;
+            lastNodeId = node.id;
             context.currentNodeId = node.id;
             context.currentNodeLabel = node.label;
             context.currentStep = node.type;
@@ -1791,7 +1852,8 @@ class DagEngineService extends EventEmitter {
           } catch (_) {}
 
           // Idempotent Cleanup: bersihkan tabel staging tabel yang gagal
-          if (currentCfg.stg_table) {
+          // Jika staging sudah dilewati (skipPrepare), jangan truncate agar bisa reuse ulang
+          if (!context.skipPrepare && currentCfg.stg_table && flowId !== 'flow_4_purge') {
             const actualStg = currentCfg.stg_table.endsWith('_src') ? currentCfg.stg_table : `${currentCfg.stg_table}_src`;
             try {
               await queryPostgres(`TRUNCATE TABLE stg_antam."${actualStg}"`);
@@ -1809,7 +1871,7 @@ class DagEngineService extends EventEmitter {
             });
           }
 
-          if (errorStrategy === 'ABORT' || !isMultiBatch) {
+          if (errorStrategy === 'ABORT' || !isMultiBatch || tableErr.code === 'PURGE_BLOCKED') {
             throw tableErr;
           } else {
             console.warn(`[DAG-ENGINE] Bulkhead: Config #${currentConfigId} gagal (${tableErr.message}), lanjut memproses config berikutnya.`);
@@ -1836,11 +1898,27 @@ class DagEngineService extends EventEmitter {
         }
       }
 
+      let purgeInfo = null;
+      if (flowId === 'flow_4_purge') {
+        const st = this.purgeState.get(String(actualRunId));
+        if (st) {
+          const totalDeleted = Object.values(st.results).reduce((n, r) => n + (r.deleted || 0), 0);
+          purgeInfo = { noData: !st.plan.hasWork, totalDeleted, details: purgePrecheck.summarize(st.plan) };
+          if (purgeInfo.noData && finalStatus === 'SUCCESS') {
+            finalMsg = 'Proses sukses, namun tidak ada data yang pernah dimigrasikan (atau sudah dihapus) dengan ID tersebut sehingga tidak ada yang dihapus.';
+          } else if (finalStatus === 'SUCCESS') {
+            finalMsg = `Flow 4 selesai: ${totalDeleted} baris data migrasi dihapus dari ${targetConfigs.length} tabel terpilih.`;
+          }
+        }
+      }
+
       this.recordAndEmit('flow_completed', {
         runId: actualRunId,
         flowId,
         status: finalStatus,
         message: finalMsg,
+        noData: !!purgeInfo?.noData,
+        purgeInfo,
         context: {
           runId: actualRunId,
           configId: isMultiBatch ? targetConfigs.map(c => c.config_id).join(',') : targetConfigs[0].config_id,
@@ -1850,30 +1928,45 @@ class DagEngineService extends EventEmitter {
         }
       });
     } catch (flowErr) {
-      // Catat kegagalan ke database (configId dikirim integer atau null jika multi-batch agar aman bagi integer column)
+      const human = formatHumanError(flowErr, {
+        runId: actualRunId,
+        configId: isMultiBatch ? null : targetConfigs[0]?.config_id,
+        stepName: activeContext?.currentStep || 'FLOW_EXECUTION',
+        flowId
+      });
+
+      // Catat kegagalan ke database
       await dbDispatcher.failRun({
         runId: actualRunId,
         configId: isMultiBatch ? null : targetConfigs[0]?.config_id,
-        stepName: 'FLOW_EXECUTION',
-        errorCode: flowErr.code || 'FLOW_FAILED',
+        stepName: activeContext?.currentStep || 'FLOW_EXECUTION',
+        errorCode: human.technicalCode || flowErr.code || 'FLOW_FAILED',
         errorMessage: flowErr.message,
         errorDetail: flowErr.detail || flowErr.stack
       });
 
-      // Emit event failure terstruktur lengkap untuk modal diagnostik
+      // Emit event failure terstruktur lengkap dalam bahasa manusia untuk modal diagnostik & canvas banner
+      const failedNodeId = lastNodeId;
       this.recordAndEmit('flow_failed', {
         runId: actualRunId,
         flowId,
+        nodeId: failedNodeId,
         stepIndex: overallStepIndex,
         totalNodes: totalOverallSteps,
-        error: flowErr.message,
-        errorCode: flowErr.code || 'EXECUTION_ERROR',
+        error: human.humanMessage,
+        humanTitle: human.title,
+        humanMessage: human.humanMessage,
+        cause: human.cause,
+        actionableSolution: human.actionableSolution,
+        errorCode: human.technicalCode || flowErr.code || 'EXECUTION_ERROR',
         errorDetail: flowErr.detail || null,
+        rawError: flowErr.message,
         sqlState: flowErr.sqlState || flowErr.code || null,
         hint: flowErr.hint || null
       });
     } finally {
       this.activeRuns.delete(actualRunId);
+      this.purgeState.delete(String(actualRunId));
       pipelineService.invalidatePipelineCache();
       await dbDispatcher.releaseLock(lockKey);
     }
@@ -2105,6 +2198,7 @@ class DagEngineService extends EventEmitter {
               runId: currentRunId,
               primaryRunId: actualRunId,
               nodeId: node.id,
+              nodeType: node.type,
               stepIndex: overallStepIndex,
               totalNodes: totalOverallSteps,
               elapsed: nodeElapsed,
@@ -2255,12 +2349,19 @@ class DagEngineService extends EventEmitter {
         }
       });
     } catch (flowErr) {
+      const human = formatHumanError(flowErr, {
+        runId: actualRunId,
+        configId: targetConfigs[0]?.config_id || null,
+        stepName: 'FLOW_EXECUTION',
+        flowId
+      });
+
       // Catat kegagalan flow level
       await dbDispatcher.failRun({
         runId: actualRunId,
         configId: targetConfigs[0]?.config_id || null,
         stepName: 'FLOW_EXECUTION',
-        errorCode: flowErr.code || 'FLOW_FAILED',
+        errorCode: human.technicalCode || flowErr.code || 'FLOW_FAILED',
         errorMessage: flowErr.message,
         errorDetail: flowErr.detail || flowErr.stack
       });
@@ -2272,9 +2373,14 @@ class DagEngineService extends EventEmitter {
         nodeId: failedNodeId,
         stepIndex: overallStepIndex,
         totalNodes: totalOverallSteps,
-        error: flowErr.message,
-        errorCode: flowErr.code || 'EXECUTION_ERROR',
+        error: human.humanMessage,
+        humanTitle: human.title,
+        humanMessage: human.humanMessage,
+        cause: human.cause,
+        actionableSolution: human.actionableSolution,
+        errorCode: human.technicalCode || flowErr.code || 'EXECUTION_ERROR',
         errorDetail: flowErr.detail || null,
+        rawError: flowErr.message,
         sqlState: flowErr.sqlState || flowErr.code || null,
         hint: flowErr.hint || null
       });
@@ -2358,11 +2464,26 @@ class DagEngineService extends EventEmitter {
             UPDATE mc_center.migration_run
             SET main_workflow = 'flow_3_rollback',
                 status = 'RUNNING',
+                end_time = NULL,
                 note = 'Sedang mengeksekusi Flow 3 (Rollback Target)...'
             WHERE run_id = $1
           `, [currentRunId]);
         } catch (rbStatusErr) {
           console.warn(`[DAG-ENGINE] Warning update status RUNNING Rollback Run #${currentRunId}:`, rbStatusErr.message);
+        }
+
+        // Bersihkan log kegagalan rollback sebelumnya jika sesi ini dijalankan ulang (resume/retry)
+        try {
+          await queryPostgres(`
+            DELETE FROM mc_center.migration_error_log
+            WHERE run_id = $1 AND (step_name LIKE 'ROLLBACK%' OR step_name = 'FLOW_EXECUTION' OR pipeline_name = 'flow_3_rollback')
+          `, [currentRunId]);
+          await queryPostgres(`
+            DELETE FROM mc_center.migration_step_log
+            WHERE run_id = $1 AND (step_name LIKE 'ROLLBACK%' OR step_name = 'FLOW_EXECUTION') AND status = 'FAILED'
+          `, [currentRunId]);
+        } catch (cleanErr) {
+          console.warn(`[DAG-ENGINE] Warning pembersihan log rollback lama Run #${currentRunId}:`, cleanErr.message);
         }
 
         const context = {
@@ -2425,7 +2546,9 @@ class DagEngineService extends EventEmitter {
             const isConfigSpecificRbNode = ['ROLLBACK_TARGETS', 'RECONCILIATION_AUDIT'].includes(node.type);
             if (isConfigSpecificRbNode && runConfigIds.length > 1) {
               const subResults = [];
-              for (const cfgId of runConfigIds) {
+              // Rollback dibalik (anak dulu, induk terakhir) agar cascade FK tidak menghapus baris anak sebelum dihitung
+              const rbOrder = node.type === 'ROLLBACK_TARGETS' ? [...runConfigIds].reverse() : runConfigIds;
+              for (const cfgId of rbOrder) {
                 const subCfg = targetConfigs.find(c => c.config_id === cfgId) || {
                   config_id: cfgId,
                   name_config: `Config #${cfgId}`
@@ -2474,9 +2597,11 @@ class DagEngineService extends EventEmitter {
               runId: currentRunId,
               primaryRunId: actualRunId,
               nodeId: node.id,
+              nodeType: node.type,
               stepIndex: overallStepIndex,
               totalNodes: totalOverallSteps,
               durationMs: nodeElapsed,
+              elapsed: nodeElapsed,
               result,
               outputParams: capturedOutputParams,
               runIndex: rIdx + 1,
@@ -2523,6 +2648,26 @@ class DagEngineService extends EventEmitter {
               errorDetail: runErr.stack
             });
           } catch (_) {}
+
+          // Tandai sesi FAILED (bukan menggantung di RUNNING) agar tombol Lanjutkan/Diagnostik muncul
+          try {
+            const humanRb = formatHumanError(runErr, {
+              runId: currentRunId,
+              configId: currentConfigId,
+              stepName: context.currentStep || 'ROLLBACK_EXECUTION',
+              flowId
+            });
+            const rbNote = `[GAGAL: ${humanRb.title}] ${humanRb.humanMessage}${humanRb.actionableSolution ? ` | Solusi: ${String(humanRb.actionableSolution).replace(/\n/g, ' ')}` : ''}`;
+            await queryPostgres(`
+              UPDATE mc_center.migration_run
+              SET status = 'FAILED',
+                  end_time = now(),
+                  note = $2
+              WHERE run_id = $1 AND (status = 'RUNNING' OR status IS NULL)
+            `, [currentRunId, rbNote]);
+          } catch (markErr) {
+            console.warn(`[DAG-ENGINE] Gagal menandai Rollback Run #${currentRunId} FAILED:`, markErr.message);
+          }
 
           if (isMultiRollback) {
             this.recordAndEmit('batch_run_failed', {
@@ -2572,6 +2717,12 @@ class DagEngineService extends EventEmitter {
         }
       });
     } catch (flowErr) {
+      const human = formatHumanError(flowErr, {
+        runId: actualRunId,
+        stepName: 'FLOW_EXECUTION',
+        flowId
+      });
+
       const failedNodeId = executionQueue[Math.max(0, overallStepIndex - 1)]?.id || null;
       this.recordAndEmit('flow_failed', {
         runId: actualRunId,
@@ -2580,9 +2731,14 @@ class DagEngineService extends EventEmitter {
         nodeId: failedNodeId,
         stepIndex: overallStepIndex,
         totalNodes: totalOverallSteps,
-        error: flowErr.message,
-        errorCode: flowErr.code || 'ROLLBACK_EXECUTION_ERROR',
-        errorDetail: flowErr.detail || null
+        error: human.humanMessage,
+        humanTitle: human.title,
+        humanMessage: human.humanMessage,
+        cause: human.cause,
+        actionableSolution: human.actionableSolution,
+        errorCode: human.technicalCode || flowErr.code || 'ROLLBACK_EXECUTION_ERROR',
+        errorDetail: flowErr.detail || null,
+        rawError: flowErr.message
       });
     } finally {
       this.activeRuns.delete(actualRunId);
@@ -2719,6 +2875,22 @@ class DagEngineService extends EventEmitter {
 
       // 2. Prepare Staging Table
       case 'PREPARE_STAGING': {
+        // STG-03: Jika resume dan staging sudah valid (rows match di DB), lewati persiapan
+        if (context.skipPrepare) {
+          const actualStg = config.stg_table?.endsWith('_src') ? config.stg_table : `${config.stg_table}_src`;
+          try {
+            const countCheck = await queryPostgres(`SELECT count(*)::int AS cnt FROM stg_antam."${actualStg}"`);
+            const currentCnt = countCheck.rows[0]?.cnt || 0;
+            if (currentCnt === context.rowsSrc && currentCnt > 0) {
+              return { stagingReady: true, skipped: true, message: `Staging digunakan kembali dari resume (${currentCnt} baris valid)` };
+            } else {
+              // Jika tabel kosong atau count berbeda, matikan skipPrepare dan lakukan prepare ulang
+              context.skipPrepare = false;
+            }
+          } catch (_) {
+            context.skipPrepare = false;
+          }
+        }
         const ok = await dbDispatcher.prepareStaging(runId, configId);
         if (!ok) throw new Error(`fn_prepare_staging gagal menyiapkan tabel staging untuk config #${configId}.`);
         return { stagingReady: true };
@@ -2726,6 +2898,12 @@ class DagEngineService extends EventEmitter {
 
       // 3. Dynamic Data Stream Ingestion
       case 'DATA_STREAM': {
+        // STG-03: Jika resume dan staging sudah valid, lewati streaming
+        if (context.skipPrepare) {
+          context.rowsStg = context.rowsSrc; // Konsistensi dengan staging yang sudah ada
+          context.errorRows = 0;
+          return { totalRows: context.rowsSrc, loadedRows: context.rowsSrc, errorRows: 0, skipped: true, message: 'Data streaming dilewati, menggunakan staging dari resume' };
+        }
         const res = await ingestionService.streamIngestion({
           runId,
           configId,
@@ -2740,16 +2918,24 @@ class DagEngineService extends EventEmitter {
 
         context.rowsStg = res.loadedRows;
         context.errorRows = res.errorRows;
+
+        // Kebijakan baris ditolak: FAIL_ALL (default) menggagalkan config; ALLOW_PARTIAL melanjutkan dengan baris valid saja
+        if (res.errorRows > 0 && (config.error_policy || 'FAIL_ALL') !== 'ALLOW_PARTIAL') {
+          throw new Error(`STAGING_ROWS_REJECTED: ${res.errorRows} dari ${res.totalRows} baris ditolak saat dimuat ke staging (lihat migration_error_log). Perbaiki data sumber, atau set error_policy=ALLOW_PARTIAL pada konfigurasi untuk melanjutkan dengan baris valid.`);
+        }
         return res;
       }
 
       // 4. Validasi Staging Count
       case 'CHECK_STAGING': {
-        const ok = await dbDispatcher.checkStaging(runId, configId, context.rowsSrc);
+        // Baris yang sudah ditolak (ALLOW_PARTIAL) dikeluarkan dari ekspektasi agar tidak dianggap selisih
+        const rejected = context.errorRows || 0;
+        const expectedRows = Math.max(0, (context.rowsSrc || 0) - rejected);
+        const ok = await dbDispatcher.checkStaging(runId, configId, expectedRows);
         if (!ok) {
-          throw new Error(`fn_check_staging mendeteksi ketidaksesuaian jumlah baris sumber (${context.rowsSrc}) vs staging (${context.rowsStg}).`);
+          throw new Error(`fn_check_staging mendeteksi ketidaksesuaian jumlah baris sumber (${context.rowsSrc}${rejected ? `, ${rejected} ditolak` : ''}) vs staging (${context.rowsStg}).`);
         }
-        return { matched: true };
+        return { matched: true, rejectedRows: rejected };
       }
 
       // 5. Konversi Kode Master
@@ -3101,12 +3287,33 @@ class DagEngineService extends EventEmitter {
 
       // 14a. Inisialisasi Sesi Flow 4 (Purge)
       case 'INIT_PURGE_SESSION': {
-        const deleteIds = params.deleteIds ? String(params.deleteIds).trim() : null;
+        const rawIds = params.deleteIds ? String(params.deleteIds).trim() : '';
+        const cfgIds = (context.targetConfigs || []).map(c => c.config_id);
+        if (cfgIds.length === 0 && configId) cfgIds.push(configId);
+
+        // Pre-check seluruh config di awal agar mode STRICT membatalkan semuanya sebelum ada yang terhapus
+        const plan = await purgePrecheck.buildPlan(cfgIds, rawIds);
+        this.purgeState.set(String(runId), { plan, results: {} });
+
+        // Catat parameter ID agar Lanjutkan/Ulangi memakai cakupan yang sama
+        try {
+          await dbDispatcher.logStep({
+            runId,
+            configId: null,
+            stepName: 'PURGE_PARAMS',
+            status: 'OK',
+            message: `Parameter purge dicatat (ID: ${rawIds || 'SEMUA DATA MIGRASI'}) | deleteIds=${rawIds}`
+          });
+        } catch (paramLogErr) {
+          console.warn(`[DAG-ENGINE] Gagal mencatat parameter purge Run #${runId}:`, paramLogErr.message);
+        }
+        if (plan.blocked) throw purgePrecheck.blockedError(plan);
+
         return {
           sessionReady: true,
-          totalConfigs: context.targetConfigs?.length || 1,
-          deleteIdsFilter: deleteIds || 'SEMUA DATA MIGRASI (migration = 1)',
-          message: `Inisialisasi purge session siap: ${context.targetConfigs?.length || 1} target config terdaftar.`
+          totalConfigs: cfgIds.length,
+          deleteIdsFilter: plan.normalizedIds.length ? plan.normalizedIds.join(', ') : 'SEMUA DATA MIGRASI (migration = 1)',
+          message: `Inisialisasi purge siap: ${cfgIds.length} config, ${plan.normalizedIds.length || 'semua'} ID dianalisis.\n${purgePrecheck.summarize(plan)}`
         };
       }
 
@@ -3124,41 +3331,71 @@ class DagEngineService extends EventEmitter {
 
       // 14c. Dual-Guard Protection
       case 'DUAL_GUARD_PURGE': {
-        const cfg = context.config;
-        if (cfg?.tgt_schema && cfg?.tgt_table) {
-          const colChk = await queryPostgres(`
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_schema = $1 AND table_name = $2 AND column_name IN ('migration', 'is_migrated', 'migration_run_id')
-          `, [cfg.tgt_schema, cfg.tgt_table]);
-          if (colChk.rows.length === 0) {
-            console.warn(`[DAG-ENGINE] Guard Warning: Kolom penanda migrasi tidak terdeteksi pada ${cfg.tgt_schema}.${cfg.tgt_table}, melanjutkan dengan pengecekan fungsi db.`);
-          }
+        const state = this.purgeState.get(String(runId));
+        if (!state) {
+          throw Object.assign(new Error('Pre-check purge tidak tersedia; penghapusan dibatalkan demi keamanan data.'), { code: 'PURGE_BLOCKED' });
         }
+        if (state.plan.blocked) throw purgePrecheck.blockedError(state.plan);
+
+        const cp = state.plan.configs.find(c => String(c.configId) === String(configId));
+        context.purgePlan = cp || null;
+        context.purgeSkip = !!cp && cp.candidateCount === 0;
         return {
           guardPassed: true,
-          safetyMode: 'DUAL_GUARD_ACTIVE',
-          message: `Dual-guard protection valid: data produksi non-migrasi dijamin tidak tersentuh.`
+          safetyMode: 'STRICT',
+          purgeSkip: context.purgeSkip,
+          message: context.purgeSkip
+            ? `Guard STRICT: tidak ada data migrasi yang perlu dihapus pada ${cp.table}.`
+            : `Guard STRICT lolos: ${cp?.candidateCount ?? 'semua'} data migrasi pada ${cp?.table || 'Config #' + configId} akan dihapus.`
         };
       }
 
       // 14d. Purge Data Target
       case 'PURGE_TARGET': {
-        const deleteIds = params.deleteIds || null;
-        const ok = await dbDispatcher.purgeTargetData(runId, configId, deleteIds);
+        const state = this.purgeState.get(String(runId));
+        const cp = context.purgePlan;
+        const tableName = cp?.table || context.config?.tgt_table || `Config #${configId}`;
+
+        if (context.purgeSkip) {
+          const msg = `Dilewati: tidak ada data yang pernah dimigrasikan (atau sudah dihapus) untuk ID yang diminta pada ${tableName}.`;
+          if (state) state.results[configId] = { table: tableName, deleted: 0, skipped: true };
+          await dbDispatcher.logStep({ runId, configId, stepName: 'PURGE_TARGET', status: 'OK', message: msg, rowsDeleted: 0 });
+          return { purged: false, skipped: true, configId, targetTable: tableName, message: msg };
+        }
+
+        // Hanya ID yang terbukti data migrasi yang diteruskan ke fungsi database
+        const idsArg = cp && cp.mode === 'SPECIFIC' ? cp.candidates.join(',') : null;
+        const ok = await dbDispatcher.purgeTargetData(runId, configId, idsArg);
         if (!ok) {
           throw new Error(`fn_purge_target_data mengembalikan galat saat membersihkan Config #${configId}`);
         }
-        return { 
+
+        let deleted = null;
+        if (cp && cp.candidateCount !== null) {
+          const remaining = await purgePrecheck.countRemaining(cp);
+          if (remaining !== null) {
+            deleted = Math.max(cp.candidateCount - remaining, 0);
+            if (cp.mode === 'SPECIFIC' && remaining > 0) {
+              throw Object.assign(new Error(`Purge ${tableName} belum tuntas: ${remaining} dari ${cp.candidateCount} ID masih ada di target.`), { code: 'PURGE_INCOMPLETE' });
+            }
+          }
+        }
+        if (state) state.results[configId] = { table: tableName, deleted, skipped: false };
+        return {
           purged: true,
           configId,
-          targetTable: context.config?.tgt_table || `Config #${configId}`,
-          message: `Pembersihan data migrasi berhasil untuk ${context.config?.tgt_table || 'Config #' + configId}.`
+          targetTable: tableName,
+          rowsDeleted: deleted,
+          message: `Pembersihan data migrasi berhasil untuk ${tableName}${deleted !== null ? ` (${deleted} baris dihapus)` : ''}.`
         };
       }
 
       // 14e. Post-Purge Audit & Sequence Resync
       case 'RECONCILIATION_PURGE': {
+        let sequencesResynced = false;
+        if (context.purgeSkip) {
+          return { auditPassed: true, sequencesResynced, summary: 'Tidak ada perubahan data; sinkronisasi sequence dilewati.', message: 'Tidak ada perubahan data; sinkronisasi sequence dilewati.' };
+        }
         try {
           const tc = context.config;
           if (tc?.tgt_schema && tc?.tgt_table) {
@@ -3180,32 +3417,39 @@ class DagEngineService extends EventEmitter {
                   EXECUTE format('SELECT setval(%L, COALESCE((SELECT MAX(%I) FROM %s), 1), true)', seq_name, col_name, tbl_reg);
                 END IF;
               END $$;
-            `).catch(() => {});
+            `);
+            sequencesResynced = true;
           }
-        } catch (_) {}
+        } catch (seqErr) {
+          console.warn(`[DAG-ENGINE] Resync sequence purge gagal untuk Config #${configId}: ${seqErr.message}`);
+        }
 
         return {
           auditPassed: true,
-          sequencesResynced: true,
-          summary: `Post-Purge Audit: Sequence tabel diselaraskan, integritas audit terverifikasi.`
+          sequencesResynced,
+          summary: sequencesResynced
+            ? `Post-Purge Audit: Sequence tabel diselaraskan, integritas audit terverifikasi.`
+            : `Post-Purge Audit: data terverifikasi, sequence tidak diselaraskan (lihat log server).`
         };
       }
 
       // 14f. Finalisasi Flow 4 (Purge)
       case 'FINISH_FLOW4': {
-        try {
-          await queryPostgres(`
-            UPDATE mc_center.migration_run
-            SET status = 'SUCCESS',
-                note = COALESCE(note, '') || ' | Purge data migrasi tuntas untuk seluruh konfigurasi terpilih.'
-            WHERE run_id = $1
-          `, [runId]);
-        } catch (_) {}
-        return { 
-          status: 'SUCCESS',
-          purgedAll: true,
-          summary: `Seluruh antrean target purge berhasil tuntas dibersihkan secara aman.`
-        };
+        const state = this.purgeState.get(String(runId));
+        const results = state ? Object.values(state.results) : [];
+        const totalDeleted = results.reduce((n, r) => n + (r.deleted || 0), 0);
+        const noData = !!state && !state.plan.hasWork;
+        const summary = noData
+          ? 'Proses sukses, namun tidak ada data yang pernah dimigrasikan (atau sudah dihapus) dengan ID tersebut sehingga tidak ada yang dihapus.'
+          : `Purge tuntas: ${totalDeleted} baris migrasi dihapus dari ${results.filter(r => !r.skipped).length} tabel.`;
+
+        await queryPostgres(`
+          UPDATE mc_center.migration_run
+          SET status = 'SUCCESS',
+              note = COALESCE(note, '') || ' | ' || $2
+          WHERE run_id = $1
+        `, [runId, summary]);
+        return { status: 'SUCCESS', noData, totalDeleted, purgedAll: !noData, summary, message: summary };
       }
 
       // 15. Simpul Selesai Sukses (wf_main.hwf: Done)
@@ -3246,10 +3490,21 @@ class DagEngineService extends EventEmitter {
       ORDER BY error_id DESC LIMIT 20
     `, [rId]);
 
+    const run = runRes.rows[0] || null;
+    const latestErr = errRes.rows[0];
+    const sourceErr = latestErr?.error_message || run?.note || '';
+    const humanInfo = formatHumanError(sourceErr, {
+      flowId: run?.main_workflow,
+      stepName: latestErr?.step_name || (stepRes.rows[0]?.step_name),
+      errorCode: latestErr?.error_code,
+      configId: run?.config_id
+    });
+
     return {
-      run: runRes.rows[0] || null,
+      run,
       stepLogs: stepRes.rows || [],
-      errorLogs: errRes.rows || []
+      errorLogs: errRes.rows || [],
+      humanInfo
     };
   }
 }

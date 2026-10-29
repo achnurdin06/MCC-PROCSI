@@ -1600,7 +1600,18 @@ class FlowCanvasStudio {
 
         fieldsHtml += `
           <div class="p-3 mb-3 rounded border border-rose-500/30 bg-rose-50 text-rose-700 text-xs" style="background: rgba(244,63,94,0.06); border: 1px solid rgba(244,63,94,0.25); color: #be123c;">
-            🗑️ <strong>DUAL-GUARD TARGET PURGE:</strong> Hanya menghapus data migrasi ber-flag <code>migration = '1'</code>. Data produksi operasional dijamin 100% aman dan tidak tersentuh.
+            🗑️ <strong>DUAL-GUARD TARGET PURGE (mode STRICT):</strong> Hanya data hasil migrasi yang dapat dihapus, yaitu data ber-flag <code>migration = '1'</code> atau terbukti pernah dimigrasi di <code>staging_data_history</code>. Data produksi/master operasional tidak tersentuh.
+          </div>
+
+          <div class="p-3 mb-3 rounded text-xs" style="background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.35); color: #92400e;">
+            💡 <strong>Cara Flow 4 memvalidasi setiap ID:</strong> klik <strong>🔍 Cek Status ID (Preview)</strong> terlebih dahulu (hanya membaca, tidak mengubah data).
+            <ul style="margin: 6px 0 0 16px; padding: 0; list-style: disc;">
+              <li>✅ <strong>Akan dihapus:</strong> ID ada di target dan ber-flag migrasi, atau tercatat di riwayat staging walau flag kosong.</li>
+              <li>♻️ <strong>Sudah pernah dihapus</strong> / ❔ <strong>Tidak pernah dimigrasikan:</strong> ID dilewati dan tidak menggagalkan proses.</li>
+              <li>🛡️ <strong>Dilindungi:</strong> ID ada di target, tidak ber-flag migrasi, dan tidak ada di riwayat staging (data non-migrasi). Satu saja ID seperti ini membatalkan <strong>seluruh</strong> eksekusi dengan galat <code>NOT_MIGRATION_DATA</code>; tidak ada data yang dihapus. Hapus ID tersebut dari input.</li>
+              <li><strong>Mengulang Flow 1 tidak lagi membuat data migrasi terdeteksi sebagai non-migrasi</strong>, karena bukti diambil dari <code>staging_data_history</code>, bukan dari staging yang bisa tertimpa. Rollback (Flow 3) tetap disarankan sebelum mengulang Flow 1 agar data target tidak ganda.</li>
+              <li>Hasil purge (jumlah baris terhapus) dicatat pada Riwayat Eksekusi dan Log Langkah.</li>
+            </ul>
           </div>
 
           <div class="form-group mb-3">
@@ -1643,8 +1654,14 @@ class FlowCanvasStudio {
 
           <div class="form-group mb-3">
             <label class="form-label font-semibold">2. Spesifik ID Yang Dihapus (DELETE_IDS) <span class="text-muted" style="font-weight: 400; font-size: 11px;">(Opsional)</span></label>
-            <input type="text" id="param-delete-ids" class="form-control" placeholder="Contoh: 00001031, 00001032 (Kosongkan untuk hapus semua data ber-flag migrasi)">
-            <div class="form-hint text-xs text-muted mt-1">Kosongkan kolom ini jika ingin membersihkan seluruh data migrasi pada tabel-tabel terpilih.</div>
+            <div style="display: flex; gap: 8px;">
+              <input type="text" id="param-delete-ids" class="form-control" placeholder="Contoh: 00001031, 00001032 (Kosongkan untuk hapus semua data ber-flag migrasi)" style="flex: 1;">
+              <button type="button" id="btn-preview-purge-ids" class="btn btn-secondary btn-sm" style="white-space: nowrap; padding: 6px 12px; font-size: 12px; border: 1px solid var(--border-color, #cbd5e1); border-radius: 6px;">
+                🔍 Cek Status ID (Preview)
+              </button>
+            </div>
+            <div class="form-hint text-xs text-muted mt-1">Kosongkan kolom ini untuk menghapus seluruh data ber-flag migrasi pada tabel terpilih. Mendukung multi-ID (dipisahkan koma/spasi/baris/titik-koma, maksimal 500 ID). Nol di depan dinormalisasi otomatis sesuai lebar ID tiap config.</div>
+            <div id="purge-preview-container" class="mt-2" style="display: none; border: 1px solid var(--border-color, #e2e8f0); border-radius: 6px; padding: 10px; background: rgba(148, 163, 184, 0.08); font-size: 12px;"></div>
           </div>
         `;
       }
@@ -1703,12 +1720,45 @@ class FlowCanvasStudio {
         // Render initial tags
         updateVisuals();
 
+        // Dropdown mengambang (fixed) di atas dialog agar tidak memicu scroll/terpotong
+        const dropdownEl = msContainer.querySelector('.multiselect-dropdown');
+        const positionDropdown = () => {
+          if (!dropdownEl || !trigger || !msContainer.classList.contains('is-open')) return;
+          const rect = trigger.getBoundingClientRect();
+          const gap = 6;
+          const margin = 12;
+          const spaceBelow = window.innerHeight - rect.bottom - margin;
+          const spaceAbove = rect.top - margin;
+          const openUp = spaceBelow < 260 && spaceAbove > spaceBelow;
+          const maxH = Math.max(180, Math.min(420, openUp ? spaceAbove - gap : spaceBelow - gap));
+          const width = Math.min(rect.width, window.innerWidth - margin * 2);
+          const left = Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin));
+          dropdownEl.style.position = 'fixed';
+          dropdownEl.style.left = `${left}px`;
+          dropdownEl.style.width = `${width}px`;
+          dropdownEl.style.right = 'auto';
+          dropdownEl.style.maxHeight = `${maxH}px`;
+          dropdownEl.style.zIndex = '100000';
+          if (openUp) {
+            dropdownEl.style.top = 'auto';
+            dropdownEl.style.bottom = `${window.innerHeight - rect.top + gap}px`;
+          } else {
+            dropdownEl.style.bottom = 'auto';
+            dropdownEl.style.top = `${rect.bottom + gap}px`;
+          }
+          if (optionsList) optionsList.style.maxHeight = `${Math.max(100, maxH - 110)}px`;
+        };
+        const bodyScrollHost = document.getElementById('modal-flow-params-body');
+        window.addEventListener('resize', positionDropdown);
+        bodyScrollHost?.addEventListener('scroll', positionDropdown, { passive: true });
+
         // Toggle dropdown saat trigger diklik
         trigger?.addEventListener('click', (e) => {
           if (e.target.closest('.multiselect-tag-remove')) return;
           msContainer.classList.toggle('is-open');
-          if (msContainer.classList.contains('is-open') && searchInput) {
-            searchInput.focus();
+          if (msContainer.classList.contains('is-open')) {
+            positionDropdown();
+            if (searchInput) searchInput.focus({ preventScroll: true });
           }
         });
 
@@ -1838,6 +1888,12 @@ class FlowCanvasStudio {
         entityLabel: 'Tabel Target'
       });
 
+      // Preview klasifikasi ID Flow 4 (dry-run, tidak mengubah data)
+      const previewBtn = document.getElementById('btn-preview-purge-ids');
+      if (previewBtn) {
+        previewBtn.addEventListener('click', () => this.previewPurgeIds());
+      }
+
       // Toggle batch size visibility jika radio berubah
       const radios = body.querySelectorAll('input[name="param-use-batch"]');
       radios.forEach(r => {
@@ -1857,6 +1913,80 @@ class FlowCanvasStudio {
           <input type="number" id="param-config-id" class="form-control" value="1">
         </div>
       `;
+    }
+  }
+
+  /**
+   * Preview status ID Flow 4 (dry-run) lewat /api/flows/flow-4-purge-preview
+   */
+  async previewPurgeIds() {
+    const container = document.getElementById('purge-preview-container');
+    const btn = document.getElementById('btn-preview-purge-ids');
+    if (!container) return;
+
+    const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[ch]));
+    const show = (html) => { container.style.display = 'block'; container.innerHTML = html; };
+
+    const configIds = Array.from(document.querySelectorAll('input[name="param-purge-config-checkbox"]:checked'))
+      .map((cb) => parseInt(cb.value, 10)).filter((n) => !isNaN(n));
+    const deleteIds = (document.getElementById('param-delete-ids')?.value || '').trim();
+
+    if (configIds.length === 0) {
+      show('<span style="color:#be123c;">Pilih minimal satu tabel target (CONFIG_ID) terlebih dahulu.</span>');
+      return;
+    }
+
+    const originalLabel = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Memeriksa...'; }
+    show('<span class="text-muted">Memeriksa status ID...</span>');
+
+    try {
+      const res = await fetch('/api/flows/flow-4-purge-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ configIds, deleteIds })
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || `HTTP ${res.status}`);
+      }
+
+      const plan = json.data;
+      const statusMeta = {
+        MIGRATED_ACTIVE: { icon: '✅', label: 'Akan dihapus', color: '#047857' },
+        PROTECTED: { icon: '🛡️', label: 'Dilindungi (bukan data migrasi)', color: '#be123c' },
+        ALREADY_PURGED: { icon: '♻️', label: 'Sudah pernah dihapus', color: '#475569' },
+        NOT_FOUND: { icon: '❔', label: 'Tidak pernah dimigrasikan', color: '#92400e' }
+      };
+
+      const sections = plan.configs.map((c) => {
+        let inner;
+        if (c.mode === 'ALL') {
+          inner = c.candidateCount === null
+            ? esc(c.note || 'Seluruh data migrasi (validasi dilakukan di database).')
+            : `${c.candidateCount} baris ber-flag migrasi akan dihapus.`;
+        } else if (c.items.length === 0) {
+          inner = esc(c.note || 'Tidak ada ID untuk diperiksa.');
+        } else {
+          inner = c.items.map((it) => {
+            const m = statusMeta[it.status] || { icon: '•', label: it.status, color: '#475569' };
+            return `<div style="color:${m.color};">${m.icon} <strong class="font-mono">${esc(it.id)}</strong> — ${m.label}${it.detail ? ` <span style="opacity:.75;">(${esc(it.detail)})</span>` : ''}</div>`;
+          }).join('');
+        }
+        return `<div style="margin-bottom:8px;"><div style="font-weight:700;">Config #${esc(c.configId)} · ${esc(c.table)}</div>${inner}</div>`;
+      }).join('');
+
+      const banner = plan.blocked
+        ? '<div style="color:#be123c;font-weight:700;margin-bottom:6px;">⛔ Eksekusi akan DIBLOKIR (mode STRICT): ada ID yang bukan data migrasi.</div>'
+        : (plan.hasWork
+          ? '<div style="color:#047857;font-weight:700;margin-bottom:6px;">Eksekusi dapat dilanjutkan.</div>'
+          : '<div style="color:#92400e;font-weight:700;margin-bottom:6px;">Tidak ada data yang akan dihapus.</div>');
+
+      show(banner + sections);
+    } catch (err) {
+      show(`<span style="color:#be123c;">Gagal memuat preview: ${esc(err.message)}</span>`);
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = originalLabel; }
     }
   }
 
@@ -1937,6 +2067,16 @@ class FlowCanvasStudio {
       const useBatch = useBatchEl ? useBatchEl.value : 'Y';
       const batchSize = batchSizeEl ? parseInt(batchSizeEl.value, 10) || 1000 : 1000;
       const deleteIds = deleteIdsEl ? deleteIdsEl.value.trim() : null;
+      if (this.currentPresetId === 'flow_4_purge' && !deleteIds) {
+        const ok = confirm('PERHATIAN: Kolom ID dikosongkan.\n\nSistem akan membersihkan SELURUH data ber-flag migrasi pada konfigurasi tabel terpilih.\n\nApakah Anda yakin ingin melanjutkan?');
+        if (!ok) {
+          if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<span>⚡</span><span>Mulai Eksekusi Alur</span>';
+          }
+          return;
+        }
+      }
       const clientIdParam = document.getElementById('param-client-id')?.value || ctx.clientId;
       const envIdParam = document.getElementById('param-env-id')?.value || ctx.envId;
       const clientCode = clientCodeEl ? clientCodeEl.value.trim() : ctx.clientCode;
@@ -2063,7 +2203,7 @@ class FlowCanvasStudio {
         envCode: ctx.envCode,
         customNodes: this.currentNodes,
         customEdges: this.currentEdges,
-        params: {}
+        params: workflowId === 'flow_4_purge' ? { resume: true } : {}
       };
 
       const res = await fetch('/api/flows/execute', {
@@ -2120,7 +2260,29 @@ class FlowCanvasStudio {
 
     this.eventSource.onerror = (e) => {
       console.warn('SSE event stream reconnecting or ended:', e);
+      if (this.eventSource && this.eventSource.readyState === EventSource.CLOSED) {
+        this.refreshHistoryPanels({ pipeline: true });
+      }
     };
+  }
+
+  /**
+   * Refresh Riwayat Eksekusi, Log Langkah, Log Error (dan KPI overview)
+   */
+  refreshHistoryPanels({ pipeline = false, runId = null } = {}) {
+    const targetRunId = runId || this.activeRunId || null;
+    if (typeof window.refreshCanvasHistory === 'function') {
+      window.refreshCanvasHistory(targetRunId);
+    } else {
+      if (typeof window.loadEtlRuns === 'function') window.loadEtlRuns();
+      if (typeof window.loadEtlOverview === 'function') window.loadEtlOverview();
+    }
+    if (pipeline) {
+      const pipelineTab = document.getElementById('tab-pipeline');
+      if (pipelineTab && !pipelineTab.classList.contains('hidden') && typeof window.loadPipelineReconciliation === 'function') {
+        window.loadPipelineReconciliation(true);
+      }
+    }
   }
 
   /**
@@ -2142,8 +2304,7 @@ class FlowCanvasStudio {
       case 'FLOW_STARTED':
         this.updateLiveProgress(0, data.totalNodes, `Memulai alur: ${data.flowName}`);
         this.logConsole('INFO', `[FLOW] "${data.flowName}" dimulai dengan ${data.totalNodes} tahapan eksekusi.`);
-        if (typeof window.loadEtlRuns === 'function') window.loadEtlRuns();
-        if (typeof window.loadEtlOverview === 'function') window.loadEtlOverview();
+        this.refreshHistoryPanels();
         break;
 
       case 'BATCH_CONFIG_STARTED':
@@ -2225,15 +2386,13 @@ class FlowCanvasStudio {
           }, 800);
         }
 
-        // Live update table runs & kpi saat run dalam batch selesai diposting
-        if (typeof window.loadEtlRuns === 'function') window.loadEtlRuns();
-        if (typeof window.loadEtlOverview === 'function') window.loadEtlOverview();
+        // Live update riwayat, log langkah & log error saat run dalam batch selesai diposting
+        this.refreshHistoryPanels({ runId: data.runId });
         break;
 
       case 'BATCH_RUN_FAILED':
         this.logConsole('ERROR', `❌ [MULTI-RUN LOOP] Sesi Run #${data.runId} gagal pada langkah [${data.failedStep}]: ${data.error}`);
-        if (typeof window.loadEtlRuns === 'function') window.loadEtlRuns();
-        if (typeof window.loadEtlOverview === 'function') window.loadEtlOverview();
+        this.refreshHistoryPanels({ runId: data.runId });
         break;
 
       case 'NODE_STARTED':
@@ -2293,18 +2452,23 @@ class FlowCanvasStudio {
         }
 
         // Jika simpul finalisasi dieksekusi, refresh riwayat langsung
-        if (['node_finish_post', 'node_finish_rb', 'node_finish_run'].includes(data.nodeId) || 
-            ['FINISH_FLOW2', 'FINISH_ROLLBACK', 'FINISH_RUN'].includes(data.nodeType)) {
-          if (typeof window.loadEtlRuns === 'function') window.loadEtlRuns();
-          if (typeof window.loadEtlOverview === 'function') window.loadEtlOverview();
+        if (/^FINISH_/.test(data.nodeType || '') || /^node_finish_/.test(data.nodeId || '')) {
+          this.refreshHistoryPanels({ runId: data.runId });
         }
         break;
 
       case 'FLOW_COMPLETED':
         this.stopTimer();
-        this.updateLiveProgress(1, 1, '✓ Seluruh Alur Berhasil Selesai 100%!');
-        document.getElementById('live-banner-status-badge').className = 'badge badge-success';
-        document.getElementById('live-banner-status-badge').textContent = 'SUCCESS';
+        const isPurgeNoData = data.flowId === 'flow_4_purge' && data.noData;
+        const completeMsg = isPurgeNoData
+          ? (data.message || 'Proses sukses: tidak ada data yang pernah dimigrasikan dengan ID tersebut.')
+          : (data.message || '✓ Seluruh Alur Berhasil Selesai 100%!');
+        this.updateLiveProgress(1, 1, completeMsg);
+        const badgeEl = document.getElementById('live-banner-status-badge');
+        if (badgeEl) {
+          badgeEl.className = isPurgeNoData ? 'badge badge-info' : 'badge badge-success';
+          badgeEl.textContent = isPurgeNoData ? 'NO DATA' : 'SUCCESS';
+        }
         document.getElementById('live-banner-pulse').className = 'live-status-pulse';
         document.getElementById('live-banner-pulse').style.background = '#10b981';
 
@@ -2327,21 +2491,12 @@ class FlowCanvasStudio {
         if (this.eventSource) this.eventSource.close();
         document.getElementById('btn-canvas-run-flow').disabled = false;
 
-        // Auto refresh data tabel riwayat di tab Proses seketika
-        if (typeof window.loadEtlRuns === 'function') window.loadEtlRuns();
-        if (typeof window.loadEtlOverview === 'function') window.loadEtlOverview();
+        // Auto refresh riwayat eksekusi, log langkah & log error seketika
+        this.refreshHistoryPanels({ runId: data.runId });
 
         // Buffer delay (~500ms) untuk memastikan database commit sepenuhnya stabil, lalu switch otomatis ke tab Riwayat Eksekusi
         setTimeout(() => {
-          if (typeof window.loadEtlRuns === 'function') window.loadEtlRuns();
-          if (typeof window.loadEtlOverview === 'function') window.loadEtlOverview();
-          // Refresh tab pipeline (Hasil Migrasi) jika aktif
-          const pipelineTab = document.getElementById('tab-pipeline');
-          if (pipelineTab && !pipelineTab.classList.contains('hidden')) {
-            if (typeof window.loadPipelineReconciliation === 'function') {
-              window.loadPipelineReconciliation(true);
-            }
-          }
+          this.refreshHistoryPanels({ pipeline: true, runId: data.runId });
           if (typeof window.switchCanvasBottomTab === 'function') {
             window.switchCanvasBottomTab('canvas-tab-runs');
           }
@@ -2351,11 +2506,12 @@ class FlowCanvasStudio {
       case 'FLOW_FAILED':
         this.stopTimer();
         this.lastErrorData = data;
-        this.showErrorOnBanner(data.error);
+        const bannerTitle = data.humanTitle ? `${data.humanTitle}: ${data.humanMessage || data.error}` : data.error;
+        this.showErrorOnBanner(bannerTitle);
 
         // Tandai simpul yang gagal
         if (data.nodeId) {
-          this.setNodeVisualState(data.nodeId, 'failed', `FAILED: ${data.errorCode}`);
+          this.setNodeVisualState(data.nodeId, 'failed', `FAILED: ${data.errorCode || 'ERROR'}`);
           this.markIncomingEdgeFailed(data.nodeId);
 
           const failedNode = this.currentNodes.find(n => n.id === data.nodeId);
@@ -2367,24 +2523,17 @@ class FlowCanvasStudio {
           }
         }
 
-        this.logConsole('ERROR', `❌ [ERROR] Eksekusi terhenti: ${data.error}`);
+        const logMsg = data.humanTitle ? `[${data.humanTitle}] ${data.humanMessage || data.error}` : data.error;
+        this.logConsole('ERROR', `❌ [ERROR] Eksekusi terhenti: ${logMsg}`);
+        if (data.actionableSolution) {
+          this.logConsole('WARN', `💡 [SOLUSI] ${data.actionableSolution}`);
+        }
         if (this.eventSource) this.eventSource.close();
         document.getElementById('btn-canvas-run-flow').disabled = false;
 
-        // Auto refresh data tabel riwayat saat flow gagal
-        if (typeof window.loadEtlRuns === 'function') window.loadEtlRuns();
-        if (typeof window.loadEtlOverview === 'function') window.loadEtlOverview();
-        setTimeout(() => {
-          if (typeof window.loadEtlRuns === 'function') window.loadEtlRuns();
-          if (typeof window.loadEtlOverview === 'function') window.loadEtlOverview();
-          // Refresh tab pipeline (Hasil Migrasi) jika aktif
-          const pipelineTab = document.getElementById('tab-pipeline');
-          if (pipelineTab && !pipelineTab.classList.contains('hidden')) {
-            if (typeof window.loadPipelineReconciliation === 'function') {
-              window.loadPipelineReconciliation(true);
-            }
-          }
-        }, 500);
+        // Auto refresh riwayat eksekusi, log langkah & log error saat flow gagal
+        this.refreshHistoryPanels({ runId: data.runId });
+        setTimeout(() => this.refreshHistoryPanels({ pipeline: true, runId: data.runId }), 500);
 
         // Buka otomatis modal diagnostik error (Bug #3)
         this.openErrorDiagnosticModal(data);
@@ -2395,7 +2544,7 @@ class FlowCanvasStudio {
   /**
    * Buka Modal Diagnostik Error (Bug #3)
    */
-  async openErrorDiagnosticModal(errorData) {
+  async openErrorDiagnosticModal(errorData = {}) {
     const modal = document.getElementById('modal-node-error-diagnostic');
     if (!modal) return;
 
@@ -2409,31 +2558,54 @@ class FlowCanvasStudio {
     document.getElementById('diag-step-name').textContent = node?.auditStep || 'UNKNOWN_STEP';
     document.getElementById('diag-error-message').textContent = errorData.error || 'Terjadi kesalahan sistem saat mengeksekusi langkah ini.';
 
+    // Default Human Info dari errorData (jika dikirim via event SSE)
+    const titleEl = document.getElementById('diag-human-title');
+    const msgEl = document.getElementById('diag-human-message');
+    const causeEl = document.getElementById('diag-human-cause');
+    const solEl = document.getElementById('diag-human-solution');
+
+    if (titleEl) titleEl.textContent = errorData.humanTitle || 'Penjelasan Masalah & Rekomendasi Solusi';
+    if (msgEl) msgEl.textContent = errorData.humanMessage || errorData.error || 'Proses terhenti karena kegagalan pada langkah alur.';
+    if (causeEl) causeEl.textContent = errorData.cause || 'Kegagalan eksekusi query atau kondisi pra-syarat tidak terpenuhi.';
+    if (solEl) solEl.textContent = errorData.actionableSolution || 'Periksa parameter masukan dan jalankan ulang alur atau hubungi administrator.';
+
     const countBadge = document.getElementById('diag-samples-count');
     const tbody = document.getElementById('diag-tbody-samples');
     tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #64748b; padding: 1rem;">Memuat sampel data bermasalah dari database...</td></tr>';
 
     // Ambil sampel data error aktual dari API /api/flows/error-diagnostic/:runId
-    if (this.activeRunId) {
+    const targetRunId = errorData.runId || this.activeRunId;
+    if (targetRunId) {
       try {
-        const res = await fetch(`/api/flows/error-diagnostic/${this.activeRunId}`);
+        const res = await fetch(`/api/flows/error-diagnostic/${targetRunId}`);
         const json = await res.json();
-        if (json.success && json.data?.errorLogs && json.data.errorLogs.length > 0) {
-          const logs = json.data.errorLogs;
-          countBadge.textContent = `${logs.length} baris`;
-          tbody.innerHTML = logs.map(l => `
-            <tr>
-              <td style="color: #94a3b8;">${l.logged_at ? new Date(l.logged_at).toLocaleTimeString() : '-'}</td>
-              <td class="text-rose font-bold">${l.error_code || '-'}</td>
-              <td>${l.error_message || l.error_field || '-'}</td>
-              <td style="color: #fca5a5; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                ${l.row_data || '-'}
-              </td>
-            </tr>
-          `).join('');
-        } else {
-          countBadge.textContent = '0 baris';
-          tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #64748b; padding: 1rem;">Tidak ada baris data error khusus yang tercatat di migration_error_log.</td></tr>';
+        if (json.success && json.data) {
+          // Perbarui humanInfo jika dikembalikan oleh API
+          if (json.data.humanInfo) {
+            const hi = json.data.humanInfo;
+            if (titleEl && hi.humanTitle) titleEl.textContent = hi.humanTitle;
+            if (msgEl && hi.humanMessage) msgEl.textContent = hi.humanMessage;
+            if (causeEl && hi.cause) causeEl.textContent = hi.cause;
+            if (solEl && hi.actionableSolution) solEl.textContent = hi.actionableSolution;
+          }
+
+          if (json.data.errorLogs && json.data.errorLogs.length > 0) {
+            const logs = json.data.errorLogs;
+            countBadge.textContent = `${logs.length} baris`;
+            tbody.innerHTML = logs.map(l => `
+              <tr>
+                <td style="color: #94a3b8;">${l.logged_at ? new Date(l.logged_at).toLocaleTimeString() : '-'}</td>
+                <td class="text-rose font-bold">${l.error_code || '-'}</td>
+                <td>${l.error_message || l.error_field || '-'}</td>
+                <td style="color: #fca5a5; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  ${l.row_data || '-'}
+                </td>
+              </tr>
+            `).join('');
+          } else {
+            countBadge.textContent = '0 baris';
+            tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #64748b; padding: 1rem;">Tidak ada baris data error khusus yang tercatat di migration_error_log.</td></tr>';
+          }
         }
       } catch (e) {
         tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #f43f5e; padding: 1rem;">Gagal mengambil sampel error log.</td></tr>';
@@ -2903,6 +3075,88 @@ class FlowCanvasStudio {
         if (this.container) this.container.style.cursor = '';
       }
     });
+
+    this.setupTouchGestures();
+  }
+
+  /**
+   * Gestur sentuh: 1 jari geser kanvas / simpul, 2 jari pinch-zoom
+   */
+  setupTouchGestures() {
+    const el = this.container;
+    let mode = null;
+    let pinchDist = 0;
+    let touchNode = null;
+    const pt = (t) => ({ x: t.clientX, y: t.clientY });
+    const dist = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+
+    el.addEventListener('touchstart', (e) => {
+      if (e.target.closest('.canvas-floating-controls')) return;
+      if (e.touches.length === 2) {
+        mode = 'pinch';
+        pinchDist = dist(e.touches[0], e.touches[1]);
+        this.isPanning = false;
+        return;
+      }
+      if (e.touches.length !== 1) return;
+      const nodeEl = e.target.closest('.canvas-node');
+      const p = pt(e.touches[0]);
+      if (nodeEl) {
+        touchNode = (this.currentNodes || []).find(n => `cnode-${n.id}` === nodeEl.id) || null;
+        mode = touchNode ? 'node' : null;
+        if (touchNode) {
+          const vp = el.getBoundingClientRect();
+          this.dragOffset = {
+            x: (p.x - vp.left - this.panX) / this.zoomLevel - touchNode.x,
+            y: (p.y - vp.top - this.panY) / this.zoomLevel - touchNode.y
+          };
+        }
+        return;
+      }
+      mode = 'pan';
+      this.panStart = { x: p.x - this.panX, y: p.y - this.panY };
+    }, { passive: true });
+
+    el.addEventListener('touchmove', (e) => {
+      if (!mode) return;
+      if (mode === 'pinch' && e.touches.length === 2) {
+        e.preventDefault();
+        const d = dist(e.touches[0], e.touches[1]);
+        const rect = el.getBoundingClientRect();
+        const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left;
+        const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top;
+        if (pinchDist > 0) this.zoomTo(this.zoomLevel * (d / pinchDist), cx, cy);
+        pinchDist = d;
+        return;
+      }
+      if (e.touches.length !== 1) return;
+      e.preventDefault();
+      const p = pt(e.touches[0]);
+      if (mode === 'pan') {
+        this.panX = Math.round(p.x - this.panStart.x);
+        this.panY = Math.round(p.y - this.panStart.y);
+        this.applyTransform(false);
+      } else if (mode === 'node' && touchNode) {
+        this.isDragging = true;
+        this.draggedNode = touchNode;
+        this.onMouseMove({ clientX: p.x, clientY: p.y });
+      }
+    }, { passive: false });
+
+    const end = (e) => {
+      if (e.touches.length === 1 && mode === 'pinch') {
+        mode = 'pan';
+        const p = pt(e.touches[0]);
+        this.panStart = { x: p.x - this.panX, y: p.y - this.panY };
+        return;
+      }
+      if (e.touches.length > 0) return;
+      if (mode === 'node' && this.isDragging) this.onMouseUp();
+      mode = null;
+      touchNode = null;
+    };
+    el.addEventListener('touchend', end, { passive: true });
+    el.addEventListener('touchcancel', end, { passive: true });
   }
 
   /**
@@ -3042,32 +3296,6 @@ class FlowCanvasStudio {
     });
     document.getElementById('btn-diag-close')?.addEventListener('click', () => {
       document.getElementById('modal-node-error-diagnostic')?.classList.add('hidden');
-    });
-
-    // Tombol aksi di diagnostic modal: Retry & Rollback (Task 1: Dengan Konfirmasi)
-    document.getElementById('btn-diag-retry')?.addEventListener('click', () => {
-      document.getElementById('modal-node-error-diagnostic')?.classList.add('hidden');
-      if (typeof window.openRerunConfirmModal === 'function') {
-        window.openRerunConfirmModal({
-          title: 'Coba Ulang Alur',
-          message: 'Apakah Anda yakin ingin mencoba eksekusi ulang alur ini?',
-          workflowId: this.currentPresetId,
-          runId: this.activeRunId,
-          onProceed: () => {
-            this.openExecutionParamsModal();
-          }
-        });
-      } else {
-        this.openExecutionParamsModal();
-      }
-    });
-
-    document.getElementById('btn-diag-rollback')?.addEventListener('click', async () => {
-      document.getElementById('modal-node-error-diagnostic')?.classList.add('hidden');
-      if (this.activeRunId) {
-        this.loadPreset('flow_3_rollback');
-        this.openExecutionParamsModal();
-      }
     });
 
     // Tombol close dialog properti simpul

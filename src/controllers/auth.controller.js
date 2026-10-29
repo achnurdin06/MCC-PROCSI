@@ -167,6 +167,41 @@ class AuthController {
     }
   }
 
+  async createMenu(req, res) {
+    try {
+      const menu = await authService.createMenu(req.body);
+      res.json({
+        success: true,
+        data: menu,
+        message: `Menu "${menu.menu_name}" berhasil ditambahkan.`,
+      });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message, message: err.message });
+    }
+  }
+
+  async updateMenu(req, res) {
+    try {
+      const menu = await authService.updateMenu(req.params.id, req.body);
+      res.json({
+        success: true,
+        data: menu,
+        message: `Menu "${menu.menu_name}" berhasil diperbarui.`,
+      });
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message, message: err.message });
+    }
+  }
+
+  async deleteMenu(req, res) {
+    try {
+      const result = await authService.deleteMenu(req.params.id);
+      res.json(result);
+    } catch (err) {
+      res.status(400).json({ success: false, error: err.message, message: err.message });
+    }
+  }
+
   async getRolePermissions(req, res) {
     try {
       const permissions = await authService.getRolePermissions(req.params.roleId);

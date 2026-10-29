@@ -169,6 +169,7 @@ const state = {
   system: {
     users: [],
     roles: [],
+    menus: [],
     selectedMatrixRoleId: null,
     menuMatrix: [],
     usersPage: 1,
@@ -332,6 +333,17 @@ function setupEventListeners() {
     }
     loadCurrentTab();
   });
+
+  // Hide/Show menu header (mode HP)
+  const btnHeaderMenu = document.getElementById('btn-toggle-header-menu');
+  const headerGroup = document.getElementById('header-right-group');
+  if (btnHeaderMenu && headerGroup) {
+    btnHeaderMenu.addEventListener('click', () => {
+      const collapsed = headerGroup.classList.toggle('is-collapsed');
+      btnHeaderMenu.setAttribute('aria-expanded', String(!collapsed));
+      btnHeaderMenu.classList.toggle('is-open', !collapsed);
+    });
+  }
 
   // Open Settings Modal
   document.getElementById('btn-open-settings').addEventListener('click', () => {
@@ -825,54 +837,6 @@ function setupEventListeners() {
     });
   }
 
-  document.querySelectorAll('.stage-btn').forEach((btn) => {
-    btn.addEventListener('click', (e) => {
-      const stage = e.currentTarget.getAttribute('data-stage');
-      if (!stage) return;
-      document.querySelectorAll('.stage-btn').forEach((b) => b.classList.remove('active'));
-      e.currentTarget.classList.add('active');
-      state.pipeline.selectedStage = stage;
-      state.pipeline.sortBy = null;
-      state.pipeline.sortDir = 'ASC';
-      state.pipeline.page = 1;
-      loadPipelineStageData();
-    });
-  });
-
-  const selectStageLimit = document.getElementById('select-stage-limit');
-  if (selectStageLimit) {
-    selectStageLimit.addEventListener('change', (e) => {
-      state.pipeline.limit = parseInt(e.target.value, 10);
-      state.pipeline.page = 1;
-      loadPipelineStageData();
-    });
-  }
-
-  document.getElementById('btn-stage-prev').addEventListener('click', () => {
-    if (state.pipeline.page > 1) {
-      state.pipeline.page--;
-      loadPipelineStageData();
-    }
-  });
-
-  document.getElementById('btn-stage-next').addEventListener('click', () => {
-    if (state.pipeline.page < state.pipeline.totalPages) {
-      state.pipeline.page++;
-      loadPipelineStageData();
-    }
-  });
-
-  // Modal Pipeline Inspector (Tinjauan Hasil Migrasi)
-  const btnClosePipelineInspector = document.getElementById('btn-close-pipeline-inspector');
-  if (btnClosePipelineInspector) {
-    btnClosePipelineInspector.addEventListener('click', () => closePipelineInspectorModal());
-  }
-  const btnClosePipelineInspectorFooter = document.getElementById('btn-close-pipeline-inspector-footer');
-  if (btnClosePipelineInspectorFooter) {
-    btnClosePipelineInspectorFooter.addEventListener('click', () => closePipelineInspectorModal());
-  }
-
-
   // Modal CRUD Universal
   document.getElementById('btn-close-crud-modal').addEventListener('click', () => {
     document.getElementById('modal-config-form').classList.add('hidden');
@@ -1032,8 +996,8 @@ function setupEventListeners() {
     if (e.key === 'Escape') {
       const modalIds = [
         'modal-general-confirm',
+        'modal-staging-history',
         'modal-pipeline-compare',
-        'modal-pipeline-inspector',
         'modal-source-inspector',
         'modal-delete-confirm',
         'modal-json',
@@ -1057,6 +1021,9 @@ function setupEventListeners() {
 
   // Modal Compare 3-Tier Events
   initCompareModalEvents();
+
+  // Modal History Staging per Run ID
+  initStagingHistoryEvents();
 }
 
 function setupQuickFlowActions() {
@@ -1187,8 +1154,13 @@ function switchMainTab(tabId) {
   document.querySelectorAll('.nav-tab-btn').forEach((btn) => {
     btn.classList.toggle('active', btn.getAttribute('data-tab') === tabId);
   });
+  const isCustomTab = tabId && tabId.startsWith('tab-custom-');
   document.querySelectorAll('.tab-pane').forEach((p) => {
-    p.classList.toggle('active', p.id === tabId);
+    if (isCustomTab) {
+      p.classList.toggle('active', p.id === 'tab-custom-content');
+    } else {
+      p.classList.toggle('active', p.id === tabId);
+    }
   });
 
   loadCurrentTab();
@@ -1220,6 +1192,8 @@ function loadCurrentTab() {
     loadSystemAdministration();
   } else if (tabId === 'tab-userguide') {
     loadUserguideView();
+  } else if (tabId && tabId.startsWith('tab-custom-')) {
+    loadCustomTabView(tabId);
   }
 }
 
@@ -1247,6 +1221,13 @@ function switchCanvasBottomTab(tabId) {
   document.querySelectorAll('.canvas-bottom-pane').forEach((pane) => {
     pane.classList.toggle('active', pane.id === tabId);
   });
+
+  // Tab tabel butuh ruang lebih agar baris data tidak tertutup
+  const bottomPanel = document.getElementById('canvas-bottom-panel');
+  if (bottomPanel && tabId !== 'canvas-tab-terminal') {
+    const wanted = Math.min(440, Math.max(320, window.innerHeight - 260));
+    if (bottomPanel.getBoundingClientRect().height < wanted) bottomPanel.style.height = `${wanted}px`;
+  }
 
   if (tabId === 'canvas-tab-runs') {
     loadEtlOverview();
@@ -1370,26 +1351,6 @@ function resetVolatileStateAndUI() {
   state.pipeline.rows = [];
   const elPipeMaster = document.getElementById('pipeline-master-tbody');
   if (elPipeMaster) elPipeMaster.innerHTML = '<tr><td colspan="9" class="text-center py-8 text-muted">Memuat data rekonsiliasi...</td></tr>';
-  const elPipeTitle = document.getElementById('pipeline-detail-title');
-  if (elPipeTitle) elPipeTitle.textContent = 'Detail Pipeline';
-  const elPipeDesc = document.getElementById('pipeline-detail-desc');
-  if (elPipeDesc) elPipeDesc.textContent = 'Memuat alur rekonsiliasi...';
-  const elPipeBadges = document.getElementById('pipeline-detail-badges');
-  if (elPipeBadges) elPipeBadges.innerHTML = '';
-  const elPipeFlow = document.getElementById('pipeline-flow-diagram');
-  if (elPipeFlow) elPipeFlow.innerHTML = '<div class="text-center py-8 text-muted" style="width: 100%;">Memuat alur pipeline...</div>';
-  const elStageLoc = document.getElementById('stage-location-badge');
-  if (elStageLoc) elStageLoc.textContent = 'Tabel: -';
-  const elStageTotal = document.getElementById('stage-total-records');
-  if (elStageTotal) elStageTotal.textContent = '0';
-  const elStagePagInfo = document.getElementById('stage-pagination-info');
-  if (elStagePagInfo) elStagePagInfo.textContent = '0 baris ditemukan.';
-  const elStagePages = document.getElementById('stage-page-numbers');
-  if (elStagePages) elStagePages.innerHTML = '';
-  const elStageThead = document.getElementById('stage-data-thead');
-  if (elStageThead) elStageThead.innerHTML = '<tr><th>Pilih pipeline untuk melihat sampel data</th></tr>';
-  const elStageTbody = document.getElementById('stage-data-tbody');
-  if (elStageTbody) elStageTbody.innerHTML = '<tr><td class="text-center py-8 text-muted">Data tahap belum dimuat.</td></tr>';
 
   // 5. Reset Visual Canvas Studio Ephemeral Info & State
   if (window.flowCanvasStudio) {
@@ -3705,9 +3666,9 @@ function renderConfigTable(tableKey) {
         <td class="text-center"><span class="badge ${c.is_active ? 'badge-success' : 'badge-danger'}">${c.is_active ? 'Active' : 'Inactive'}</span></td>
         <td class="sticky-action-col">
           <div class="flex-gap-2 justify-center">
-            <button class="btn btn-secondary btn-sm" onclick="cloneConfig(${c.config_id})" title="Duplikat Konfigurasi ini">📋 Duplikat</button>
-            <button class="btn btn-secondary btn-sm" onclick="openEditConfigModal('migration_config', ${c.config_id})">Edit</button>
-            <button class="btn btn-danger btn-sm" onclick="openDeleteModal('migration_config', ${c.config_id}, '${escapeHtml(c.name_config || `Config #${c.config_id}`)}')">Hapus</button>
+            <button class="btn btn-secondary btn-xs btn-icon-only" onclick="cloneConfig(${c.config_id})" title="Duplikat" aria-label="Duplikat">📋</button>
+            <button class="btn btn-secondary btn-xs btn-icon-only" onclick="openEditConfigModal('migration_config', ${c.config_id})" title="Edit" aria-label="Edit">✏️</button>
+            <button class="btn btn-danger btn-xs btn-icon-only" onclick="openDeleteModal('migration_config', ${c.config_id}, '${escapeHtml(c.name_config || `Config #${c.config_id}`)}')" title="Hapus" aria-label="Hapus">🗑️</button>
           </div>
         </td>
       </tr>
@@ -3749,8 +3710,8 @@ function renderConfigTable(tableKey) {
         <td class="text-center"><span class="badge ${r.is_active ? 'badge-success' : 'badge-danger'}">${r.is_active ? 'Active' : 'Inactive'}</span></td>
         <td class="sticky-action-col">
           <div class="flex-gap-2 justify-center">
-            <button class="btn btn-secondary btn-sm" onclick="openEditConfigModal('migration_convert_rule', ${r.rule_id})">Edit</button>
-            <button class="btn btn-danger btn-sm" onclick="openDeleteModal('migration_convert_rule', ${r.rule_id}, 'Rule #${r.rule_id} (${escapeHtml(r.column_name || '')})')">Hapus</button>
+            <button class="btn btn-secondary btn-xs btn-icon-only" onclick="openEditConfigModal('migration_convert_rule', ${r.rule_id})" title="Edit" aria-label="Edit">✏️</button>
+            <button class="btn btn-danger btn-xs btn-icon-only" onclick="openDeleteModal('migration_convert_rule', ${r.rule_id}, 'Rule #${r.rule_id} (${escapeHtml(r.column_name || '')})')" title="Hapus" aria-label="Hapus">🗑️</button>
           </div>
         </td>
       </tr>
@@ -3779,8 +3740,8 @@ function renderConfigTable(tableKey) {
         <td class="text-center"><span class="badge ${t.is_active ? 'badge-success' : 'badge-danger'}">${t.is_active ? 'Active' : 'Inactive'}</span></td>
         <td class="sticky-action-col">
           <div class="flex-gap-2 justify-center">
-            <button class="btn btn-secondary btn-sm" onclick="openEditConfigModal('migration_target_config', ${t.target_config_id})">Edit</button>
-            <button class="btn btn-danger btn-sm" onclick="openDeleteModal('migration_target_config', ${t.target_config_id}, 'Target #${t.target_config_id}')">Hapus</button>
+            <button class="btn btn-secondary btn-xs btn-icon-only" onclick="openEditConfigModal('migration_target_config', ${t.target_config_id})" title="Edit" aria-label="Edit">✏️</button>
+            <button class="btn btn-danger btn-xs btn-icon-only" onclick="openDeleteModal('migration_target_config', ${t.target_config_id}, 'Target #${t.target_config_id}')" title="Hapus" aria-label="Hapus">🗑️</button>
           </div>
         </td>
       </tr>
@@ -3801,8 +3762,8 @@ function renderConfigTable(tableKey) {
         <td class="wrap-col text-muted text-xs" style="max-width: 180px;">${escapeHtml(l.description || '-')}</td>
         <td class="sticky-action-col">
           <div class="flex-gap-2 justify-center">
-            <button class="btn btn-secondary btn-sm" onclick="openEditConfigModal('migration_lookup', '${escapeHtml(l.lookup_name)}')">Edit</button>
-            <button class="btn btn-danger btn-sm" onclick="openDeleteModal('migration_lookup', '${escapeHtml(l.lookup_name)}', '${escapeHtml(l.lookup_name)}')">Hapus</button>
+            <button class="btn btn-secondary btn-xs btn-icon-only" onclick="openEditConfigModal('migration_lookup', '${escapeHtml(l.lookup_name)}')" title="Edit" aria-label="Edit">✏️</button>
+            <button class="btn btn-danger btn-xs btn-icon-only" onclick="openDeleteModal('migration_lookup', '${escapeHtml(l.lookup_name)}', '${escapeHtml(l.lookup_name)}')" title="Hapus" aria-label="Hapus">🗑️</button>
           </div>
         </td>
       </tr>
@@ -4761,11 +4722,21 @@ window.loadEtlRuns = loadEtlRuns;
 window.loadEtlStepLogs = loadEtlStepLogs;
 window.loadEtlErrorLogs = loadEtlErrorLogs;
 window.switchCanvasBottomTab = switchCanvasBottomTab;
+window.refreshCanvasHistory = function (targetRunId) {
+  if (targetRunId) state.process.selectedRunId = targetRunId;
+  const runId = state.process.selectedRunId;
+  return Promise.allSettled([
+    loadEtlOverview(),
+    loadEtlRuns(),
+    loadEtlStepLogs(runId),
+    loadEtlErrorLogs(runId),
+  ]);
+};
 
 async function loadEtlRuns() {
   const tbody = document.getElementById('etl-runs-table-body');
   if (!tbody) return;
-  tbody.innerHTML = `<tr><td colspan="14" class="text-center py-8 text-muted">Memuat data migration_run...</td></tr>`;
+  if (!tbody.querySelector('tr:not(:has(td[colspan]))')) tbody.innerHTML = `<tr><td colspan="14" class="text-center py-8 text-muted">Memuat data migration_run...</td></tr>`;
 
   try {
     const { page, limit, status, sortBy, sortDir } = state.process;
@@ -4850,8 +4821,17 @@ async function loadEtlRuns() {
       const isCancelled = run.status === 'CANCELLED';
       const isSuccess = run.status === 'SUCCESS' || run.status === 'COMPLETED';
       const isFailed = run.status === 'FAILED';
-      const isPostFailed = (run.main_workflow === 'flow_2_post' && isFailed) || (isFailed && run.note && (run.note.toUpperCase().includes('FLOW 2') || run.note.toUpperCase().includes('PRECHECK_TARGET')));
+      const isStale = run.status === 'RUNNING' && run.is_stale === true;
+      // Hanya berdasarkan main_workflow; teks note (mis. "menunggu Flow 2 Post") bukan indikator kegagalan posting
+      const isPostFailed = run.main_workflow === 'flow_2_post' && isFailed;
       const isFiltered = state.process.selectedRunId == run.run_id;
+      const resumeLabel = isPostFailed
+        ? { text: 'Ulangi Post (Flow 2)', title: 'Ulangi Flow 2 (posting) dari awal pada Run ID yang sama' }
+        : run.main_workflow === 'flow_3_rollback'
+          ? { text: 'Ulangi Rollback (Flow 3)', title: 'Ulangi Flow 3 (rollback) dari awal pada Run ID yang sama' }
+          : run.main_workflow === 'flow_4_purge'
+            ? { text: 'Ulangi Purge (Flow 4)', title: 'Ulangi Flow 4 (purge) dengan ID yang sama seperti eksekusi awal' }
+            : { text: 'Ulangi Staging (Flow 1)', title: 'Ulangi Flow 1 (staging) dari awal pada Run ID yang sama' };
 
       // Status Badge
       let statusBadge = '';
@@ -4865,6 +4845,8 @@ async function loadEtlRuns() {
         statusBadge = `<span class="badge badge-danger font-bold" title="Staging sukses, namun gagal pada tahap Flow 2 Posting">✕ POST FAILED</span>`;
       } else if (isFailed) {
         statusBadge = `<span class="badge badge-danger font-bold">✕ FAILED</span>`;
+      } else if (isStale) {
+        statusBadge = `<span class="badge badge-warning font-bold" title="Tidak ada aktivitas lebih dari 10 menit, kemungkinan koneksi/proses terputus">⏳ RUNNING (Tidak Responsif)</span>`;
       } else {
         const badgeClass = run.status === 'RUNNING' ? 'badge-primary' : 'badge-warning';
         statusBadge = `<span class="badge ${badgeClass}">${run.status}</span>`;
@@ -4949,15 +4931,44 @@ async function loadEtlRuns() {
           <td>${postBadge}</td>
           <td>${rollbackBadge}</td>
           <td class="font-mono text-muted" style="font-size: 0.75rem;">${run.hop_host || '-'}</td>
-          <td style="max-width: 250px; ${noteStyle}" title="${escapeHtml(run.note || '')}">${escapeHtml(run.note || '-')}</td>
+          <td style="max-width: 280px; min-width: 180px; ${noteStyle}" title="${escapeHtml(run.note || '')}">
+            ${(() => {
+              if (!run.note) return '-';
+              if (run.note.includes('💡 Solusi:')) {
+                const parts = run.note.split('💡 Solusi:');
+                return `
+                  <div>
+                    <div style="color: #f87171; font-weight: 600; line-height: 1.35;">${escapeHtml(parts[0].trim())}</div>
+                    <div style="color: #34d399; font-size: 0.72rem; margin-top: 4px; background: rgba(16, 185, 129, 0.12); padding: 3px 6px; border-radius: 4px; border-left: 2px solid #10b981; line-height: 1.3;">
+                      💡 <strong>Solusi:</strong> ${escapeHtml(parts[1].trim())}
+                    </div>
+                  </div>
+                `;
+              }
+              if (isFailed) {
+                return `<div style="color: #f87171; font-weight: 500; line-height: 1.35;">${escapeHtml(run.note)}</div>`;
+              }
+              return escapeHtml(run.note);
+            })()}
+          </td>
           <td>
             <div class="flex-gap-2" style="white-space: nowrap; justify-content: center;">
               <button class="btn btn-secondary btn-sm" onclick="filterLogsByRun(${run.run_id})" title="Lihat detail log langkah dan error sesi ini">
                 Lihat Logs
               </button>
+              ${isStale ? `
+                <button class="btn btn-warning btn-sm" onclick="forceStopWorkflowRun(${run.run_id})" title="Hentikan sesi yang tidak responsif, lalu bisa dilanjutkan">
+                  ⏹ Hentikan Paksa
+                </button>
+              ` : ''}
+              ${isFailed ? `
+                <button class="btn btn-secondary btn-sm" style="color: #f43f5e; border-color: rgba(244, 63, 94, 0.35);" onclick="openRunDiagnosticModal(${run.run_id})" title="Buka panel diagnostik kesalahan & rekomendasi solusi">
+                  🐞 Diagnostik
+                </button>
+              ` : ''}
               ${(isFailed && !isSuperseded) ? `
-                <button class="btn btn-warning btn-sm" onclick="resumeWorkflow(${run.run_id}, '${isPostFailed ? 'flow_2_post' : (run.main_workflow || 'flow_1_staging')}', '${run.config_id || ''}')" title="${isPostFailed ? 'Lanjutkan eksekusi posting Flow 2 untuk sesi ini' : 'Lanjutkan proses pada sesi Run #' + run.run_id}">
-                  ▶️ ${isPostFailed ? 'Lanjutkan Post (Flow 2)' : 'Lanjutkan'}
+                <button class="btn btn-warning btn-sm" onclick="resumeWorkflow(${run.run_id}, '${isPostFailed ? 'flow_2_post' : (run.main_workflow || 'flow_1_staging')}', '${run.config_id || ''}')" title="${resumeLabel.title}">
+                  ▶️ ${resumeLabel.text}
                 </button>
                 <button class="btn btn-secondary btn-sm" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.35);" onclick="cancelWorkflowRun(${run.run_id})" title="Batalkan status sesi gagal ini (tandai CANCELLED)">
                   🚫 Cancel
@@ -4972,6 +4983,17 @@ async function loadEtlRuns() {
     tbody.innerHTML = `<tr><td colspan="14" class="text-center py-8 text-rose">${err.message}</td></tr>`;
   }
 }
+
+/**
+ * Buka Modal Diagnostik Error dari Riwayat Eksekusi
+ */
+window.openRunDiagnosticModal = function (runId) {
+  if (window.flowCanvasStudio) {
+    window.flowCanvasStudio.openErrorDiagnosticModal({ runId });
+  } else {
+    alert(`Diagnostik untuk Run #${runId} dapat dilihat pada menu Workflow Canvas Studio.`);
+  }
+};
 
 /**
  * Dialog Konfirmasi Eksekusi Ulang / Lanjutkan Alur (Task 1)
@@ -5004,7 +5026,7 @@ window.openRerunConfirmModal = function (opts = {}) {
       ${opts.configId ? `<div><strong>Target Config:</strong> <span class="text-emerald font-bold">#${escapeHtml(String(opts.configId))}</span></div>` : ''}
       <div class="mt-2 text-xs" style="color: #94a3b8; border-top: 1px dashed rgba(148, 163, 184, 0.2); padding-top: 4px;">
         ${opts.isResume 
-          ? '⚠️ Mode Resume: Proses akan melanjutkan tahapan yang tersisa tanpa membuat ID sesi baru.' 
+          ? '⚠️ Mode Ulangi: Flow akan dijalankan ulang dari awal pada Run ID yang sama (tanpa membuat ID sesi baru). Data yang sudah selesai dilewati/divalidasi ulang oleh sistem.' 
           : 'ℹ️ Parameter alur akan disiapkan di Flow Canvas Studio untuk eksekusi baru.'}
       </div>
     `;
@@ -5097,6 +5119,27 @@ window.rerunWorkflow = function (workflowId, configId, runId = null) {
   });
 };
 
+window.forceStopWorkflowRun = function (runId) {
+  openGeneralConfirmModal({
+    title: 'Hentikan Paksa Sesi',
+    message: `Sesi Run #${runId} tidak menunjukkan aktivitas. Hentikan paksa?`,
+    submessage: 'Status berubah menjadi FAILED, lalu Anda dapat memakai Diagnostik atau Lanjutkan.',
+    proceedLabel: 'Ya, Hentikan',
+    proceedClass: 'btn-danger',
+    onConfirm: async () => {
+      try {
+        const res = await authFetch(`/api/etl/runs/${runId}/force-stop`, { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || 'Gagal menghentikan sesi.');
+        showToast(`Sesi Run #${runId} dihentikan. Silakan Lanjutkan.`, 'success');
+        await window.refreshCanvasHistory(runId);
+      } catch (err) {
+        showToast(`Gagal menghentikan sesi: ${err.message}`, 'error');
+      }
+    },
+  });
+};
+
 window.cancelWorkflowRun = function (runId) {
   openGeneralConfirmModal({
     title: 'Konfirmasi Pembatalan Sesi',
@@ -5119,12 +5162,7 @@ window.cancelWorkflowRun = function (runId) {
         } else {
           alert(`Sesi Run #${runId} berhasil dibatalkan.`);
         }
-        if (typeof loadMigrationRunsTable === 'function') {
-          await loadMigrationRunsTable();
-        }
-        if (typeof loadEtlOverview === 'function') {
-          await loadEtlOverview();
-        }
+        await window.refreshCanvasHistory(runId);
       } catch (err) {
         if (typeof showToast === 'function') {
           showToast(`Gagal membatalkan sesi: ${err.message}`, 'error');
@@ -5157,7 +5195,7 @@ window.filterLogsByRun = function (runId) {
 async function loadEtlStepLogs(runId = null) {
   const tbody = document.getElementById('etl-steps-table-body');
   if (!tbody) return;
-  tbody.innerHTML = `<tr><td colspan="12" class="text-center py-8 text-muted">Memuat data migration_step_log...</td></tr>`;
+  if (!tbody.querySelector('tr:not(:has(td[colspan]))')) tbody.innerHTML = `<tr><td colspan="12" class="text-center py-8 text-muted">Memuat data migration_step_log...</td></tr>`;
 
   try {
     const sState = state.process.stepLogsState;
@@ -5220,7 +5258,7 @@ async function loadEtlStepLogs(runId = null) {
 
     renderPaginationNumbers('steplogs-page-numbers', curPage, sState.totalPages, (newPage) => {
       sState.page = newPage;
-      loadStepLogs();
+      loadEtlStepLogs(state.process.selectedRunId);
     });
 
     if (list.length === 0) {
@@ -5258,7 +5296,7 @@ async function loadEtlStepLogs(runId = null) {
 async function loadEtlErrorLogs(runId = null) {
   const tbody = document.getElementById('etl-errors-table-body');
   if (!tbody) return;
-  tbody.innerHTML = `<tr><td colspan="10" class="text-center py-8 text-muted">Memuat data migration_error_log...</td></tr>`;
+  if (!tbody.querySelector('tr:not(:has(td[colspan]))')) tbody.innerHTML = `<tr><td colspan="10" class="text-center py-8 text-muted">Memuat data migration_error_log...</td></tr>`;
 
   try {
     const eState = state.process.errorLogsState;
@@ -5320,7 +5358,7 @@ async function loadEtlErrorLogs(runId = null) {
 
     renderPaginationNumbers('errorlogs-page-numbers', curPage, eState.totalPages, (newPage) => {
       eState.page = newPage;
-      loadErrorLogs();
+      loadEtlErrorLogs(state.process.selectedRunId);
     });
 
     if (list.length === 0) {
@@ -5339,7 +5377,23 @@ async function loadEtlErrorLogs(runId = null) {
           <td><strong class="text-amber">${escapeHtml(e.pipeline_name || e.transform_name || '-')}</strong></td>
           <td class="font-mono text-rose text-center" style="font-size: 0.75rem;">${escapeHtml(e.error_code || '-')}</td>
           <td class="font-mono text-muted" style="font-size: 0.75rem;">${formatDate(e.error_time)}</td>
-          <td style="max-width: 250px;" class="text-rose wrap-col"><strong>${escapeHtml(e.error_message || '')}</strong></td>
+          <td style="max-width: 320px; min-width: 200px;" class="wrap-col">
+            ${(() => {
+              const msg = e.error_message || '';
+              if (msg.includes('💡 Solusi:')) {
+                const parts = msg.split('💡 Solusi:');
+                return `
+                  <div>
+                    <div class="text-rose font-bold" style="line-height: 1.35;">${escapeHtml(parts[0].trim())}</div>
+                    <div style="color: #34d399; font-size: 0.72rem; margin-top: 4px; background: rgba(16, 185, 129, 0.12); padding: 3px 6px; border-radius: 4px; border-left: 2px solid #10b981; line-height: 1.3;">
+                      💡 <strong>Solusi:</strong> ${escapeHtml(parts[1].trim())}
+                    </div>
+                  </div>
+                `;
+              }
+              return `<span class="text-rose"><strong>${escapeHtml(msg || '-')}</strong></span>`;
+            })()}
+          </td>
           <td class="font-mono text-amber">${escapeHtml(e.error_field || '-')}</td>
           <td class="text-center">
             ${rawJson ? `<button class="btn btn-secondary btn-sm" onclick="showJsonModal(${e.error_id})">Lihat JSON</button>` : '-'}
@@ -5574,8 +5628,8 @@ function renderPipelineMasterRows(pipelines) {
           <td class="text-center"><span class="${errorClass}">${errorText}</span></td>
           <td class="text-center">
             <div style="display: inline-flex; align-items: center; justify-content: center; gap: 4px;">
-              <button class="btn btn-secondary btn-xs" onclick="openPipelineInspectorModal(${p.configId}, '${t.table}')" title="Buka dialog peninjauan alur &amp; data tahap">Tinjau</button>
-              <button class="btn btn-compare-pipeline btn-xs" onclick="openPipelineCompareModal(${p.configId}, '${t.table}', ${t.lastRunId ? `'${t.lastRunId}'` : 'null'})" title="Komparasi kolom 3-Tier &amp; evaluasi sukses migrasi (Run: #${t.lastRunId || '-'})">⚖️ Compare</button>
+              <button class="btn btn-secondary btn-xs" onclick="openStagingHistoryModal(${p.configId})" title="Riwayat staging per Run ID (staging_data_history)">🕘<span class="btn-label"> History</span></button>
+              <button class="btn btn-compare-pipeline btn-xs" onclick="openPipelineCompareModal(${p.configId}, '${t.table}', ${t.lastRunId ? `'${t.lastRunId}'` : 'null'})" title="Komparasi kolom 3-Tier &amp; evaluasi sukses migrasi (Run: #${t.lastRunId || '-'})">⚖️<span class="btn-label"> Compare</span></button>
             </div>
           </td>
         </tr>
@@ -5595,7 +5649,12 @@ async function loadPipelineReconciliation(force = false) {
     masterTbody.innerHTML = `<tr><td colspan="14" class="text-center py-6 text-muted"><span class="loading-spinner"></span> Mengambil data rekonsiliasi konfigurasi...</td></tr>`;
   }
 
-  if (refreshBtn) refreshBtn.classList.add('loading');
+  const tableWrap = masterTbody.closest('.table-container');
+  if (refreshBtn) {
+    refreshBtn.classList.add('loading');
+    refreshBtn.disabled = true;
+  }
+  if (tableWrap) tableWrap.classList.add('is-loading');
 
   try {
     const params = [];
@@ -5613,18 +5672,6 @@ async function loadPipelineReconciliation(force = false) {
     if (data.pipelines.length === 0) {
       masterTbody.innerHTML = `<tr><td colspan="14" class="text-center py-8 text-muted">Belum ada data konfigurasi di migration_config untuk environment ini.</td></tr>`;
       state.pipeline.selectedConfigId = null;
-      document.getElementById('pipeline-detail-title').textContent = 'Detail Pipeline';
-      document.getElementById('pipeline-detail-desc').textContent = 'Belum ada alur rekonsiliasi untuk environment ini.';
-      document.getElementById('pipeline-detail-badges').innerHTML = '';
-      document.getElementById('pipeline-flow-diagram').innerHTML = '<div class="text-center py-8 text-muted" style="width: 100%;">Tidak ada alur pipeline yang aktif.</div>';
-      document.getElementById('stage-location-badge').textContent = 'Tabel: -';
-      document.getElementById('stage-total-records').textContent = '0';
-      document.getElementById('stage-pagination-info').textContent = '0 baris ditemukan.';
-      document.getElementById('stage-page-numbers').innerHTML = '';
-      document.getElementById('btn-stage-prev').disabled = true;
-      document.getElementById('btn-stage-next').disabled = true;
-      document.getElementById('stage-data-thead').innerHTML = '<tr><th>Data Kosong</th></tr>';
-      document.getElementById('stage-data-tbody').innerHTML = '<tr><td class="text-center py-8 text-muted">Tidak ada data tahap pipeline.</td></tr>';
       return;
     }
 
@@ -5639,205 +5686,15 @@ async function loadPipelineReconciliation(force = false) {
       masterTbody.innerHTML = `<tr><td colspan="14" class="text-center py-8 text-rose">${err.message}</td></tr>`;
     }
   } finally {
-    if (refreshBtn) refreshBtn.classList.remove('loading');
+    if (refreshBtn) {
+      refreshBtn.classList.remove('loading');
+      refreshBtn.disabled = false;
+    }
+    if (tableWrap) tableWrap.classList.remove('is-loading');
   }
 }
+window.loadPipelineReconciliation = loadPipelineReconciliation;
 
-window.openPipelineInspectorModal = function (configId, targetTableName) {
-  selectPipelineConfig(configId, targetTableName);
-  const modal = document.getElementById('modal-pipeline-inspector');
-  if (modal) {
-    const cfgBadge = document.getElementById('pipeline-modal-cfg-badge');
-    if (cfgBadge) cfgBadge.textContent = `Config #${configId}`;
-    modal.classList.remove('hidden');
-  }
-};
-
-window.closePipelineInspectorModal = function () {
-  const modal = document.getElementById('modal-pipeline-inspector');
-  if (modal) {
-    modal.classList.add('hidden');
-  }
-};
-
-window.selectPipelineConfig = function (configId, targetTableName) {
-  state.pipeline.selectedConfigId = configId;
-  state.pipeline.sortBy = null;
-  state.pipeline.sortDir = 'ASC';
-  if (targetTableName) {
-    state.pipeline.selectedTargetTable = targetTableName;
-  }
-  document.querySelectorAll('#pipeline-master-tbody tr').forEach((tr) => tr.classList.remove('active-row'));
-  document.querySelectorAll(`#pipeline-master-tbody tr[data-config-id="${configId}"]`).forEach((tr) => tr.classList.add('active-row'));
-
-  const p = state.pipeline.pipelines.find((x) => x.configId === configId);
-  if (!p) return;
-
-  const activeTarget = (targetTableName && p.targets)
-    ? (p.targets.find((t) => t.table === targetTableName) || p.targets[0] || p.target)
-    : (p.targets?.[0] || p.target);
-
-  document.getElementById('pipeline-detail-title').textContent = `Detail Pipeline: Config #${p.configId} (${p.source.view})`;
-  document.getElementById('pipeline-detail-desc').textContent = `Alur rekonsiliasi: [${p.source.schema}].[${p.source.view}] ➔ stg_antam.${p.staging.table} ➔ ${activeTarget.schema}.${activeTarget.table}`;
-
-  const delta1 = p.reconciliation.deltaSourceToStaging;
-  const isMatch = p.reconciliation.sourceToStagingStatus === 'MATCH';
-  document.getElementById('pipeline-detail-badges').innerHTML = `
-    <span class="badge ${isMatch ? 'badge-success' : 'badge-warning'}">${isMatch ? '✓ Source ➔ Staging Sinkron' : '⏳ Ada Selisih'}</span>
-    <span class="badge ${p.isActive ? 'badge-neutral' : 'badge-danger'}">${p.isActive ? 'Status: Active' : 'Status: Inactive'}</span>
-  `;
-
-  const srcRows = p.source.rows ?? 0;
-  const stgRows = p.staging.rows ?? 0;
-  const tgtRows = activeTarget.sumAfter ?? p.target.rows ?? 0;
-  const delta2 = tgtRows - stgRows;
-
-  document.getElementById('pipeline-flow-diagram').innerHTML = `
-    <div class="pipeline-node source">
-      <div class="node-stage-label text-cyan">1. Source View (${p.source.dbType || 'SQL Server'})</div>
-      <div class="node-table-name">[${p.source.schema}].[${p.source.view}]</div>
-      <div class="node-rows-val">${formatNumber(srcRows)}</div>
-      <div class="node-db-meta">Database: ${p.source.database || 'Source DB'}</div>
-    </div>
-    <div class="pipeline-arrow">
-      <span class="arrow-symbol">➔</span>
-      <span class="arrow-delta ${delta1 === 0 ? 'text-emerald' : 'text-amber'}">${delta1 === 0 ? 'Match' : (delta1 > 0 ? '+' + delta1 : delta1)}</span>
-    </div>
-    <div class="pipeline-node staging">
-      <div class="node-stage-label text-amber">2. Staging Table (PostgreSQL)</div>
-      <div class="node-table-name">${p.staging.schema || 'stg_antam'}.${p.staging.table}</div>
-      <div class="node-rows-val">${formatNumber(stgRows)}</div>
-      <div class="node-db-meta">Database: ${p.staging.database || 'PostgreSQL'}</div>
-    </div>
-    <div class="pipeline-arrow">
-      <span class="arrow-symbol">➔</span>
-      <span class="arrow-delta text-cyan">${delta2 >= 0 ? '+' + formatNumber(delta2) : formatNumber(delta2)}</span>
-    </div>
-    <div class="pipeline-node target">
-      <div class="node-stage-label text-emerald">3. Final Target (PostgreSQL)</div>
-      <div class="node-table-name">${activeTarget.schema}.${activeTarget.table}</div>
-      <div class="node-rows-val">${formatNumber(tgtRows)}</div>
-      <div class="node-db-meta">Database: ${p.target.database || 'PostgreSQL'}</div>
-    </div>
-  `;
-
-  // Hubungkan tombol Cetak Berita Acara di dalam modal dengan config terpilih
-  const btnOpenBa = document.getElementById('btn-open-ba');
-  if (btnOpenBa) {
-    btnOpenBa.onclick = () => openBeritaAcara(configId);
-  }
-
-  state.pipeline.page = 1;
-  loadPipelineStageData();
-};
-
-async function loadPipelineStageData() {
-  const configId = state.pipeline.selectedConfigId;
-  const stage = state.pipeline.selectedStage;
-  const targetParam = (stage === 'target' && state.pipeline.selectedTargetTable)
-    ? `&targetTable=${encodeURIComponent(state.pipeline.selectedTargetTable)}`
-    : '';
-
-  document.querySelectorAll('.stage-btn').forEach((btn) => {
-    btn.classList.toggle('active', btn.getAttribute('data-stage') === stage);
-  });
-
-  const thead = document.getElementById('stage-data-thead');
-  const tbody = document.getElementById('stage-data-tbody');
-
-  thead.innerHTML = `<tr><th class="text-center py-8 text-muted">Memuat baris data ${stage}...</th></tr>`;
-  tbody.innerHTML = `<tr><td class="text-center py-8 text-muted">Mengambil data dari database...</td></tr>`;
-
-  try {
-    const sortParam = state.pipeline.sortBy 
-      ? `&sortBy=${encodeURIComponent(state.pipeline.sortBy)}&sortDir=${encodeURIComponent(state.pipeline.sortDir || 'ASC')}` 
-      : '';
-    const url = `/api/reconciliation/stage-data?configId=${configId}&stage=${stage}&page=${state.pipeline.page}&limit=${state.pipeline.limit}${targetParam}${sortParam}`;
-    const res = await fetch(url);
-    const json = await res.json();
-    if (!json.success) throw new Error(json.error);
-    const data = json.data;
-
-    state.pipeline.page = data.page || 1;
-    state.pipeline.limit = data.limit || 25;
-    state.pipeline.total = data.total || 0;
-    state.pipeline.totalPages = data.totalPages || 1;
-    state.pipeline.columns = data.columns || [];
-    state.pipeline.rows = data.rows || [];
-
-    document.getElementById('stage-location-badge').textContent = `Tabel: ${data.location}`;
-    document.getElementById('stage-total-records').textContent = formatNumber(data.total);
-
-    const startIdx = data.total > 0 ? (data.page - 1) * data.limit + 1 : 0;
-    const endIdx = Math.min(data.page * data.limit, data.total);
-    document.getElementById('stage-pagination-info').textContent = data.total > 0
-      ? `Menampilkan ${formatNumber(startIdx)} - ${formatNumber(endIdx)} dari total ${formatNumber(data.total)} baris`
-      : '0 baris ditemukan.';
-
-    document.getElementById('btn-stage-prev').disabled = data.page <= 1;
-    document.getElementById('btn-stage-next').disabled = data.page >= data.totalPages;
-
-    renderPaginationNumbers('stage-page-numbers', data.page, data.totalPages, (newPage) => {
-      state.pipeline.page = newPage;
-      loadPipelineStageData();
-    });
-
-    if (data.columns.length === 0) {
-      thead.innerHTML = `<tr><th class="text-center py-6 text-muted">Tidak ada kolom yang terdeteksi.</th></tr>`;
-      tbody.innerHTML = `<tr><td class="text-center py-8 text-muted">Tabel belum memiliki definisi kolom.</td></tr>`;
-      return;
-    }
-
-    thead.innerHTML = `
-      <tr>
-        <th style="width: 45px; text-align: center;">#</th>
-        ${data.columns.map((c) => {
-          const isSorted = state.pipeline.sortBy && state.pipeline.sortBy.toLowerCase() === c.name.toLowerCase();
-          const sortIcon = isSorted ? (state.pipeline.sortDir === 'ASC' ? '▲' : '▼') : '↕';
-          const sortClass = isSorted ? (state.pipeline.sortDir === 'ASC' ? 'sorted-asc' : 'sorted-desc') : '';
-          return `
-            <th class="sortable ${sortClass}" onclick="window.sortStageData('${escapeHtml(c.name)}')" title="Klik untuk mengurutkan kolom ${escapeHtml(c.name)}" style="cursor: pointer; user-select: none;">
-              <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
-                <span>${escapeHtml(c.name)} <span class="text-muted" style="font-size: 0.65rem;">(${escapeHtml(c.type)})</span></span>
-                <span class="sort-icon" style="font-size: 0.72rem; opacity: ${isSorted ? '1' : '0.4'};">${sortIcon}</span>
-              </div>
-            </th>
-          `;
-        }).join('')}
-      </tr>
-    `;
-
-    if (data.rows.length === 0) {
-      tbody.innerHTML = `<tr><td colspan="${data.columns.length + 1}" class="text-center py-8 text-muted">Tabel pada tahapan ini tidak memiliki baris data.</td></tr>`;
-      return;
-    }
-
-    tbody.innerHTML = data.rows.map((r, rIdx) => {
-      const rowNum = (data.page - 1) * data.limit + rIdx + 1;
-      const cells = data.columns.map((c) => {
-        const val = r[c.name];
-        if (val === null || val === undefined) return `<td><span class="text-muted font-italic">NULL</span></td>`;
-        if (typeof val === 'boolean') return `<td><span class="badge ${val ? 'badge-success' : 'badge-danger'}">${val}</span></td>`;
-        return `<td>${escapeHtml(String(val))}</td>`;
-      }).join('');
-      return `<tr><td class="font-mono text-muted text-center">${rowNum}</td>${cells}</tr>`;
-    }).join('');
-  } catch (err) {
-    thead.innerHTML = `<tr><th class="text-center py-8 text-rose">Gagal memuat data</th></tr>`;
-    tbody.innerHTML = `<tr><td class="text-center py-8 text-rose">${escapeHtml(err.message)}</td></tr>`;
-  }
-}
-
-window.sortStageData = function (colName) {
-  if (state.pipeline.sortBy && state.pipeline.sortBy.toLowerCase() === colName.toLowerCase()) {
-    state.pipeline.sortDir = state.pipeline.sortDir === 'ASC' ? 'DESC' : 'ASC';
-  } else {
-    state.pipeline.sortBy = colName;
-    state.pipeline.sortDir = 'ASC';
-  }
-  state.pipeline.page = 1;
-  loadPipelineStageData();
-};
 
 // =========================================================================
 // MODUL 4: 3-TIER COLUMN & STATUS COMPARATOR (COMPARE ACTION)
@@ -5881,6 +5738,169 @@ function initCompareModalEvents() {
     });
   }
 }
+
+// =========================================================================
+// MODUL 4: HISTORY STAGING PER RUN ID (stg_antam.staging_data_history)
+// =========================================================================
+const stagingHistoryState = { configId: null, runId: null, deltaStatus: '', search: '', offset: 0, limit: 50, total: 0, searchTimer: null };
+
+function initStagingHistoryEvents() {
+  const close = () => document.getElementById('modal-staging-history')?.classList.add('hidden');
+  document.getElementById('btn-close-staging-history')?.addEventListener('click', close);
+  document.getElementById('btn-close-staging-history-footer')?.addEventListener('click', close);
+  document.getElementById('btn-hist-refresh')?.addEventListener('click', () => loadStagingHistoryRuns());
+
+  document.getElementById('hist-delta-filter')?.addEventListener('change', (e) => {
+    stagingHistoryState.deltaStatus = e.target.value;
+    stagingHistoryState.offset = 0;
+    loadStagingHistoryDetail();
+  });
+  document.getElementById('hist-search-input')?.addEventListener('input', (e) => {
+    clearTimeout(stagingHistoryState.searchTimer);
+    const val = e.target.value;
+    stagingHistoryState.searchTimer = setTimeout(() => {
+      stagingHistoryState.search = val;
+      stagingHistoryState.offset = 0;
+      loadStagingHistoryDetail();
+    }, 300);
+  });
+  document.getElementById('btn-hist-prev')?.addEventListener('click', () => {
+    stagingHistoryState.offset = Math.max(0, stagingHistoryState.offset - stagingHistoryState.limit);
+    loadStagingHistoryDetail();
+  });
+  document.getElementById('btn-hist-next')?.addEventListener('click', () => {
+    stagingHistoryState.offset += stagingHistoryState.limit;
+    loadStagingHistoryDetail();
+  });
+}
+
+window.openStagingHistoryModal = function (configId, runId) {
+  Object.assign(stagingHistoryState, { configId, runId: runId || null, deltaStatus: '', search: '', offset: 0, total: 0 });
+  const badge = document.getElementById('hist-modal-cfg-badge');
+  if (badge) badge.textContent = `Config #${configId}`;
+  const filter = document.getElementById('hist-delta-filter');
+  if (filter) filter.value = '';
+  const search = document.getElementById('hist-search-input');
+  if (search) search.value = '';
+  document.getElementById('modal-staging-history')?.classList.remove('hidden');
+  loadStagingHistoryRuns();
+};
+
+async function loadStagingHistoryRuns() {
+  const tbody = document.getElementById('hist-runs-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-muted"><span class="loading-spinner"></span> Memuat riwayat run...</td></tr>`;
+  try {
+    const res = await fetch(`/api/reconciliation/staging-history/runs?configId=${stagingHistoryState.configId}`);
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Gagal memuat riwayat run');
+    const runs = json.data.runs || [];
+    if (runs.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-muted">Belum ada riwayat staging untuk config ini.</td></tr>`;
+      renderStagingHistoryDetailEmpty();
+      return;
+    }
+    tbody.innerHTML = runs.map((r) => {
+      let postBadge = '<span class="badge badge-neutral">Belum diposting</span>';
+      if (r.is_rolled_back) postBadge = '<span class="badge badge-warning">Rolled back</span>';
+      else if (r.is_posted) postBadge = '<span class="badge badge-success">Posted</span>';
+      const active = String(r.run_id) === String(stagingHistoryState.runId) ? 'active-row' : '';
+      return `
+        <tr class="${active}">
+          <td class="font-mono font-bold text-center">#${r.run_id}</td>
+          <td class="text-center text-xs">${formatDate(r.staged_at)}</td>
+          <td class="font-mono text-center">${formatNumber(r.total_rows)}</td>
+          <td class="font-mono text-center text-emerald font-bold">${formatNumber(r.new_delta)}</td>
+          <td class="font-mono text-center text-muted">${formatNumber(r.already_in_target)}</td>
+          <td class="text-center">${postBadge}</td>
+          <td class="text-center"><button class="btn btn-secondary btn-xs" onclick="selectStagingHistoryRun(${r.run_id})">Lihat Data</button></td>
+        </tr>`;
+    }).join('');
+    if (!stagingHistoryState.runId) {
+      selectStagingHistoryRun(runs[0].run_id);
+    } else {
+      loadStagingHistoryDetail();
+    }
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4 text-rose">${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+function renderStagingHistoryDetailEmpty() {
+  const tbody = document.getElementById('hist-detail-tbody');
+  if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-muted">Tidak ada data.</td></tr>`;
+  const info = document.getElementById('hist-detail-info');
+  if (info) info.textContent = '-';
+}
+
+window.selectStagingHistoryRun = function (runId) {
+  stagingHistoryState.runId = runId;
+  stagingHistoryState.offset = 0;
+  document.querySelectorAll('#hist-runs-tbody tr').forEach((tr) => {
+    tr.classList.toggle('active-row', tr.firstElementChild?.textContent.trim() === `#${runId}`);
+  });
+  loadStagingHistoryDetail();
+};
+
+async function loadStagingHistoryDetail() {
+  const st = stagingHistoryState;
+  const tbody = document.getElementById('hist-detail-tbody');
+  if (!tbody || !st.runId) return;
+  const title = document.getElementById('hist-detail-title');
+  if (title) title.textContent = `Detail data staging: Run #${st.runId}`;
+  tbody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-muted"><span class="loading-spinner"></span> Memuat data...</td></tr>`;
+  try {
+    const q = new URLSearchParams({ configId: st.configId, runId: st.runId, limit: st.limit, offset: st.offset });
+    if (st.deltaStatus) q.set('deltaStatus', st.deltaStatus);
+    if (st.search.trim()) q.set('search', st.search.trim());
+    const res = await fetch(`/api/reconciliation/staging-history?${q}`);
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Gagal memuat data history');
+    const { rows, total } = json.data;
+    st.total = total;
+    if (!rows.length) {
+      renderStagingHistoryDetailEmpty();
+    } else {
+      tbody.innerHTML = rows.map((h) => {
+        const p = h.payload || {};
+        const isNew = h.delta_status === 'NEW_DELTA';
+        return `
+          <tr>
+            <td class="font-mono text-center">${h.history_id}</td>
+            <td class="font-mono text-center">#${h.run_id}</td>
+            <td class="font-mono">${escapeHtml(h.business_key_columns)}: <strong>${escapeHtml(h.business_key_value)}</strong></td>
+            <td class="text-center"><span class="badge ${isNew ? 'badge-success' : 'badge-neutral'}">${escapeHtml(h.delta_status)}</span></td>
+            <td class="font-mono">${escapeHtml(p.id ?? '-')}</td>
+            <td>${escapeHtml(p.name ?? '-')}</td>
+            <td class="text-center text-xs">${formatDate(h.staged_at)}</td>
+            <td class="text-center"><button class="btn btn-secondary btn-xs" onclick="viewStagingHistoryPayload(${h.history_id})">JSON</button></td>
+          </tr>`;
+      }).join('');
+      st.rowsCache = Object.fromEntries(rows.map((h) => [h.history_id, h]));
+    }
+    const from = total === 0 ? 0 : st.offset + 1;
+    const to = Math.min(st.offset + st.limit, total);
+    const info = document.getElementById('hist-detail-info');
+    if (info) info.textContent = `Menampilkan ${from}-${to} dari ${formatNumber(total)} baris`;
+    const prev = document.getElementById('btn-hist-prev');
+    const next = document.getElementById('btn-hist-next');
+    if (prev) prev.disabled = st.offset <= 0;
+    if (next) next.disabled = st.offset + st.limit >= total;
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-rose">${escapeHtml(err.message)}</td></tr>`;
+  }
+}
+
+window.viewStagingHistoryPayload = function (historyId) {
+  const h = stagingHistoryState.rowsCache?.[historyId];
+  if (!h) return;
+  const modal = document.getElementById('modal-json');
+  const codePre = document.getElementById('modal-json-content');
+  if (!modal || !codePre) return;
+  codePre.textContent = JSON.stringify(h.payload, null, 2);
+  modal.style.zIndex = '10000';
+  modal.classList.remove('hidden');
+};
 
 window.openPipelineCompareModal = function (configId, targetTableName, runId) {
   state.compare.selectedConfigId = configId;
@@ -6025,13 +6045,7 @@ async function loadPipelineComparison(configId, targetTableName, runId) {
         openBeritaAcara(configId);
       };
     }
-    const btnOpenInspector = document.getElementById('btn-compare-open-inspector');
-    if (btnOpenInspector) {
-      btnOpenInspector.onclick = () => {
-        closePipelineCompareModal();
-        openPipelineInspectorModal(configId, data.target.table);
-      };
-    }
+
 
     // Render all components
     renderCompareVerdict(data);
@@ -6333,7 +6347,7 @@ function renderCompareSamples(data) {
       return;
     }
 
-    thead.innerHTML = `<tr><th style="width:30px;">#</th>${cols.map((c) => `<th>${escapeHtml(c.name)}</th>`).join('')}</tr>`;
+    thead.innerHTML = `<tr><th class="cmp-col-no">#</th>${cols.map((c) => `<th title="${escapeHtml(c.name)}">${escapeHtml(c.name)}</th>`).join('')}</tr>`;
 
     if (!rows || rows.length === 0) {
       tbody.innerHTML = `<tr><td colspan="${cols.length + 1}" class="text-center py-6 text-muted">${emptyHtml || 'Belum ada baris data.'}</td></tr>`;
@@ -6619,6 +6633,34 @@ function getIndonesianDateDetails(dateObj) {
   };
 }
 
+// Zoom pratinjau Berita Acara (aktif di tablet/HP lewat CSS). Skala 100% = pas lebar layar.
+function initBaPreviewZoom() {
+  const area = document.getElementById('ba-printable-area');
+  const label = document.getElementById('btn-ba-zoom-fit');
+  if (!area || !label) return;
+  let scale = 1;
+
+  const apply = () => {
+    const avail = Math.max(area.clientWidth - 24, 200);
+    const port = 210 * 96 / 25.4;
+    const land = 297 * 96 / 25.4;
+    const fitPort = avail / port;
+    area.style.setProperty('--ba-zp', Math.min(fitPort * scale, 3));
+    area.style.setProperty('--ba-zl', Math.min((avail / land) * scale, 3));
+    label.textContent = `${Math.round(scale * 100)}%`;
+  };
+  const setScale = (v) => {
+    scale = Math.min(3, Math.max(0.5, Math.round(v * 100) / 100));
+    apply();
+  };
+
+  document.getElementById('btn-ba-zoom-in')?.addEventListener('click', () => setScale(scale + 0.25));
+  document.getElementById('btn-ba-zoom-out')?.addEventListener('click', () => setScale(scale - 0.25));
+  label.addEventListener('click', () => setScale(1));
+  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(apply).observe(area);
+  apply();
+}
+
 function initBeritaAcaraEvents() {
   const btnOpenBa = document.getElementById('btn-open-ba');
   if (btnOpenBa) {
@@ -6637,6 +6679,8 @@ function initBeritaAcaraEvents() {
     });
   }
 
+  initBaPreviewZoom();
+
   // Toggle form editor sidebar
   const btnToggleForm = document.getElementById('btn-toggle-ba-form');
   const formPanel = document.getElementById('ba-form-editor-panel');
@@ -6646,8 +6690,8 @@ function initBeritaAcaraEvents() {
       const isCollapsed = formPanel.classList.contains('collapsed');
       const textSpan = document.getElementById('btn-toggle-ba-form-text');
       const iconSpan = document.getElementById('btn-toggle-ba-form-icon');
-      if (textSpan) textSpan.textContent = isCollapsed ? 'Buka Form Editor' : 'Sembunyikan Form';
-      if (iconSpan) iconSpan.textContent = isCollapsed ? '✏️' : '◀';
+      if (textSpan) textSpan.textContent = isCollapsed ? 'Form' : 'Tutup';
+      if (iconSpan) iconSpan.textContent = isCollapsed ? '✏️' : '✕';
     });
   }
 
@@ -6941,6 +6985,11 @@ window.openBeritaAcara = async function (configId) {
   const targetId = parseInt(configId || state.pipeline.selectedConfigId || 1, 10);
   const modal = document.getElementById('modal-berita-acara');
   modal.classList.remove('hidden');
+  // Di tablet/HP, mulai dari pratinjau penuh; form dibuka lewat tombol "Edit Form Isian"
+  if (window.matchMedia('(max-width: 1024px)').matches) {
+    const fp = document.getElementById('ba-form-editor-panel');
+    if (fp && !fp.classList.contains('collapsed')) document.getElementById('btn-toggle-ba-form')?.click();
+  }
 
   // Set selected config
   if (!state.beritaAcaraSelectedConfigs || state.beritaAcaraSelectedConfigs.length === 0 || !state.beritaAcaraSelectedConfigs.includes(targetId)) {
@@ -7313,8 +7362,9 @@ function renderBaDocument() {
   if (summaryTbody) {
     if (selectedConfigs.length === 0) {
       summaryTbody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-muted">Belum ada konfigurasi yang dipilih untuk ringkasan migrasi.</td></tr>`;
+      renderBaSummaryContinuation([]);
     } else {
-      let rowsHtml = '';
+      const groups = [];
       selectedConfigs.forEach((cfg, cfgIdx) => {
         const name = cfg.nameConfig || cfg.modName || `Config #${cfg.configId}`;
         const targets = (cfg.targets && cfg.targets.length > 0) ? cfg.targets : [{
@@ -7326,6 +7376,7 @@ function renderBaDocument() {
           sumAfter: cfg.target?.rows ?? cfg.staging?.rows ?? 0
         }];
         const spanCount = targets.length;
+        let groupHtml = '';
 
         targets.forEach((t, tIdx) => {
           const isFirst = tIdx === 0;
@@ -7343,7 +7394,7 @@ function renderBaDocument() {
           const beforeVal = (t.sumBefore !== null && t.sumBefore !== undefined) ? formatNumber(t.sumBefore) : '-';
           const afterVal = (t.sumAfter !== null && t.sumAfter !== undefined) ? formatNumber(t.sumAfter) : '-';
 
-          rowsHtml += `
+          groupHtml += `
             <tr>
               ${firstCols}
               <td><strong style="color: #059669;">${escapeHtml(t.schema ? `${t.schema}.${t.table}` : t.table)}</strong></td>
@@ -7355,8 +7406,24 @@ function renderBaDocument() {
             </tr>
           `;
         });
+        groups.push({ html: groupHtml, count: spanCount });
       });
-      summaryTbody.innerHTML = rowsHtml;
+
+      // Pecah baris ringkasan ke halaman lanjutan bila melebihi kapasitas halaman 1
+      const summaryPages = [[]];
+      let used = 0;
+      let cap = BA_SUMMARY_ROWS_FIRST_PAGE;
+      groups.forEach((g) => {
+        if (used > 0 && used + g.count > cap) {
+          summaryPages.push([]);
+          used = 0;
+          cap = BA_SUMMARY_ROWS_NEXT_PAGE;
+        }
+        summaryPages[summaryPages.length - 1].push(g.html);
+        used += g.count;
+      });
+      summaryTbody.innerHTML = summaryPages[0].join('');
+      renderBaSummaryContinuation(summaryPages.slice(1));
     }
   }
 
@@ -7380,9 +7447,50 @@ function renderBaDocument() {
   }
 }
 
+const BA_ATT_ROWS_FIRST_PAGE = 11;
+const BA_ATT_ROWS_NEXT_PAGE = 15;
+const BA_SUMMARY_ROWS_FIRST_PAGE = 6;
+const BA_SUMMARY_ROWS_NEXT_PAGE = 22;
+
+function renderBaSummaryContinuation(extraPages) {
+  const area = document.getElementById('ba-printable-area');
+  const page1 = area?.querySelector('.ba-page-sheet.ba-page-1');
+  if (!area || !page1) return;
+  area.querySelectorAll(':scope > .ba-generated-sheet').forEach((el) => el.remove());
+  if (!extraPages.length) return;
+
+  const headerHtml = page1.querySelector('.ba-sisi-header')?.outerHTML.replace(/\sid="[^"]*"/g, '') || '';
+  const footerHtml = page1.querySelector('.ba-sisi-footer')?.outerHTML || '';
+  const theadHtml = page1.querySelector('.ba-summary-full-table thead')?.innerHTML || '';
+
+  let anchor = page1;
+  extraPages.forEach((groups) => {
+    const sheet = document.createElement('div');
+    sheet.className = 'ba-page-sheet ba-page-summary-cont ba-generated-sheet';
+    sheet.innerHTML = `
+      ${headerHtml}
+      <div class="ba-agreement-block">
+        <p class="ba-paragraph mb-1"><strong>Hasil kegiatan migrasi data (lanjutan):</strong></p>
+        <div class="ba-summary-table-wrap">
+          <table class="ba-official-table ba-summary-full-table">
+            <thead>${theadHtml}</thead>
+            <tbody>${groups.join('')}</tbody>
+          </table>
+        </div>
+      </div>
+      ${footerHtml}`;
+    anchor.after(sheet);
+    anchor = sheet;
+  });
+}
+
 function renderBaAttachmentTable() {
   const host = document.getElementById('ba-attachment-tables-host');
-  if (!host) return;
+  const baseSheet = document.getElementById('ba-attachment-page-container');
+  const wrapper = document.getElementById('ba-lampiran-wrapper');
+  if (!host || !baseSheet || !wrapper) return;
+
+  wrapper.querySelectorAll('.ba-generated-sheet').forEach((el) => el.remove());
 
   const selectedConfigs = getSelectedConfigsData();
   if (selectedConfigs.length === 0) {
@@ -7390,89 +7498,105 @@ function renderBaAttachmentTable() {
     return;
   }
 
-  let html = '';
-  selectedConfigs.forEach((cfg, idx) => {
+  const preferredCols = ['name', 'nama', 'group', 'customer', 'vendor', 'employee', 'buyer_document', 'id_number', 'tax_id', 'tax_payer_type', 'tipe_vendor', 'email', 'status', 'sap_code'];
+  const fallbackHead = `
+    <th style="width: 36px; text-align: center;">No</th>
+    <th>Name</th>
+    <th>Group</th>
+    <th style="text-align: center; width: 65px;">Customer</th>
+    <th style="text-align: center; width: 60px;">Vendor</th>
+    <th style="text-align: center; width: 65px;">Employee</th>
+    <th>ID Number</th>
+    <th>Tax ID</th>
+    <th>Tax Payer Type</th>`;
+
+  // Susun data tiap config menjadi { title, total, headHtml, rows: [html] }
+  const sections = selectedConfigs.map((cfg, idx) => {
     const attData = cfg.stagingAttachment || (cfg.configId === state.beritaAcaraData?.config?.configId ? state.beritaAcaraData?.stagingAttachment : null);
     const realRows = attData?.rows;
     const title = `${idx + 1}. ${cfg.modName || cfg.target?.table || cfg.source?.view || 'Data Migrasi'}${cfg.target?.table ? ` (${cfg.target.table})` : ''}`;
+    const total = cfg.target?.rows || cfg.staging?.rows || 0;
 
-    let tableHtml = '';
     if (realRows && realRows.length > 0) {
       const cols = attData.columns || [];
-      const preferredCols = ['name', 'nama', 'group', 'customer', 'vendor', 'employee', 'buyer_document', 'id_number', 'tax_id', 'tax_payer_type', 'tipe_vendor', 'email', 'status', 'sap_code'];
       const activeCols = cols.filter((c) => preferredCols.includes(c.name.toLowerCase()))
         .concat(cols.filter((c) => !preferredCols.includes(c.name.toLowerCase())))
         .slice(0, 10);
-
-      tableHtml = `
-        <table class="ba-official-att-table mb-4">
-          <thead>
-            <tr>
-              <th style="width: 36px; text-align: center;">No</th>
-              ${activeCols.map((c) => `<th>${escapeHtml(c.name.replace(/_/g, ' ').toUpperCase())}</th>`).join('')}
-            </tr>
-          </thead>
-          <tbody>
-            ${realRows.slice(0, 500).map((r, rIdx) => {
-              const cells = activeCols.map((c) => {
-                const val = r[c.name];
-                if (val === null || val === undefined) return '<span style="color: #94a3b8; font-style: italic;">-</span>';
-                if (typeof val === 'boolean') return val ? 'Yes' : 'No';
-                return escapeHtml(String(val));
-              }).join('</td><td>');
-              return `<tr><td style="text-align: center; font-weight: 600;">${rIdx + 1}</td><td>${cells}</td></tr>`;
-            }).join('')}
-          </tbody>
-        </table>
-      `;
-    } else {
-      // Fallback sample data
-      tableHtml = `
-        <table class="ba-official-att-table mb-4">
-          <thead>
-            <tr>
-              <th style="width: 36px; text-align: center;">No</th>
-              <th>Name</th>
-              <th>Group</th>
-              <th style="text-align: center; width: 65px;">Customer</th>
-              <th style="text-align: center; width: 60px;">Vendor</th>
-              <th style="text-align: center; width: 65px;">Employee</th>
-              <th>ID Number</th>
-              <th>Tax ID</th>
-              <th>Tax Payer Type</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${SAMPLE_BP_ATTACHMENT_ROWS.slice(0, 500).map((r, rIdx) => `
-              <tr>
-                <td style="text-align: center; font-weight: 600;">${rIdx + 1}</td>
-                <td><strong>${escapeHtml(r.name)}</strong></td>
-                <td>${escapeHtml(r.group)}</td>
-                <td style="text-align: center;">${escapeHtml(r.customer)}</td>
-                <td style="text-align: center;">${escapeHtml(r.vendor)}</td>
-                <td style="text-align: center;">${escapeHtml(r.employee)}</td>
-                <td class="font-mono">${escapeHtml(r.idNumber)}</td>
-                <td class="font-mono">${escapeHtml(r.taxId)}</td>
-                <td>${escapeHtml(r.taxType)}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      `;
+      const headHtml = `<th style="width: 36px; text-align: center;">No</th>${activeCols.map((c) => `<th>${escapeHtml(c.name.replace(/_/g, ' ').toUpperCase())}</th>`).join('')}`;
+      const rows = realRows.slice(0, 500).map((r, rIdx) => {
+        const cells = activeCols.map((c) => {
+          const val = r[c.name];
+          if (val === null || val === undefined) return '<span style="color: #94a3b8; font-style: italic;">-</span>';
+          if (typeof val === 'boolean') return val ? 'Yes' : 'No';
+          return escapeHtml(String(val));
+        }).join('</td><td>');
+        return `<tr><td style="text-align: center; font-weight: 600;">${rIdx + 1}</td><td>${cells}</td></tr>`;
+      });
+      return { title, total, headHtml, rows };
     }
 
-    html += `
-      <div class="ba-lampiran-section mb-4" id="ba-lampiran-cfg-${cfg.configId}">
-        <div style="font-size: 10.5pt; font-weight: 700; margin-bottom: 0.5rem; color: #0f172a; border-bottom: 2px solid #005ba4; padding-bottom: 4px; display: flex; justify-content: space-between;">
-          <span>${escapeHtml(title)}</span>
-          <span style="font-size: 8pt; font-weight: 600; color: #64748b;">Total: ${formatNumber(cfg.target?.rows || cfg.staging?.rows || 0)} Baris</span>
-        </div>
-        ${tableHtml}
-      </div>
-    `;
+    const rows = SAMPLE_BP_ATTACHMENT_ROWS.slice(0, 500).map((r, rIdx) => `
+      <tr>
+        <td style="text-align: center; font-weight: 600;">${rIdx + 1}</td>
+        <td><strong>${escapeHtml(r.name)}</strong></td>
+        <td>${escapeHtml(r.group)}</td>
+        <td style="text-align: center;">${escapeHtml(r.customer)}</td>
+        <td style="text-align: center;">${escapeHtml(r.vendor)}</td>
+        <td style="text-align: center;">${escapeHtml(r.employee)}</td>
+        <td class="font-mono">${escapeHtml(r.idNumber)}</td>
+        <td class="font-mono">${escapeHtml(r.taxId)}</td>
+        <td>${escapeHtml(r.taxType)}</td>
+      </tr>`);
+    return { title, total, headHtml: fallbackHead, rows };
   });
 
-  host.innerHTML = html;
+  // Distribusi ke beberapa halaman landscape
+  const pages = [[]];
+  let capacity = BA_ATT_ROWS_FIRST_PAGE;
+  const newPage = () => { pages.push([]); capacity = BA_ATT_ROWS_NEXT_PAGE; };
+
+  sections.forEach((sec) => {
+    let offset = 0;
+    let continued = false;
+    do {
+      const overhead = 2; // judul section + header tabel
+      if (capacity < overhead + 2 && pages[pages.length - 1].length > 0) newPage();
+      const take = Math.max(1, Math.min(sec.rows.length - offset, capacity - overhead));
+      pages[pages.length - 1].push({ sec, from: offset, to: offset + take, continued });
+      offset += take;
+      capacity -= overhead + take;
+      continued = true;
+      if (offset < sec.rows.length) newPage();
+    } while (offset < sec.rows.length);
+  });
+
+  const renderPage = (items) => items.map(({ sec, from, to, continued }) => `
+    <div class="ba-lampiran-section">
+      <div class="ba-lampiran-section-head">
+        <span>${escapeHtml(sec.title)}${continued ? ' (lanjutan)' : ''}</span>
+        <span class="ba-lampiran-section-total">Total: ${formatNumber(sec.total)} Baris</span>
+      </div>
+      <table class="ba-official-att-table">
+        <thead><tr>${sec.headHtml}</tr></thead>
+        <tbody>${sec.rows.slice(from, to).join('')}</tbody>
+      </table>
+    </div>`).join('');
+
+  host.innerHTML = renderPage(pages[0]);
+
+  let anchor = baseSheet;
+  pages.slice(1).forEach((items, i) => {
+    const clone = baseSheet.cloneNode(true);
+    clone.removeAttribute('id');
+    clone.querySelectorAll('[id]').forEach((el) => el.removeAttribute('id'));
+    clone.classList.add('ba-generated-sheet');
+    const title = clone.querySelector('.ba-lampiran-main-title');
+    if (title) title.textContent = 'LAMPIRAN HASIL MIGRASI DATA (LANJUTAN)';
+    clone.querySelector('.ba-official-att-wrapper').innerHTML = renderPage(items);
+    anchor.after(clone);
+    anchor = clone;
+  });
+  baseSheet.dataset.pages = String(pages.length);
 }
 
 function exportStagingCsv() {
@@ -8325,16 +8449,101 @@ function updateAuthUserBadge(user) {
   applyAdminSettingsButtonVisibility();
 }
 
+function syncNavTabsWithMenus(menus) {
+  if (!menus || !Array.isArray(menus)) return;
+
+  const isSuperadmin = state.currentUser && state.currentUser.role_code === 'SUPERADMIN';
+  const navContainer = document.querySelector('.main-tabs-nav');
+  if (!navContainer) return;
+
+  // 1. Update teks, sub-judul, dan icon untuk menu bawaan
+  const builtInMap = {
+    'TAB_SOURCE': document.getElementById('nav-btn-source'),
+    'TAB_CONFIG': document.getElementById('nav-btn-config'),
+    'TAB_PROCESS': document.getElementById('nav-btn-canvas') || document.getElementById('nav-btn-process'),
+    'TAB_PIPELINE': document.getElementById('nav-btn-pipeline'),
+    'TAB_SYSTEM': document.getElementById('nav-btn-system'),
+    'TAB_USERGUIDE': document.getElementById('nav-btn-userguide'),
+  };
+
+  menus.forEach(m => {
+    const btn = builtInMap[m.menu_code];
+    if (btn) {
+      const currentIcon = m.icon || m.menu_icon;
+      if (currentIcon) {
+        const iconSpan = btn.querySelector('.tab-icon');
+        if (iconSpan) iconSpan.textContent = currentIcon;
+      }
+      if (m.menu_name) {
+        const titleSpan = btn.querySelector('.tab-title');
+        if (titleSpan) titleSpan.textContent = m.menu_name;
+      }
+      if (m.sub_title !== undefined) {
+        const subSpan = btn.querySelector('.tab-sub');
+        if (subSpan) subSpan.textContent = m.sub_title || '';
+      }
+      if (m.is_active === false) {
+        btn.style.display = 'none';
+      }
+    }
+  });
+
+  // 2. Bersihkan tombol custom lama
+  document.querySelectorAll('.nav-tab-btn-custom').forEach(el => el.remove());
+
+  // 3. Render tombol navigasi untuk menu kustom
+  const customMenus = menus
+    .filter(m => m.is_custom && m.is_active !== false)
+    .sort((a, b) => (Number(a.menu_order) || 99) - (Number(b.menu_order) || 99));
+
+  customMenus.forEach(m => {
+    // Jika bukan superadmin, periksa hak view
+    if (!isSuperadmin && m.can_view === false) {
+      return;
+    }
+
+    const customTabId = `tab-custom-${m.menu_code}`;
+    const btn = document.createElement('button');
+    btn.className = `nav-tab-btn nav-tab-btn-custom ${state.activeTab === customTabId ? 'active' : ''}`;
+    btn.setAttribute('data-tab', customTabId);
+    btn.id = `nav-btn-custom-${m.menu_code}`;
+    btn.title = m.sub_title || m.menu_name;
+
+    btn.innerHTML = `
+      <span class="tab-icon">${escapeHtml(m.icon || m.menu_icon || '📄')}</span>
+      <div class="tab-label-group">
+        <span class="tab-title">${escapeHtml(m.menu_name)}</span>
+        <span class="tab-sub">${escapeHtml(m.sub_title || 'Menu Kustom')}</span>
+      </div>
+    `;
+
+    btn.addEventListener('click', () => {
+      switchMainTab(customTabId);
+    });
+
+    // Sisipkan sebelum tombol Userguide atau di akhir navbar
+    const userguideBtn = document.getElementById('nav-btn-userguide');
+    if (userguideBtn) {
+      navContainer.insertBefore(btn, userguideBtn);
+    } else {
+      navContainer.appendChild(btn);
+    }
+  });
+}
+
 function applyMenuPermissions(menus) {
   const isSuperadmin = state.currentUser && state.currentUser.role_code === 'SUPERADMIN';
   
   // Pastikan tombol setting dikendalikan khusus untuk admin
   applyAdminSettingsButtonVisibility();
 
+  // Sinkronisasi teks, ikon, urutan dan menu custom ke navbar
+  syncNavTabsWithMenus(menus);
+
   const menuNavMap = {
     'TAB_SOURCE': document.getElementById('nav-btn-source'),
     'TAB_CONFIG': document.getElementById('nav-btn-config'),
-    'TAB_PROCESS': document.getElementById('nav-btn-process'),
+    'TAB_PROCESS': document.getElementById('nav-btn-canvas') || document.getElementById('nav-btn-process'),
     'TAB_PIPELINE': document.getElementById('nav-btn-pipeline'),
     'TAB_SYSTEM': document.getElementById('nav-btn-system'),
   };
@@ -8362,11 +8571,19 @@ function applyMenuPermissions(menus) {
     }
   });
 
-  // Pastikan tombol Userguide selalu dapat diakses semua role
+  // Tombol Userguide selalu dapat diakses semua role
   const userguideBtn = document.getElementById('nav-btn-userguide');
   if (userguideBtn) userguideBtn.style.display = '';
 
-  // Jika tab aktif saat ini tidak diizinkan, arahkan ke tab pertama yang diizinkan (kecuali jika sedang di Userguide atau Welcome)
+  // Tab custom juga dicek apakah tab aktif saat ini diizinkan
+  if (state.activeTab && state.activeTab.startsWith('tab-custom-')) {
+    const activeCode = state.activeTab.replace('tab-custom-', '');
+    if (allowedMenuCodes.has(activeCode)) {
+      currentTabIsVisible = true;
+    }
+  }
+
+  // Jika tab aktif saat ini tidak diizinkan, arahkan ke tab pertama yang diizinkan
   if (!currentTabIsVisible && state.activeTab !== 'tab-welcome' && state.activeTab !== 'tab-userguide') {
     const firstAllowedBtn = Object.values(menuNavMap).find(btn => btn && btn.style.display !== 'none');
     if (firstAllowedBtn) {
@@ -8517,6 +8734,76 @@ function setupSystemAdminEventListeners() {
       });
     });
   });
+
+  // Maintain Menu & Navigation events
+  document.getElementById('btn-add-menu')?.addEventListener('click', openAddMenuModal);
+  document.getElementById('btn-refresh-menus')?.addEventListener('click', loadSysMenus);
+  document.getElementById('form-sys-menu')?.addEventListener('submit', submitMenuForm);
+  document.getElementById('btn-close-menu-form')?.addEventListener('click', () => document.getElementById('modal-menu-form')?.classList.add('hidden'));
+  document.getElementById('btn-cancel-menu-form')?.addEventListener('click', () => document.getElementById('modal-menu-form')?.classList.add('hidden'));
+
+  // Quick Emoji picker
+  document.querySelectorAll('.menu-emoji-opt').forEach(opt => {
+    opt.addEventListener('click', () => {
+      const iconInput = document.getElementById('menu-icon');
+      if (iconInput) iconInput.value = opt.getAttribute('data-emoji') || opt.textContent.trim();
+    });
+  });
+
+  // Template HTML switcher
+  document.querySelectorAll('[data-menu-template]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      applyMenuContentTemplate(btn.getAttribute('data-menu-template'));
+    });
+  });
+
+  // Modal Editor vs Preview tab toggle
+  document.getElementById('tab-btn-menu-editor')?.addEventListener('click', () => {
+    document.getElementById('tab-btn-menu-editor')?.classList.add('active');
+    document.getElementById('tab-btn-menu-preview')?.classList.remove('active');
+    document.getElementById('menu-editor-pane')?.classList.remove('hidden');
+    document.getElementById('menu-preview-pane')?.classList.add('hidden');
+  });
+
+  document.getElementById('tab-btn-menu-preview')?.addEventListener('click', () => {
+    document.getElementById('tab-btn-menu-preview')?.classList.add('active');
+    document.getElementById('tab-btn-menu-editor')?.classList.remove('active');
+    document.getElementById('menu-preview-pane')?.classList.remove('hidden');
+    document.getElementById('menu-editor-pane')?.classList.add('hidden');
+    updateMenuModalLivePreview();
+  });
+
+  // Auto-generate code/route on typing menu name if new custom menu
+  document.getElementById('menu-name')?.addEventListener('input', (e) => {
+    const menuId = document.getElementById('menu-id')?.value;
+    const isCustom = document.getElementById('menu-is-custom')?.value === 'true';
+    if (!menuId && isCustom) {
+      const codeInput = document.getElementById('menu-code');
+      const routeInput = document.getElementById('menu-route');
+      const slug = e.target.value
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_|_$/g, '')
+        .slice(0, 20);
+      if (codeInput && !codeInput.dataset.userEdited) {
+        codeInput.value = slug ? `CUSTOM_${slug}` : '';
+      }
+      if (routeInput && !routeInput.dataset.userEdited) {
+        routeInput.value = slug ? `tab-custom-${slug.toLowerCase()}` : '';
+      }
+    }
+  });
+
+  document.getElementById('menu-code')?.addEventListener('input', () => {
+    const codeInput = document.getElementById('menu-code');
+    if (codeInput) codeInput.dataset.userEdited = 'true';
+  });
+
+  document.getElementById('menu-route')?.addEventListener('input', () => {
+    const routeInput = document.getElementById('menu-route');
+    if (routeInput) routeInput.dataset.userEdited = 'true';
+  });
 }
 
 function switchSysSubtab(subtabId) {
@@ -8529,6 +8816,7 @@ function switchSysSubtab(subtabId) {
     'sys-tab-users': document.getElementById('pane-sys-users'),
     'sys-tab-roles': document.getElementById('pane-sys-roles'),
     'sys-tab-matrix': document.getElementById('pane-sys-matrix'),
+    'sys-tab-menus': document.getElementById('pane-sys-menus'),
   };
 
   Object.entries(paneMap).forEach(([id, pane]) => {
@@ -8538,6 +8826,7 @@ function switchSysSubtab(subtabId) {
   if (subtabId === 'sys-tab-users') loadSysUsers();
   else if (subtabId === 'sys-tab-roles') loadSysRoles();
   else if (subtabId === 'sys-tab-matrix') loadSysMatrix();
+  else if (subtabId === 'sys-tab-menus') loadSysMenus();
 }
 
 async function loadSystemAdministration() {
@@ -9506,6 +9795,491 @@ async function saveMenuMatrix() {
 }
 
 // =========================================================================
+// 🧭 MAINTAIN MENU & NAVIGASI SISTEM
+// =========================================================================
+
+async function loadSysMenus() {
+  const tbody = document.getElementById('sys-menus-tbody') || document.getElementById('tbody-sys-menus');
+  if (tbody) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 2rem; color: var(--text-muted);"><span class="spinner"></span> Memuat daftar menu...</td></tr>';
+  }
+
+  try {
+    const res = await authFetch('/api/auth/menus');
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message);
+
+    state.system.menus = json.data || [];
+    renderSysMenusTable(state.system.menus);
+    syncNavTabsWithMenus(state.system.menus);
+  } catch (err) {
+    console.error('Gagal memuat menu sistem:', err);
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="8" style="text-align: center; padding: 1.5rem; color: var(--color-danger, #ef4444);">Gagal memuat menu: ${escapeHtml(err.message)}</td></tr>`;
+    }
+  }
+}
+
+function renderSysMenusTable(menus) {
+  const tbody = document.getElementById('sys-menus-tbody') || document.getElementById('tbody-sys-menus');
+  if (!tbody) return;
+
+  if (!menus || menus.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 2rem; color: var(--text-muted);">Belum ada data menu.</td></tr>';
+    return;
+  }
+
+  const sorted = [...menus].sort((a, b) => (Number(a.menu_order) || 99) - (Number(b.menu_order) || 99));
+
+  tbody.innerHTML = sorted.map((m, idx) => {
+    const isCustom = !!m.is_custom;
+    const isActive = m.is_active !== false;
+    const typeBadge = isCustom
+      ? '<span class="menu-badge menu-badge-custom" title="Menu kustom (Rich Text/HTML)">Custom</span>'
+      : '<span class="menu-badge menu-badge-system" title="Menu bawaan sistem">Sistem</span>';
+    const statusBadge = isActive
+      ? '<span class="menu-badge menu-badge-on">Aktif</span>'
+      : '<span class="menu-badge menu-badge-off">Nonaktif</span>';
+    const route = m.route_path || m.route_tab || '-';
+    const safeName = escapeHtml(m.menu_name);
+    const deleteArg = escapeHtml(JSON.stringify(m.menu_name || '')).replace(/'/g, '&#39;');
+
+    return `
+      <tr>
+        <td class="text-center menu-cell-no">${idx + 1}</td>
+        <td class="text-center menu-cell-order">${m.menu_order || '-'}</td>
+        <td class="text-center menu-cell-icon">${escapeHtml(m.icon || m.menu_icon || '📄')}</td>
+        <td class="menu-cell-name">
+          <div class="menu-name-main" title="${safeName}">${safeName}</div>
+          <div class="menu-name-sub" title="${escapeHtml(m.sub_title || '')}">${escapeHtml(m.sub_title || '-')}</div>
+        </td>
+        <td class="menu-cell-code">
+          <code title="${escapeHtml(route)}">${escapeHtml(route)}</code>
+          <div class="menu-code-sub" title="${escapeHtml(m.menu_code)}">${escapeHtml(m.menu_code)}</div>
+        </td>
+        <td class="text-center">${typeBadge}</td>
+        <td class="text-center">${statusBadge}</td>
+        <td class="text-center">
+          <div class="menu-row-actions">
+            <button class="menu-act-btn" onclick="openEditMenuModal(${m.menu_id})" title="Edit Menu" aria-label="Edit menu">✏️</button>
+            ${isCustom ? `
+              <button class="menu-act-btn" onclick="switchMainTab('tab-custom-${escapeHtml(m.menu_code)}')" title="Buka Halaman Ini" aria-label="Buka halaman">👁️</button>
+              <button class="menu-act-btn danger" onclick="deleteSysMenu(${m.menu_id}, ${deleteArg})" title="Hapus Menu Kustom" aria-label="Hapus menu">🗑️</button>
+            ` : `
+              <button class="menu-act-btn" disabled title="Menu bawaan sistem tidak dapat dihapus" aria-label="Terkunci">🔒</button>
+            `}
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function openAddMenuModal() {
+  const modal = document.getElementById('modal-menu-form');
+  const title = document.getElementById('modal-menu-title');
+  const form = document.getElementById('form-sys-menu');
+  if (!modal || !form) return;
+
+  form.reset();
+  if (title) title.innerHTML = '<span>🧭</span><span>Tambah Menu Baru</span>';
+
+  const idInput = document.getElementById('menu-id');
+  if (idInput) idInput.value = '';
+
+  const codeInput = document.getElementById('menu-code');
+  const routeInput = document.getElementById('menu-route');
+  if (codeInput) {
+    codeInput.value = '';
+    codeInput.readOnly = false;
+    delete codeInput.dataset.userEdited;
+  }
+  if (routeInput) {
+    routeInput.value = '';
+    routeInput.readOnly = false;
+    delete routeInput.dataset.userEdited;
+  }
+
+  const isCustomInput = document.getElementById('menu-is-custom');
+  if (isCustomInput) isCustomInput.value = 'true';
+  const isActiveInput = document.getElementById('menu-is-active');
+  if (isActiveInput) isActiveInput.checked = true;
+
+  // Tampilkan editor rich text untuk custom menu
+  const contentSection = document.getElementById('menu-custom-content-section');
+  if (contentSection) contentSection.classList.remove('hidden');
+
+  // Urutan otomatis: jumlah menu + 1
+  const nextOrder = (state.system.menus || []).length + 1;
+  const orderInput = document.getElementById('menu-order');
+  if (orderInput) orderInput.value = nextOrder;
+
+  const iconInput = document.getElementById('menu-icon');
+  if (iconInput) iconInput.value = '🌐';
+
+  // Isi default template SOP
+  applyMenuContentTemplate('doc');
+
+  // Set tab editor aktif
+  document.getElementById('tab-btn-menu-editor')?.click();
+
+  modal.classList.remove('hidden');
+}
+
+function openEditMenuModal(menuId) {
+  const modal = document.getElementById('modal-menu-form');
+  const title = document.getElementById('modal-menu-title');
+  const form = document.getElementById('form-sys-menu');
+  if (!modal || !form) return;
+
+  const menu = (state.system.menus || []).find(m => m.menu_id == menuId);
+  if (!menu) {
+    alert('Data menu tidak ditemukan!');
+    return;
+  }
+
+  form.reset();
+  const isCustom = !!menu.is_custom;
+  if (title) {
+    title.innerHTML = `<span>✏️</span><span>Edit Menu: ${escapeHtml(menu.menu_name)}</span>`;
+  }
+
+  const idInput = document.getElementById('menu-id');
+  if (idInput) idInput.value = menu.menu_id;
+
+  const isCustomInput = document.getElementById('menu-is-custom');
+  if (isCustomInput) isCustomInput.value = isCustom ? 'true' : 'false';
+
+  const codeInput = document.getElementById('menu-code');
+  if (codeInput) {
+    codeInput.value = menu.menu_code || '';
+    codeInput.readOnly = false; // Semua field dapat diedit
+    codeInput.dataset.userEdited = 'true';
+  }
+
+  const nameInput = document.getElementById('menu-name');
+  if (nameInput) nameInput.value = menu.menu_name || '';
+
+  const subInput = document.getElementById('menu-sub');
+  if (subInput) subInput.value = menu.sub_title || '';
+
+  const iconInput = document.getElementById('menu-icon');
+  if (iconInput) iconInput.value = menu.icon || menu.menu_icon || '📄';
+
+  const routeInput = document.getElementById('menu-route');
+  if (routeInput) {
+    routeInput.value = menu.route_path || menu.route_tab || '';
+    routeInput.readOnly = false; // Semua field dapat diedit
+    routeInput.dataset.userEdited = 'true';
+  }
+
+  const orderInput = document.getElementById('menu-order');
+  if (orderInput) orderInput.value = menu.menu_order || 1;
+
+  const activeInput = document.getElementById('menu-is-active');
+  if (activeInput) activeInput.checked = menu.is_active !== false;
+
+  const contentSection = document.getElementById('menu-custom-content-section');
+  const contentInput = document.getElementById('menu-content-html');
+
+  if (contentSection) contentSection.classList.remove('hidden');
+  if (contentInput) {
+    contentInput.value = menu.content_html || '';
+    updateMenuModalLivePreview();
+  }
+
+  // Set tab editor aktif
+  document.getElementById('tab-btn-menu-editor')?.click();
+
+  modal.classList.remove('hidden');
+}
+
+async function submitMenuForm(e) {
+  if (e) e.preventDefault();
+  const submitBtn = document.getElementById('btn-save-menu') || document.getElementById('btn-submit-menu-form');
+  if (submitBtn) submitBtn.disabled = true;
+
+  const menuId = document.getElementById('menu-id')?.value;
+  const isCustom = document.getElementById('menu-is-custom')?.value === 'true';
+  const menuCode = document.getElementById('menu-code')?.value?.trim();
+  const menuName = document.getElementById('menu-name')?.value?.trim();
+  const subTitle = document.getElementById('menu-sub')?.value?.trim();
+  const icon = document.getElementById('menu-icon')?.value?.trim() || '📄';
+  const routePath = document.getElementById('menu-route')?.value?.trim() || (isCustom ? `tab-custom-${menuCode}` : '');
+  const menuOrder = parseInt(document.getElementById('menu-order')?.value, 10) || 1;
+  const isActive = document.getElementById('menu-is-active')?.checked;
+  const contentHtml = document.getElementById('menu-content-html')?.value || '';
+
+  if (!menuCode) {
+    alert('Kode Menu wajib diisi!');
+    if (submitBtn) submitBtn.disabled = false;
+    return;
+  }
+  if (!menuName) {
+    alert('Nama Menu wajib diisi!');
+    if (submitBtn) submitBtn.disabled = false;
+    return;
+  }
+  if (!routePath) {
+    alert('Target Route / Tab ID wajib diisi!');
+    if (submitBtn) submitBtn.disabled = false;
+    return;
+  }
+
+  const payload = {
+    menu_code: menuCode,
+    menu_name: menuName,
+    sub_title: subTitle,
+    icon: icon,
+    menu_icon: icon,
+    route_path: routePath,
+    route_tab: routePath,
+    menu_order: menuOrder,
+    is_active: isActive,
+    is_custom: isCustom,
+    content_html: contentHtml,
+  };
+
+  try {
+    let res;
+    if (menuId) {
+      res = await authFetch(`/api/auth/menus/${menuId}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+    } else {
+      res = await authFetch('/api/auth/menus', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+    }
+
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message);
+
+    alert(`✓ Menu "${menuName}" berhasil disimpan!`);
+    document.getElementById('modal-menu-form')?.classList.add('hidden');
+
+    // Refresh daftar menu sistem & navbar
+    await loadSysMenus();
+
+    // Jika tab aktif saat ini adalah custom tab dari menu yang barusan diedit, refresh tampilan kontennya
+    if (state.activeTab === `tab-custom-${menuCode}` || state.activeTab === routePath) {
+      loadCustomTabView(state.activeTab);
+    }
+  } catch (err) {
+    alert('Gagal menyimpan menu: ' + err.message);
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
+  }
+}
+
+async function deleteSysMenu(menuId, menuName) {
+  if (!confirm(`Apakah Anda yakin ingin menghapus menu kustom "${menuName}"?\n\nMenu akan dihapus permanen dari navigasi sistem.`)) {
+    return;
+  }
+
+  try {
+    const res = await authFetch(`/api/auth/menus/${menuId}`, {
+      method: 'DELETE',
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.message);
+
+    alert(`✓ Menu "${menuName}" berhasil dihapus.`);
+    await loadSysMenus();
+
+    // Jika tab yang dihapus sedang dibuka, beralih ke tab source
+    if (state.activeTab && state.activeTab.startsWith('tab-custom-')) {
+      switchMainTab('tab-source');
+    }
+  } catch (err) {
+    alert('Gagal menghapus menu: ' + err.message);
+  }
+}
+
+function applyMenuContentTemplate(templateType) {
+  const contentInput = document.getElementById('menu-content-html');
+  if (!contentInput) return;
+
+  if (templateType === 'doc') {
+    contentInput.value = `<div style="background: var(--card-bg, #ffffff); border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-bottom: 20px;">
+  <h2 style="margin-top: 0; color: var(--text-primary, #0f172a); border-bottom: 2px solid var(--primary-color, #2563eb); padding-bottom: 8px;">Standard Operating Procedure (SOP)</h2>
+  <p style="color: var(--text-muted, #64748b);">Dokumen operasional dan panduan tata kelola proses data migrasi.</p>
+  
+  <h3 style="margin-top: 24px; color: var(--text-primary, #0f172a);">1. Tujuan & Ruang Lingkup</h3>
+  <p>Menjelaskan batasan, tujuan, serta pihak-pihak terkait dalam pelaksanaan prosedur ini.</p>
+  
+  <h3 style="margin-top: 20px; color: var(--text-primary, #0f172a);">2. Tahapan Prosedur</h3>
+  <ol style="padding-left: 20px; line-height: 1.8;">
+    <li><strong>Verifikasi Data Awal:</strong> Melakukan audit kelengkapan berkas sumber sebelum transformasi.</li>
+    <li><strong>Pembersihan & Transformasi:</strong> Menjalankan fungsi normalisasi staging.</li>
+    <li><strong>Validasi Hasil:</strong> Memeriksa rekonsiliasi data pada pipeline 3-tier.</li>
+    <li><strong>Persetujuan & Berita Acara:</strong> Mengesahkan hasil migrasi dan mencetak Berita Acara.</li>
+  </ol>
+  
+  <h3 style="margin-top: 20px; color: var(--text-primary, #0f172a);">3. Penanggung Jawab (PIC)</h3>
+  <table style="width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.9rem;">
+    <thead>
+      <tr style="background: var(--bg-hover, #f8fafc); border-bottom: 2px solid var(--border-color, #e2e8f0); text-align: left;">
+        <th style="padding: 10px;">Peran</th>
+        <th style="padding: 10px;">Nama PIC</th>
+        <th style="padding: 10px;">Kontak</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr style="border-bottom: 1px solid var(--border-color, #e2e8f0);">
+        <td style="padding: 10px;">Lead Migration Engineer</td>
+        <td style="padding: 10px;">Tim Data Migration</td>
+        <td style="padding: 10px;">migration@antam.com</td>
+      </tr>
+      <tr>
+        <td style="padding: 10px;">Business Owner / Approver</td>
+        <td style="padding: 10px;">Tim Supply Chain Management</td>
+        <td style="padding: 10px;">scm@antam.com</td>
+      </tr>
+    </tbody>
+  </table>
+</div>`;
+  } else if (templateType === 'notice') {
+    contentInput.value = `<div style="background: #eff6ff; border-left: 5px solid #3b82f6; border-radius: 6px; padding: 20px; margin-bottom: 24px;">
+  <div style="display: flex; align-items: center; gap: 10px; font-size: 1.1rem; font-weight: bold; color: #1e40af;">
+    <span>📢</span> Pengumuman Penting Sistem Migrasi
+  </div>
+  <p style="margin: 8px 0 0 0; color: #1e3a8a; line-height: 1.6;">
+    Harap diperhatikan bahwa jendela pemeliharaan berkala basis data dan eksekusi delta batch akan dijadwalkan setiap akhir pekan.
+  </p>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px;">
+  <div style="background: var(--card-bg, #ffffff); border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px; padding: 18px;">
+    <h4 style="margin: 0 0 8px 0; color: var(--text-primary, #0f172a);">🗓️ Jadwal Batch Berikutnya</h4>
+    <p style="margin: 0; color: var(--text-muted, #64748b); font-size: 0.9rem;">Sabtu, 23:00 WIB - Selesai</p>
+  </div>
+  <div style="background: var(--card-bg, #ffffff); border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px; padding: 18px;">
+    <h4 style="margin: 0 0 8px 0; color: var(--text-primary, #0f172a);">⚡ Status Layanan</h4>
+    <p style="margin: 0; color: #16a34a; font-weight: 600; font-size: 0.9rem;">● Semua pipeline beroperasi normal</p>
+  </div>
+</div>`;
+  } else if (templateType === 'links') {
+    contentInput.value = `<div style="margin-bottom: 24px;">
+  <h2 style="margin: 0 0 8px 0; color: var(--text-primary, #0f172a);">Tautan Cepat &amp; Dokumentasi Terkait</h2>
+  <p style="color: var(--text-muted, #64748b); margin: 0;">Kumpulan referensi, dashboard monitoring eksternal, dan dokumen pendukung migrasi.</p>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px;">
+  <a href="#" style="display: block; padding: 18px; border-radius: 8px; border: 1px solid var(--border-color, #e2e8f0); background: var(--card-bg, #ffffff); text-decoration: none; color: inherit; transition: all 0.2s ease;">
+    <div style="font-size: 1.5rem; margin-bottom: 8px;">📊</div>
+    <div style="font-weight: 600; color: var(--primary-color, #2563eb); margin-bottom: 4px;">Dashboard Analitik Data</div>
+    <div style="font-size: 0.85rem; color: var(--text-muted, #64748b);">Laporan statistik komparasi record source vs target.</div>
+  </a>
+
+  <a href="#" style="display: block; padding: 18px; border-radius: 8px; border: 1px solid var(--border-color, #e2e8f0); background: var(--card-bg, #ffffff); text-decoration: none; color: inherit; transition: all 0.2s ease;">
+    <div style="font-size: 1.5rem; margin-bottom: 8px;">📁</div>
+    <div style="font-weight: 600; color: var(--primary-color, #2563eb); margin-bottom: 4px;">Folder Berkas Sumber (SFTP)</div>
+    <div style="font-size: 0.85rem; color: var(--text-muted, #64748b);">Akses repository file master data dan log staging.</div>
+  </a>
+
+  <a href="#" style="display: block; padding: 18px; border-radius: 8px; border: 1px solid var(--border-color, #e2e8f0); background: var(--card-bg, #ffffff); text-decoration: none; color: inherit; transition: all 0.2s ease;">
+    <div style="font-size: 1.5rem; margin-bottom: 8px;">💬</div>
+    <div style="font-weight: 600; color: var(--primary-color, #2563eb); margin-bottom: 4px;">Pusat Bantuan &amp; Tim Support</div>
+    <div style="font-size: 0.85rem; color: var(--text-muted, #64748b);">Kanal koordinasi kendala teknis dan permintaan eskalasi.</div>
+  </a>
+</div>`;
+  } else if (templateType === 'blank') {
+    contentInput.value = `<div style="background: var(--card-bg, #ffffff); border: 1px solid var(--border-color, #e2e8f0); border-radius: 8px; padding: 24px;">
+  <h2 style="margin-top: 0; color: var(--text-primary, #0f172a);">Judul Halaman</h2>
+  <p style="color: var(--text-secondary, #334155); line-height: 1.6;">Tuliskan isi informasi, catatan petunjuk, atau panduan kerja di sini. Mendukung tag standar HTML seperti tabel, list, gambar, tautan, dan badge warna.</p>
+</div>`;
+  }
+
+  updateMenuModalLivePreview();
+}
+
+function updateMenuModalLivePreview() {
+  const contentInput = document.getElementById('menu-content-html');
+  const previewBox = document.getElementById('menu-preview-content-box');
+  if (!previewBox) return;
+
+  const html = contentInput ? contentInput.value.trim() : '';
+  if (html) {
+    previewBox.innerHTML = html;
+  } else {
+    previewBox.innerHTML = '<div style="text-align: center; color: var(--text-muted); padding: 2rem;"><em>Belum ada konten. Ketik kode HTML pada tab editor untuk melihat hasil pratinjau di sini.</em></div>';
+  }
+}
+
+function loadCustomTabView(tabId) {
+  const menuCode = tabId.replace('tab-custom-', '');
+  // Cari di state.system.menus atau state.userMenus
+  let menu = (state.system.menus || []).find(m => m.menu_code === menuCode || m.route_path === tabId);
+  if (!menu) {
+    menu = (state.userMenus || []).find(m => m.menu_code === menuCode || m.route_path === tabId);
+  }
+
+  const titleEl = document.getElementById('custom-tab-title');
+  const subEl = document.getElementById('custom-tab-sub') || document.getElementById('custom-tab-subtitle');
+  const iconEl = document.getElementById('custom-tab-icon');
+  const routeEl = document.getElementById('custom-tab-badge-route');
+  const bodyEl = document.getElementById('custom-tab-body');
+  const editBtn = document.getElementById('btn-custom-tab-edit-page');
+
+  if (!menu) {
+    if (titleEl) titleEl.textContent = 'Menu Kustom';
+    if (subEl) subEl.textContent = 'Memuat konten menu...';
+    if (bodyEl) bodyEl.innerHTML = '<div style="padding: 3rem; text-align: center; color: var(--text-muted);"><span class="spinner"></span> Memuat menu...</div>';
+    fetchCustomMenuDetail(menuCode);
+    return;
+  }
+
+  if (titleEl) titleEl.textContent = menu.menu_name || 'Halaman Kustom';
+  if (subEl) subEl.textContent = menu.sub_title || 'Menu Tambahan Sistem';
+  if (iconEl) iconEl.textContent = menu.icon || '📄';
+  if (routeEl) routeEl.textContent = menu.route_path || `/custom/${menu.menu_code}`;
+
+  const isSuperadmin = state.currentUser && state.currentUser.role_code === 'SUPERADMIN';
+  if (editBtn) {
+    editBtn.style.display = isSuperadmin ? 'inline-flex' : 'none';
+    editBtn.onclick = () => {
+      switchMainTab('tab-system');
+      switchSysSubtab('sys-tab-menus');
+      openEditMenuModal(menu.menu_id);
+    };
+  }
+
+  if (bodyEl) {
+    if (menu.content_html && menu.content_html.trim()) {
+      bodyEl.innerHTML = menu.content_html;
+    } else {
+      bodyEl.innerHTML = `
+        <div style="text-align: center; padding: 4rem 2rem; color: var(--text-muted);">
+          <div style="font-size: 3rem; margin-bottom: 1rem;">📝</div>
+          <h3 style="margin-bottom: 0.5rem; color: var(--text-primary);">Konten Belum Diisi</h3>
+          <p style="max-width: 500px; margin: 0 auto 1.5rem;">Halaman ini dibuat melalui fitur Maintain Menu namun belum memiliki konten. Administrator dapat menambahkan teks atau HTML melalui menu System Administration.</p>
+          ${isSuperadmin ? `<button class="btn btn-primary" onclick="switchMainTab('tab-system'); switchSysSubtab('sys-tab-menus'); openEditMenuModal(${menu.menu_id});">✏️ Isi Konten Halaman Sekarang</button>` : ''}
+        </div>
+      `;
+    }
+  }
+}
+
+async function fetchCustomMenuDetail(menuCode) {
+  try {
+    const res = await authFetch('/api/auth/menus');
+    const json = await res.json();
+    if (json.success && json.data) {
+      state.system.menus = json.data;
+      const menu = json.data.find(m => m.menu_code === menuCode || m.route_path === `tab-custom-${menuCode}`);
+      if (menu) {
+        loadCustomTabView(`tab-custom-${menu.menu_code}`);
+      }
+    }
+  } catch (err) {
+    console.error('Gagal mengambil detail menu kustom:', err);
+  }
+}
+
+// =========================================================================
 // 📖 USERGUIDE / PANDUAN PENGGUNA MODUL INTERAKTIF
 // =========================================================================
 let userguideInitialized = false;
@@ -9518,6 +10292,11 @@ function loadUserguideView() {
 }
 
 function initUserguide() {
+  // Tooltip untuk rail modul yang dalam keadaan ringkas
+  document.querySelectorAll('#userguide-left-nav a').forEach((link) => {
+    const label = link.querySelector('span')?.textContent?.trim();
+    if (label) link.title = label;
+  });
   // Bind left nav clicks
   const leftNavLinks = document.querySelectorAll('#userguide-left-nav a');
   leftNavLinks.forEach(link => {
