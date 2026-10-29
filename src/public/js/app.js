@@ -8272,7 +8272,7 @@ async function initAuth() {
   const loginScreen = document.getElementById('screen-login');
   
   if (!token) {
-    if (loginScreen) loginScreen.classList.remove('hidden');
+    if (loginScreen) { loginScreen.classList.remove('hidden'); showAuthView('login'); }
     return;
   }
 
@@ -8290,11 +8290,11 @@ async function initAuth() {
     } else {
       localStorage.removeItem('antam_token');
       state.userToken = null;
-      if (loginScreen) loginScreen.classList.remove('hidden');
+      if (loginScreen) { loginScreen.classList.remove('hidden'); showAuthView('login'); }
     }
   } catch (err) {
     console.error('Error saat verifikasi sesi auth:', err);
-    if (loginScreen) loginScreen.classList.remove('hidden');
+    if (loginScreen) { loginScreen.classList.remove('hidden'); showAuthView('login'); }
   }
 }
 
@@ -8308,6 +8308,7 @@ async function handleLoginSubmit(event) {
   const submitBtnText = document.getElementById('btn-submit-login-text');
   const loginScreen = document.getElementById('screen-login');
 
+  const captchaInput = document.getElementById('login-captcha');
   const username = usernameInput ? usernameInput.value.trim() : '';
   const password = passwordInput ? passwordInput.value : '';
 
@@ -8325,13 +8326,13 @@ async function handleLoginSubmit(event) {
     const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password, captchaId: activeCaptchaId, captchaAnswer: captchaInput ? captchaInput.value : '' }),
     });
     const json = await res.json();
 
     if (!json.success) {
-      if (alertBox) alertBox.classList.remove('hidden');
-      if (alertText) alertText.textContent = json.message || 'Login gagal. Periksa username dan password Anda.';
+      showAuthAlert('login', json.message || 'Login gagal. Periksa username dan password Anda.');
+      loadCaptcha();
       return;
     }
 
@@ -8345,6 +8346,7 @@ async function handleLoginSubmit(event) {
     applyMenuPermissions(state.userMenus);
 
     if (passwordInput) passwordInput.value = '';
+    if (captchaInput) captchaInput.value = '';
     if (loginScreen) loginScreen.classList.add('hidden');
 
     await initApplication();
@@ -8377,6 +8379,7 @@ function handleLogout() {
   const loginScreen = document.getElementById('screen-login');
   if (loginScreen) {
     loginScreen.classList.remove('hidden');
+    showAuthView('login');
     const alertBox = document.getElementById('login-alert-box');
     if (alertBox) alertBox.classList.add('hidden');
     const pwdInput = document.getElementById('login-password');
@@ -8395,10 +8398,156 @@ function autofillLogin(username, password) {
   if (submitBtn) submitBtn.focus();
 }
 
-function togglePasswordVisibility(inputId) {
+const ICON_EYE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>';
+const ICON_EYE_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+
+function togglePasswordVisibility(inputId, btn) {
   const input = document.getElementById(inputId);
   if (!input) return;
-  input.type = input.type === 'password' ? 'text' : 'password';
+  const show = input.type === 'password';
+  input.type = show ? 'text' : 'password';
+  const toggle = btn || document.querySelector(`[data-pwd-toggle="${inputId}"]`);
+  if (toggle) {
+    toggle.innerHTML = show ? ICON_EYE_OFF : ICON_EYE;
+    toggle.setAttribute('aria-label', show ? 'Sembunyikan kata sandi' : 'Tampilkan kata sandi');
+  }
+}
+
+function initPasswordToggles() {
+  document.querySelectorAll('[data-pwd-toggle]').forEach(btn => { btn.innerHTML = ICON_EYE; });
+}
+
+let currentAuthView = 'login';
+const AUTH_VIEW_IDS = { login: 'login-view-login', forgot: 'login-view-forgot', register: 'login-view-register' };
+const AUTH_ALERT_IDS = { login: 'login-alert-box', forgot: 'forgot-alert-box', register: 'register-alert-box' };
+
+function showAuthAlert(view, message, type = 'danger') {
+  const box = document.getElementById(AUTH_ALERT_IDS[view]);
+  if (!box) return;
+  const span = box.querySelector('span');
+  if (span) span.textContent = message;
+  box.classList.toggle('alert-danger', type === 'danger');
+  box.classList.toggle('login-alert-success', type === 'success');
+  box.classList.remove('hidden');
+}
+
+function hideAuthAlert(view) {
+  const box = document.getElementById(AUTH_ALERT_IDS[view]);
+  if (box) box.classList.add('hidden');
+}
+
+function showAuthView(view, keepAlert = false) {
+  currentAuthView = view;
+  Object.entries(AUTH_VIEW_IDS).forEach(([key, id]) => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('hidden', key !== view);
+  });
+  if (!keepAlert) Object.keys(AUTH_ALERT_IDS).forEach(hideAuthAlert);
+  document.querySelectorAll('.login-view input[type="password"], .login-view [data-pwd-toggle]').forEach(el => {
+    if (el.tagName === 'INPUT') { el.type = 'password'; }
+  });
+  initPasswordToggles();
+  loadCaptcha();
+}
+
+let activeCaptchaId = null;
+
+async function loadCaptcha() {
+  const view = document.getElementById(AUTH_VIEW_IDS[currentAuthView]);
+  if (!view) return;
+  const img = view.querySelector('[data-captcha-img]');
+  const input = view.querySelector('[data-captcha-input]');
+  if (input) input.value = '';
+  if (img) img.innerHTML = '';
+  try {
+    const res = await fetch('/api/auth/captcha', { cache: 'no-store' });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Gagal memuat captcha');
+    activeCaptchaId = json.data.captchaId;
+    if (img) img.innerHTML = json.data.svg;
+  } catch (err) {
+    activeCaptchaId = null;
+    if (img) img.textContent = 'Gagal memuat';
+  }
+}
+
+async function postAuth(path, payload) {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...payload, captchaId: activeCaptchaId }),
+  });
+  let json;
+  try { json = await res.json(); } catch (e) { json = { success: false, message: 'Respons server tidak valid.' }; }
+  if (!json.success && !json.message) json.message = json.error || 'Permintaan gagal.';
+  return json;
+}
+
+async function handleRegisterSubmit(event) {
+  event.preventDefault();
+  const val = id => document.getElementById(id).value;
+  const btn = document.getElementById('btn-submit-register');
+  hideAuthAlert('register');
+  if (val('register-password') !== val('register-password2')) {
+    showAuthAlert('register', 'Konfirmasi kata sandi tidak sama.');
+    return;
+  }
+  btn.disabled = true;
+  try {
+    const json = await postAuth('/api/auth/register', {
+      full_name: val('register-fullname').trim(),
+      username: val('register-username').trim(),
+      email: val('register-email').trim(),
+      password: val('register-password'),
+      captchaAnswer: val('register-captcha'),
+    });
+    if (!json.success) {
+      showAuthAlert('register', json.message);
+      loadCaptcha();
+      return;
+    }
+    document.getElementById('form-register').reset();
+    showAuthView('login');
+    showAuthAlert('login', json.message, 'success');
+  } catch (err) {
+    showAuthAlert('register', 'Terjadi kesalahan koneksi server: ' + err.message);
+    loadCaptcha();
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function handleForgotSubmit(event) {
+  event.preventDefault();
+  const val = id => document.getElementById(id).value;
+  const btn = document.getElementById('btn-submit-forgot');
+  hideAuthAlert('forgot');
+  if (val('forgot-password') !== val('forgot-password2')) {
+    showAuthAlert('forgot', 'Konfirmasi kata sandi baru tidak sama.');
+    return;
+  }
+  btn.disabled = true;
+  try {
+    const json = await postAuth('/api/auth/forgot-password', {
+      username: val('forgot-username').trim(),
+      email: val('forgot-email').trim(),
+      new_password: val('forgot-password'),
+      captchaAnswer: val('forgot-captcha'),
+    });
+    if (!json.success) {
+      showAuthAlert('forgot', json.message);
+      loadCaptcha();
+      return;
+    }
+    document.getElementById('form-forgot').reset();
+    showAuthView('login');
+    showAuthAlert('login', json.message, 'success');
+  } catch (err) {
+    showAuthAlert('forgot', 'Terjadi kesalahan koneksi server: ' + err.message);
+    loadCaptcha();
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 function isCurrentUserAdmin() {

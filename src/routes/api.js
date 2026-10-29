@@ -7,12 +7,16 @@ const etlController = require('../controllers/etl.controller');
 const pipelineController = require('../controllers/pipeline.controller');
 const authController = require('../controllers/auth.controller');
 const { requireAuth, requireRole, optionalAuth } = require('../middleware/auth.middleware');
-const { loginRateLimiter } = require('../middleware/rate-limiter.middleware');
+const { loginRateLimiter, captchaRateLimiter } = require('../middleware/rate-limiter.middleware');
+const { sqlInjectionGuard } = require('../middleware/input-guard.middleware');
 
 // ==========================================
 // 0. Autentikasi & RBAC (User, Role, Menu)
 // ==========================================
-router.post('/auth/login', loginRateLimiter, (req, res) => authController.login(req, res));
+router.get('/auth/captcha', captchaRateLimiter, (req, res) => authController.getCaptcha(req, res));
+router.post('/auth/login', loginRateLimiter, sqlInjectionGuard(['username', 'captchaId', 'captchaAnswer']), (req, res) => authController.login(req, res));
+router.post('/auth/register', loginRateLimiter, sqlInjectionGuard(['username', 'full_name', 'email', 'captchaId', 'captchaAnswer']), (req, res) => authController.register(req, res));
+router.post('/auth/forgot-password', loginRateLimiter, sqlInjectionGuard(['username', 'email', 'captchaId', 'captchaAnswer']), (req, res) => authController.forgotPassword(req, res));
 router.post('/auth/logout', requireAuth, (req, res) => authController.logout(req, res));
 router.get('/auth/me', requireAuth, (req, res) => authController.getMe(req, res));
 

@@ -3664,16 +3664,39 @@ textarea.form-input {
 
 .login-main-subtitle {
   font-size: 0.785rem;
-  color: #94a3b8;
+  color: #e2e8f0;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
   margin: 0;
   line-height: 1.4;
 }
 
 .login-card {
-  background: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  backdrop-filter: blur(18px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.28);
   border-radius: 18px;
   padding: 2rem;
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.1);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.login-card .login-card-header h2,
+.login-card .form-label {
+  color: #f8fafc !important;
+}
+
+.login-card .login-card-header p,
+.login-card .text-muted,
+.login-card .login-demo-accounts > div:first-child {
+  color: rgba(226, 232, 240, 0.85) !important;
+}
+
+.login-card .login-demo-accounts {
+  border-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+.login-card .btn-text {
+  color: #7dd3fc !important;
 }
 
 .login-card-header {
@@ -3711,18 +3734,144 @@ textarea.form-input {
   width: 100%;
   padding: 0.65rem 0.85rem;
   font-size: 0.875rem;
-  color: #1e293b;
-  background-color: #f8fafc;
-  border: 1px solid #cbd5e1;
+  color: #f8fafc;
+  background-color: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.3);
   border-radius: 8px;
   transition: all 0.2s ease;
 }
 
+.login-card .form-input::placeholder {
+  color: rgba(226, 232, 240, 0.6);
+}
+
 .login-card .form-input:focus {
-  background-color: #ffffff;
-  border-color: #0284c7;
+  background-color: rgba(255, 255, 255, 0.2);
+  border-color: #38bdf8;
   outline: none;
-  box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.25);
+}
+
+.login-card .form-input:-webkit-autofill {
+  -webkit-text-fill-color: #f8fafc;
+  transition: background-color 9999s ease-in-out 0s;
+}
+
+.login-card .form-input.has-toggle {
+  padding-right: 2.6rem !important;
+}
+
+.pwd-toggle {
+  position: absolute;
+  right: 0.35rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2rem;
+  height: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(226, 232, 240, 0.8);
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.pwd-toggle:hover,
+.pwd-toggle:focus-visible {
+  color: #7dd3fc;
+  background: rgba(255, 255, 255, 0.12);
+  outline: none;
+}
+
+.pwd-toggle svg {
+  width: 18px;
+  height: 18px;
+}
+
+.captcha-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
+.captcha-img {
+  flex: 0 0 auto;
+  width: 130px;
+  height: 42px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f1f5f9;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  user-select: none;
+}
+
+.captcha-img svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.captcha-refresh {
+  flex: 0 0 auto;
+  width: 38px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.12);
+  color: #f8fafc;
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.captcha-refresh:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.login-card .form-input.captcha-input {
+  flex: 1 1 0;
+  min-width: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  text-align: center;
+  padding: 0.5rem 0.5rem;
+}
+
+.login-switch-text {
+  margin-top: 1rem;
+  text-align: center;
+  font-size: 0.75rem;
+  color: rgba(226, 232, 240, 0.85);
+}
+
+.login-switch-text .btn-text {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #7dd3fc;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  padding: 0;
+}
+
+.login-switch-text .btn-text:hover {
+  text-decoration: underline;
+}
+
+.login-view.hidden {
+  display: none;
+}
+
+.login-alert-success {
+  background: rgba(16, 185, 129, 0.2) !important;
+  border-color: rgba(52, 211, 153, 0.6) !important;
+  color: #d1fae5 !important;
+}
+
+@media (max-width: 420px) {
+  .captcha-img { width: 110px; }
 }
 
 .demo-chips-grid {
@@ -3738,8 +3887,8 @@ textarea.form-input {
   justify-content: center;
   padding: 0.5rem 0.35rem;
   border-radius: 8px;
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.1);
   cursor: pointer;
   transition: all 0.15s ease;
   text-align: center;
@@ -3752,35 +3901,36 @@ textarea.form-input {
 
 .chip-superadmin:hover {
   border-color: #f59e0b;
-  background: #fffbeb;
+  background: rgba(245, 158, 11, 0.25);
 }
 
 .chip-operator:hover {
-  border-color: #0284c7;
-  background: #f0f9ff;
+  border-color: #38bdf8;
+  background: rgba(56, 189, 248, 0.25);
 }
 
 .chip-viewer:hover {
   border-color: #10b981;
-  background: #ecfdf5;
+  background: rgba(16, 185, 129, 0.25);
 }
 
 .chip-role {
   font-size: 0.7rem;
   font-weight: 700;
-  color: #1e293b;
+  color: #f8fafc;
 }
 
 .chip-user {
   font-size: 0.625rem;
-  color: #64748b;
+  color: rgba(226, 232, 240, 0.8);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 .login-footer-text {
   text-align: center;
   font-size: 0.7rem;
-  color: #64748b;
+  color: rgba(226, 232, 240, 0.8);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
   margin-top: 1.25rem;
 }
 

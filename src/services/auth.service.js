@@ -248,6 +248,75 @@ class AuthService {
     return res.rows;
   }
 
+  /**
+   * Pendaftaran mandiri: akun dibuat nonaktif dengan role VIEWER, menunggu persetujuan admin
+   */
+  async registerAccount({ username, password, full_name, email }) {
+    const cleanUser = String(username || '').trim().toLowerCase();
+    const cleanName = String(full_name || '').trim();
+    const cleanEmail = String(email || '').trim().toLowerCase();
+
+    if (!/^[a-z0-9._]{4,30}$/.test(cleanUser)) {
+      throw new Error('Username 4-30 karakter, hanya huruf, angka, titik, dan underscore.');
+    }
+    if (cleanName.length < 3 || cleanName.length > 100) {
+      throw new Error('Nama lengkap wajib diisi (3-100 karakter).');
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail) || cleanEmail.length > 150) {
+      throw new Error('Format email tidak valid.');
+    }
+    if (typeof password !== 'string' || password.length < 8 || password.length > 128) {
+      throw new Error('Kata sandi minimal 8 karakter.');
+    }
+
+    const existing = await queryPostgres(
+      `SELECT user_id FROM mc_center.sys_users WHERE LOWER(username) = $1`,
+      [cleanUser]
+    );
+    if (existing.rows.length > 0) {
+      throw new Error('Username sudah digunakan. Silakan pilih username lain.');
+    }
+
+    const roleRes = await queryPostgres(`SELECT role_id FROM mc_center.sys_roles WHERE role_code = 'VIEWER' LIMIT 1`);
+    const roleId = roleRes.rows.length > 0 ? roleRes.rows[0].role_id : null;
+
+    await queryPostgres(
+      `INSERT INTO mc_center.sys_users (username, password_hash, full_name, email, role_id, is_active)
+       VALUES ($1, $2, $3, $4, $5, FALSE)`,
+      [cleanUser, hashPassword(password), cleanName, cleanEmail, roleId]
+    );
+    return true;
+  }
+
+  /**
+   * Reset kata sandi mandiri dengan verifikasi pasangan username + email terdaftar
+   */
+  async resetPasswordSelf({ username, email, new_password }) {
+    const cleanUser = String(username || '').trim().toLowerCase();
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    if (!cleanUser || !cleanEmail) {
+      throw new Error('Username dan email wajib diisi.');
+    }
+    if (typeof new_password !== 'string' || new_password.length < 8 || new_password.length > 128) {
+      throw new Error('Kata sandi baru minimal 8 karakter.');
+    }
+
+    const genericError = 'Data username dan email tidak cocok dengan akun terdaftar. Hubungi administrator jika email belum terdaftar.';
+    const res = await queryPostgres(
+      `SELECT user_id FROM mc_center.sys_users WHERE LOWER(username) = $1 AND LOWER(email) = $2`,
+      [cleanUser, cleanEmail]
+    );
+    if (res.rows.length === 0) {
+      throw new Error(genericError);
+    }
+
+    await queryPostgres(
+      `UPDATE mc_center.sys_users SET password_hash = $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2`,
+      [hashPassword(new_password), res.rows[0].user_id]
+    );
+    return true;
+  }
+
   async createUser(data) {
     const { username, password, full_name, email, role_id, client_id, env_id, client_ids = [], env_ids = [], is_active = true } = data;
     if (!username || !password || !full_name) {

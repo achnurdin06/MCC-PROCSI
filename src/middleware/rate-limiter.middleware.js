@@ -3,9 +3,9 @@
  * Melindungi endpoint login dan eksekusi kritis dari serangan brute-force / DoS
  */
 
-const clientRequests = new Map(); // ip => Array<timestamp>
-
 function createRateLimiter({ windowMs = 60 * 1000, maxRequests = 15, message = 'Terlalu banyak permintaan. Silakan coba kembali dalam beberapa saat.' } = {}) {
+  const clientRequests = new Map(); // ip => Array<timestamp>
+
   // Interval pembersihan memori setiap 5 menit
   setInterval(() => {
     const now = Date.now();
@@ -42,6 +42,11 @@ function createRateLimiter({ windowMs = 60 * 1000, maxRequests = 15, message = '
 
 module.exports = {
   createRateLimiter,
+  captchaRateLimiter: createRateLimiter({
+    windowMs: 60 * 1000,
+    maxRequests: 30,
+    message: 'Terlalu banyak permintaan captcha. Silakan tunggu sebentar.'
+  }),
   loginRateLimiter: createRateLimiter({
     windowMs: 60 * 1000, // 1 menit
     maxRequests: 10,     // Maks 10 percobaan per menit
