@@ -3696,7 +3696,19 @@ textarea.form-input {
 }
 
 .login-card .btn-text {
-  color: #7dd3fc !important;
+  color: #e0f2fe !important;
+  background: none !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  padding: 0;
+  font-weight: 600;
+  cursor: pointer;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+}
+
+.login-card .btn-text:hover {
+  color: #ffffff !important;
+  text-decoration: underline;
 }
 
 .login-card-header {
@@ -3831,6 +3843,10 @@ textarea.form-input {
 }
 
 .login-card .form-input.captcha-input {
+  color: #000000 !important;
+  -webkit-text-fill-color: #000000;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.9) !important;
   flex: 1 1 0;
   min-width: 0;
   text-transform: uppercase;
@@ -3849,11 +3865,6 @@ textarea.form-input {
 .login-switch-text .btn-text {
   font-size: 0.75rem;
   font-weight: 600;
-  color: #7dd3fc;
-  background: none;
-  border: 0;
-  cursor: pointer;
-  padding: 0;
 }
 
 .login-switch-text .btn-text:hover {
