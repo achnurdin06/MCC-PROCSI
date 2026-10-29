@@ -21,8 +21,8 @@ Express app (src/app.js)  ── Helmet CSP, CORS allowlist, JSON 10 MB
    ├─ controllers/*  ── adaptor HTTP (validasi ringan, format respons)
    └─ services/*     ── logika bisnis + akses DB
           │
-          ├─ config/postgres.js  → PostgreSQL (db_procsi: mc_center, stg_antam, vendor)
-          ├─ config/sqlserver.js → SQL Server (antam_scm.dbo) [opsional via config/tunnel.js SSH]
+          ├─ config/postgres.js  → PostgreSQL (<NAMA_DB_APLIKASI>: mc_center, stg_antam, vendor)
+          ├─ config/sqlserver.js → Database Sumber (<SCHEMA_SUMBER>) [opsional via config/tunnel.js SSH]
           └─ Apache Hop config JSON (config/hop-configs/)
 ```
 
@@ -30,7 +30,7 @@ Express app (src/app.js)  ── Helmet CSP, CORS allowlist, JSON 10 MB
 
 | Tier | Lokasi | Isi |
 |---|---|---|
-| Source | SQL Server `antam_scm.dbo` | View `v_migration_vendor`, `v_vendor_*` |
+| Source | Database Sumber (`<SCHEMA_SUMBER>`) | View `v_migration_vendor`, `v_vendor_*` |
 | Staging | PostgreSQL `stg_antam` | `stg_*_src` + `staging_data_history` |
 | Target | PostgreSQL `vendor` / `public` | `slave_*` dan tabel operasional |
 

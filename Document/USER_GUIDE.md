@@ -59,7 +59,7 @@
 ## 1. Pengenalan & Konsep Dasar
 
 ### 1.1 Latar Belakang & Tujuan
-**ETL Migration Command Center (MCC-PROCSI)** adalah platform enterprise yang dirancang khusus untuk memfasilitasi, mengotomasi, dan mengaudit proses migrasi data dari sistem lama (*legacy*) **Microsoft SQL Server (`antam_scm`)** ke basis data modern **PostgreSQL (`db_procsi`)**.
+**ETL Migration Command Center (MCC-PROCSI)** adalah platform enterprise yang dirancang khusus untuk memfasilitasi, mengotomasi, dan mengaudit proses migrasi data dari sistem lama (*legacy*) **berbagai basis data sumber (SQL Server, PostgreSQL sumber, dan database relasional lain) ke target tunggal modern **PostgreSQL**.
 
 Platform ini menggabungkan eksekusi *Extract-Transform-Load (ETL)* berbasis pipeline berkinerja tinggi dengan antarmuka web interaktif, kanvas visual *Directed Acyclic Graph (DAG)*, rekonsiliasi data 3-tier otomatis, serta pembuatan dokumen formal **Berita Acara Migrasi**. Rincian arsitektur teknis mendalam dapat dipelajari pada [ARCHITECTURE.md](./ARCHITECTURE.md).
 
@@ -70,7 +70,7 @@ Proses migrasi mengadopsi model pemisahan tiga lapisan (*3-Tier Architecture*) u
 +---------------------------+       Flow 1        +---------------------------+       Flow 2        +---------------------------+
 |    TIER 1: SOURCE DB      |  ================>  |    TIER 2: STAGING DB     |  ================>  |    TIER 3: TARGET PROD    |
 |   Microsoft SQL Server    |  Ekstraksi Mentah   |        PostgreSQL         |   Posting Valid     |        PostgreSQL         |
-|   Database: antam_scm     |   & Transformasi    |    Database: db_procsi    |   & Sinkronisasi    |    Database: db_procsi    |
+|   Database: <DATABASE_SUMBER>     |   & Transformasi    |    Database: <DATABASE_TARGET>    |   & Sinkronisasi    |    Database: <DATABASE_TARGET>    |
 |   Schema: dbo             |    Lookup Awal      |    Schema: stg_antam      |     Sequence        |    Schema: vendor / core  |
 |   View: v_migration_*     |                     |    Tabel: stg_*_src       |                     |    Flag: migration = '1'  |
 +---------------------------+                     +---------------------------+                     +---------------------------+
@@ -80,7 +80,7 @@ Proses migrasi mengadopsi model pemisahan tiga lapisan (*3-Tier Architecture*) u
 ```
 
 1. **Tier 1 (Source Database - SQL Server)**:
-   - Sumber data operasional awal pada database `antam_scm.dbo`.
+   - Sumber data operasional awal pada database `<SCHEMA_SUMBER>`.
    - Data dibaca secara non-invasif melalui objek SQL View (`v_migration_*`) yang telah dioptimasi dengan query pengelompokan dan alias kolom standar.
 2. **Tier 2 (Staging Database - PostgreSQL)**:
    - Area penampungan sementara pada skema `stg_antam`.
@@ -159,7 +159,7 @@ Jika aplikasi baru dipasang dan belum memiliki rekaman data Client, Environment,
 
 ### 3.2 Ringkasan Dashboard Orientasi
 Jika konfigurasi telah aktif, menu ini menampilkan:
-- **Hero Banner**: Deskripsi arsitektur integrasi sistem `antam_scm` ➔ `db_procsi`.
+- **Hero Banner**: Deskripsi arsitektur integrasi sistem `<DATABASE_SUMBER>` ➔ `<DATABASE_TARGET>`.
 - **Pintasan Cepat Operasional**:
   - Tombol *Masuk ke Dashboard / Source Data*.
   - Tombol pintasan langsung ke *Workflow Canvas Studio*.
@@ -173,7 +173,7 @@ Menu **Source Data** berfungsi sebagai modul eksplorasi dan inspeksi data awal p
 
 ```
 +-------------------------------------------------------------------------------------------------------+
-|  Katalog View Sumber: SQL Server (antam_scm.dbo)                                                      |
+|  Katalog View Sumber: Database Sumber (<SCHEMA_SUMBER>)                                                      |
 |  [ All (45) ] [ 🟢 Terdaftar Config (32) ] [ 🟡 Belum Dikonfigurasi (13) ]   [ Cari View...        ]  |
 +-------------------------------------------------------------------------------------------------------+
 | No | Nama View               | Deskripsi              | Schema | Total Baris | Relasi Config | Aksi   |

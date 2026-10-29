@@ -12,7 +12,7 @@
 
 Pemeriksaan keamanan menyeluruh (*security screening & vulnerability assessment*) telah dilakukan terhadap arsitektur, kode sumber (*backend*, *frontend*, dan basis data), dependensi pustaka, serta alur pipeline data aplikasi **Migration Command Center**.
 
-Aplikasi ini bertugas memigrasikan data kritikal enterprise dari **Microsoft SQL Server (`antam_scm.dbo`)** ke **PostgreSQL (`db_procsi.vendor` / `stg_antam`)**, meliputi data profil vendor, akta perusahaan, rekening bank, hingga data akun pengguna (*user & password*). Oleh karena itu, integritas, kerahasiaan, dan kepatuhan terhadap **UU Pelindungan Data Pribadi (UU PDP No. 27/2022)** serta standar keamanan korporat menjadi prioritas mutlak.
+Aplikasi ini bertugas memigrasikan data kritikal enterprise dari **database sumber (`<SCHEMA_SUMBER>`)** ke **PostgreSQL (`<SCHEMA_TARGET>` / `<SCHEMA_STAGING>`)**, meliputi data profil vendor, akta perusahaan, rekening bank, hingga data akun pengguna (*user & password*). Oleh karena itu, integritas, kerahasiaan, dan kepatuhan terhadap **UU Pelindungan Data Pribadi (UU PDP No. 27/2022)** serta standar keamanan korporat menjadi prioritas mutlak.
 
 ### Ringkasan Tingkat Keparahan Temuan:
 | Tingkat Keparahan | Jumlah | Deskripsi Singkat |
@@ -212,7 +212,7 @@ Berdasarkan hasil pemindaian struktur kolom database yang dimigrasikan, berikut 
        │  - Mengambil ciphertext dari staging
        │  - Mendekripsi payload kolom menggunakan Key resmi
        ▼ (4) Target Insertion
-[PostgreSQL Target: db_procsi.vendor / users]
+[PostgreSQL Target: <NAMA_DB_TARGET>.<SCHEMA_TARGET> / users]
        * Data tersimpan siap pakai sesuai spesifikasi target *
 ```
 

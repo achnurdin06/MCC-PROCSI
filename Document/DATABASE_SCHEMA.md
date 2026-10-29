@@ -1,8 +1,8 @@
 # Skema Database MCC-PROCSI
 
-> Terakhir diperbarui: 29 Oktober 2026 · Sumber: introspeksi langsung PostgreSQL 17 `db_procsi` (host dev `<HOST_DEV>:<PORT>`)
+> Terakhir diperbarui: 29 Oktober 2026 · Sumber: introspeksi langsung PostgreSQL 17 (host dev `<HOST_DEV>:<PORT>`)
 
-Database aplikasi **`db_procsi`** memiliki tiga skema yang relevan:
+Database aplikasi memiliki tiga skema yang relevan:
 
 | Skema | Fungsi |
 |---|---|

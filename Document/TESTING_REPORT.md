@@ -2,7 +2,7 @@
 **Dokumen:** Hasil Investigasi Bug, Perbaikan Arsitektur, dan Siklus Pengujian QA  
 **Peran:** Senior Software Engineer & Lead QA Engineer  
 **Repositori:** `achnurdin06/mig-antam`  
-**Basis Data Target:** PostgreSQL (`db_procsi` @ `<HOST_DEV>:<PORT>`)  
+**Basis Data Target:** PostgreSQL (`<NAMA_DB_TARGET>` @ `<HOST_DEV>:<PORT>)  
 **Basis Data Kontrol:** Skema `mc_center` & `etl_antam`  
 **Tanggal Eksekusi:** Sesi Verifikasi Menyeluruh (Run 305 s/d 327)  
 

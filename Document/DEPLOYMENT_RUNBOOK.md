@@ -7,7 +7,7 @@
 
 | Lingkungan | Branch git | File env | Database aplikasi |
 |---|---|---|---|
-| Lokal / Dev | `dev` (atau feature) | `.env.development` | `db_procsi` dev |
+| Lokal / Dev | `dev` (atau feature) | `.env.development` | `<NAMA_DB_DEV>` |
 | Produksi on-prem | `main` | `.env.production` | DB produksi |
 
 Remote: `origin` (GitHub `achnurdin06/mig-antam`) dan `sisi` (GitLab workstation). Detail resolusi env: [ENVIRONMENT_CONFIG.md](./ENVIRONMENT_CONFIG.md).
@@ -50,13 +50,13 @@ Lalu di browser: halaman login + captcha tampil → login → menu sesuai role �
 
 | Objek | Cara | Frekuensi |
 |---|---|---|
-| Skema `mc_center` | `pg_dump -h <host> -p <port> -U <user> -n mc_center -Fc db_procsi > mc_center_$(date +%F).dump` | Harian + sebelum rilis |
+| Skema `mc_center` | `pg_dump -h <host> -p <port> -U <user> -n mc_center -Fc <NAMA_DB_TARGET> > mc_center_$(date +%F).dump` | Harian + sebelum rilis |
 | Skema `stg_antam` | idem dengan `-n stg_antam` | Sebelum Flow 4 (purge) |
 | Target `vendor`/`public` | Snapshot DB sebelum Flow 2 produksi pertama | Sebelum cut-over |
 | `.env.production` | Salin terenkripsi ke vault terpisah | Saat berubah |
 | `ENCRYPTION_MASTER_KEY` | Vault terpisah — **tanpa kunci ini kredensial `master_connection` tidak bisa didekripsi** | Saat dibuat |
 
-Pemulihan: `pg_restore -c -n mc_center -d db_procsi mc_center_<tanggal>.dump`, lalu restart aplikasi.
+Pemulihan: `pg_restore -c -n mc_center -d <NAMA_DB_TARGET> mc_center_<tanggal>.dump`, lalu restart aplikasi.
 
 ## 6. Operasi Harian
 

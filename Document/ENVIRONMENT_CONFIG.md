@@ -37,7 +37,7 @@ Folder server produksi **harus** berisi checkout branch `main` + `.env.productio
 ### Database Aplikasi (control + staging + target)
 | Variabel | Wajib | Keterangan |
 |---|---|---|
-| `APP_DB_HOST`, `APP_DB_PORT`, `APP_DB_USER`, `APP_DB_PASSWORD`, `APP_DB_NAME` | Ya | Koneksi PostgreSQL `db_procsi` |
+| `APP_DB_HOST`, `APP_DB_PORT`, `APP_DB_USER`, `APP_DB_PASSWORD`, `APP_DB_NAME` | Ya | Koneksi PostgreSQL database aplikasi |
 | `APP_DB_SCHEMA` | Tidak | Default `mc_center` |
 | `APP_DB_MAX_POOL` | Tidak | Ukuran pool (default 10) |
 | `PG_HOST/PORT/USER/PASSWORD/DATABASE` | Tidak | Alias kompatibilitas mundur |
@@ -68,7 +68,7 @@ Generate: `openssl rand -hex 32`. **Gunakan nilai berbeda untuk dev dan prod.** 
 | Hal | `.env.development` | `.env.production` |
 |---|---|---|
 | `NODE_ENV` / `APP_ENV` | development / DEV | production / PROD |
-| DB aplikasi | `db_procsi` dev (`<HOST_DEV>:<PORT>`) | DB prod on-prem |
+| DB aplikasi | `<NAMA_DB_DEV>` (`<HOST_DEV>:<PORT>`) | DB prod on-prem |
 | `JWT_SECRET`, `ENCRYPTION_MASTER_KEY` | unik dev | unik prod |
 | `CORS_ALLOWED_ORIGINS` | kosong | domain resmi HTTPS |
 | `TRUST_PROXY` | `loopback` | sesuai Nginx |
