@@ -128,6 +128,24 @@
       actions: [{ label: 'Cek Kesehatan Sistem', type: 'health' }]
     },
     {
+      id: 'tour',
+      title: 'Tur / Tour panduan aplikasi',
+      keywords: ['tour', 'tur', 'tutorial', 'panduan', 'mulai', 'start', 'baru', 'intro', 'pertama'],
+      answer: [
+        'Klik tombol **🧭 Tour** di header untuk membuka tur interaktif berisi:',
+        '',
+        '1. **Pengenalan**: aplikasi, alur 4 tahap, pilih Client/Env.',
+        '2. **Source Data**: melihat SQL Server view dan jumlah baris.',
+        '3. **Migration Config**: atur mapping, aturan, target, lookup.',
+        '4. **Workflow Canvas**: susun DAG dan jalankan migrasi (Anda tekan sendiri).',
+        '5. **Hasil Migrasi**: rekonsiliasi 3-tier dan cetak Berita Acara.',
+        '6. **Pengaturan Sistem**: kelola user, role, hak akses menu.',
+        '',
+        'Tur hanya berisi penjelasan dan **tidak menjalankan proses apa pun**. Dapat diulang kapan saja lewat tombol Tour di header.'
+      ].join('\n'),
+      actions: [{ label: 'Buka Tour Sekarang', type: 'tour' }]
+    },
+    {
       id: 'guide',
       title: 'Panduan pengguna',
       keywords: ['panduan', 'userguide', 'user guide', 'tutorial', 'cara', 'bantuan', 'help', 'sop', 'dokumen', 'dokumentasi', 'faq'],
@@ -533,6 +551,10 @@
       }
     } else if (action.type === 'health') {
       runHealthCheck();
+    } else if (action.type === 'tour') {
+      if (window.MCCTour && typeof window.MCCTour.start === 'function') {
+        window.MCCTour.start();
+      }
     } else if (action.type === 'ask') {
       ask(action.value);
     }
