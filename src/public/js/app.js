@@ -8365,6 +8365,7 @@ async function initAuth() {
         clearPending();
         startPermissionAutoRefresh();
         await initApplication();
+        if (window.MCCTour) window.MCCTour.offer();
         return;
       }
       console.warn(`Verifikasi sesi gagal (percobaan ${attempt}/${maxAttempts}):`, json.message || res.status);
@@ -8430,6 +8431,7 @@ async function handleLoginSubmit(event) {
 
     startPermissionAutoRefresh();
     await initApplication();
+    if (window.MCCTour) window.MCCTour.offer({ force: true });
   } catch (err) {
     console.error('Kesalahan saat login:', err);
     showAuthAlert('login', 'Terjadi kesalahan koneksi server: ' + err.message, 'danger');
@@ -8440,6 +8442,7 @@ async function handleLoginSubmit(event) {
 }
 
 function handleLogout() {
+  if (window.MCCTour) window.MCCTour.clearSession();
   document.documentElement.classList.remove('auth-pending');
   const token = state.userToken || localStorage.getItem('antam_token');
   if (token) {
