@@ -308,6 +308,13 @@
         </div>
 
         <div id="login-alert-box" class="alert-box alert-danger hidden mb-4">
+          <span class="alert-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/>
+              <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+          </span>
           <span id="login-alert-text">Username atau kata sandi tidak sesuai.</span>
         </div>
 
@@ -373,7 +380,16 @@
             <h2 class="text-lg font-bold text-slate-800">Lupa Kata Sandi</h2>
             <p class="text-xs text-muted">Masukkan username dan email terdaftar. Permintaan reset akan diteruskan ke administrator, yang akan memproses reset kata sandi Anda melalui menu manajemen pengguna.</p>
           </div>
-          <div id="forgot-alert-box" class="alert-box alert-danger hidden mb-4"><span id="forgot-alert-text"></span></div>
+          <div id="forgot-alert-box" class="alert-box alert-danger hidden mb-4">
+            <span class="alert-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
+                <line x1="12" y1="9" x2="12" y2="13"/>
+                <line x1="12" y1="17" x2="12.01" y2="17"/>
+              </svg>
+            </span>
+            <span id="forgot-alert-text"></span>
+          </div>
           <form id="form-forgot" onsubmit="handleForgotSubmit(event)" autocomplete="off">
             <div class="form-group mb-3">
               <label class="form-label text-xs font-semibold text-slate-700" for="forgot-username">Username</label>
@@ -403,7 +419,16 @@
             <h2 class="text-lg font-bold text-slate-800">Daftar Akun Baru</h2>
             <p class="text-xs text-muted">Akun baru berperan Viewer dan aktif setelah disetujui administrator</p>
           </div>
-          <div id="register-alert-box" class="alert-box alert-danger hidden mb-4"><span id="register-alert-text"></span></div>
+          <div id="register-alert-box" class="alert-box alert-danger hidden mb-4">
+            <span class="alert-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
+                <line x1="12" y1="9" x2="12" y2="13"/>
+                <line x1="12" y1="17" x2="12.01" y2="17"/>
+              </svg>
+            </span>
+            <span id="register-alert-text"></span>
+          </div>
           <form id="form-register" onsubmit="handleRegisterSubmit(event)" autocomplete="off">
             <div class="form-group mb-3">
               <label class="form-label text-xs font-semibold text-slate-700" for="register-fullname">Nama Lengkap</label>
@@ -1225,6 +1250,8 @@
                     <th class="col-stg">Staging Table</th>
                     <th class="col-tgt">Target Table</th>
                     <th class="col-pk">PK Columns</th>
+                    <th class="col-pk">Business Keys</th>
+                    <th class="col-schema text-center">Error Policy</th>
                     <th class="col-compare">Compare Columns</th>
                     <th class="col-id">ID Column</th>
                     <th class="col-num text-center">Width</th>
@@ -1235,7 +1262,7 @@
                   </tr>
                 </thead>
                 <tbody id="master-config-tbody">
-                  <tr><td colspan="15" class="text-center py-8 text-muted">Memuat data migration_config...</td></tr>
+                  <tr><td colspan="17" class="text-center py-8 text-muted">Memuat data migration_config...</td></tr>
                 </tbody>
               </table>
             </div>
@@ -1292,13 +1319,12 @@
                     <th class="sortable col-schema" data-cfg-table="rules" data-col="on_unmapped">On Unmapped <span class="sort-icon">↕</span></th>
                     <th class="col-id">Default Value</th>
                     <th class="sortable col-num" data-cfg-table="rules" data-col="normalize">Normalize <span class="sort-icon">↕</span></th>
-                    <th class="col-id">Client / Env</th>
                     <th class="sortable col-status" data-cfg-table="rules" data-col="is_active">Status <span class="sort-icon">↕</span></th>
                     <th class="sticky-action-col col-action">Aksi</th>
                   </tr>
                 </thead>
                 <tbody id="master-rules-tbody">
-                  <tr><td colspan="16" class="text-center py-8 text-muted">Memuat data migration_convert_rule...</td></tr>
+                  <tr><td colspan="15" class="text-center py-8 text-muted">Memuat data migration_convert_rule...</td></tr>
                 </tbody>
               </table>
             </div>
@@ -5329,7 +5355,8 @@ WHERE v.is_deleted = 0;</code></pre>
   <!-- Floating Toast Notification Container (Pojok Kanan Atas) -->
   <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-  <script src="js/app.js?v=5.0"></script>
+  <script src="js/app.js?v=5.5"></script>
   <script src="js/flow-canvas.js?v=1.7"></script>
+  <script src="js/helpdesk-bot.js?v=1.1"></script>
 </body>
 </html>

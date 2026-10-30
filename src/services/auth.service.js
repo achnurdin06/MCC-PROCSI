@@ -47,7 +47,7 @@ class AuthService {
 
     // Ambil daftar menu & hak akses role
     const permissions = await this.getRolePermissions(user.role_id);
-    const allowedMenus = permissions.filter((p) => p.can_view);
+    const allowedMenus = permissions.filter((p) => p.can_view && p.is_active !== false);
 
     // Ambil multi-client & multi-env penugasan
     const userClientsRes = await queryPostgres(
@@ -153,7 +153,7 @@ class AuthService {
 
     const user = userRes.rows[0];
     const permissions = await this.getRolePermissions(user.role_id);
-    const allowedMenus = permissions.filter((p) => p.can_view);
+    const allowedMenus = permissions.filter((p) => p.can_view && p.is_active !== false);
 
     const userClientsRes = await queryPostgres(
       `SELECT c.client_id, c.client_code, c.client_name 

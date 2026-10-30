@@ -482,6 +482,19 @@ Menu **Userguide** adalah modul pusat bantuan (*Help Center*) interaktif yang te
 
 ---
 
+### Chatbot Helpdesk
+Tombol 💬 di pojok kanan bawah (di atas footer) membuka **MCC Helpdesk**. Ketik kendala (mis. "connection timeout", "menu tidak muncul", "data tidak sesuai") atau pilih chip saran. Bot menjawab langkah penanganan, menyediakan tombol pintasan ke menu terkait, dan tombol **Cek Kesehatan Sistem** (ikon 🩺) untuk memeriksa koneksi database sumber & target. Riwayat percakapan hanya tersimpan selama sesi browser; ikon 🗑️ membersihkannya. Bot berjalan lokal tanpa mengirim data ke layanan luar.
+
+**Materi khusus role Operator**: saat pengguna login sebagai `OPERATOR` (atau `SUPERADMIN`), chip saran dan basis pengetahuan bot otomatis beralih ke materi operasional SOP, yang tidak ditampilkan untuk role `VIEWER`:
+- **SOP Operator**: urutan baku Persiapan → Inspeksi Source → Verifikasi Config → Flow 1 → Audit Staging → Flow 2 → Rekonsiliasi → Cetak Berita Acara.
+- **Hak & batas operator**: ringkasan aksi yang diizinkan (Flow 1–4, cancel/force-stop run, kelola Migration Config, cetak BA) vs. yang hanya untuk Superadmin (import config, precheck SQL, kelola View/Client/Environment/Connection/User).
+- **Troubleshooting Flow 1**: `DUPLICATE_SOURCE_KEY`, `MISSING_BUSINESS_KEYS`, status `PARTIAL_SUCCESS`/`FAILED` (`ALLOW_PARTIAL` vs `FAIL_ALL`), run `KADALUARSA (SUPERSEDED)`.
+- **Troubleshooting Flow 2**: penolakan karena run belum `SUCCESS`, `ALREADY_POSTED`, `ALREADY_ROLLED_BACK`, *Foreign Key violation* akibat `exec_order` salah, serta `useBatch`/`batchSize`.
+- **Flow 3 (Rollback)**: kapan dan bagaimana rollback, guard `NOT_POSTED_YET`/`ALREADY_ROLLED_BACK`.
+- **Flow 4 (Purge)**: wajib Preview dulu, Dual-Guard, guard `NOT_MIGRATION_DATA`/`ID_NOT_FOUND`/`NO_TARGET_CONFIG`, larangan di produksi tanpa persetujuan & backup.
+- **Run macet**: langkah memeriksa Terminal Output/Log Galat, Cek Kesehatan Sistem, Cancel, lalu Force Stop.
+- **Eskalasi**: kapan dan ke mana melapor (DBA/infra, Superadmin, atau tim ETL) beserta informasi yang perlu disertakan.
+
 ## 10. Standar Operasional Prosedur (SOP) & Troubleshooting (FAQ)
 
 ### 10.1 SOP Alur Kerja Migrasi End-to-End
