@@ -1250,6 +1250,8 @@
                     <th class="col-stg">Staging Table</th>
                     <th class="col-tgt">Target Table</th>
                     <th class="col-pk">PK Columns</th>
+                    <th class="col-pk">Business Keys</th>
+                    <th class="col-schema text-center">Error Policy</th>
                     <th class="col-compare">Compare Columns</th>
                     <th class="col-id">ID Column</th>
                     <th class="col-num text-center">Width</th>
@@ -1260,7 +1262,7 @@
                   </tr>
                 </thead>
                 <tbody id="master-config-tbody">
-                  <tr><td colspan="15" class="text-center py-8 text-muted">Memuat data migration_config...</td></tr>
+                  <tr><td colspan="17" class="text-center py-8 text-muted">Memuat data migration_config...</td></tr>
                 </tbody>
               </table>
             </div>
@@ -1317,13 +1319,12 @@
                     <th class="sortable col-schema" data-cfg-table="rules" data-col="on_unmapped">On Unmapped <span class="sort-icon">↕</span></th>
                     <th class="col-id">Default Value</th>
                     <th class="sortable col-num" data-cfg-table="rules" data-col="normalize">Normalize <span class="sort-icon">↕</span></th>
-                    <th class="col-id">Client / Env</th>
                     <th class="sortable col-status" data-cfg-table="rules" data-col="is_active">Status <span class="sort-icon">↕</span></th>
                     <th class="sticky-action-col col-action">Aksi</th>
                   </tr>
                 </thead>
                 <tbody id="master-rules-tbody">
-                  <tr><td colspan="16" class="text-center py-8 text-muted">Memuat data migration_convert_rule...</td></tr>
+                  <tr><td colspan="15" class="text-center py-8 text-muted">Memuat data migration_convert_rule...</td></tr>
                 </tbody>
               </table>
             </div>
@@ -5354,7 +5355,7 @@ WHERE v.is_deleted = 0;</code></pre>
   <!-- Floating Toast Notification Container (Pojok Kanan Atas) -->
   <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-  <script src="js/app.js?v=5.1"></script>
+  <script src="js/app.js?v=5.5"></script>
   <script src="js/flow-canvas.js?v=1.7"></script>
   <script src="js/helpdesk-bot.js?v=1.1"></script>
 </body>

@@ -1153,6 +1153,7 @@ function isTabAllowedForUser(tabId) {
     'tab-process': 'TAB_PROCESS',
     'tab-pipeline': 'TAB_PIPELINE',
     'tab-system': 'TAB_SYSTEM',
+    'tab-userguide': 'TAB_USERGUIDE',
   };
   const code = tabId && tabId.startsWith('tab-custom-') ? tabId.replace('tab-custom-', '') : codeByTab[tabId];
   if (!code) return true;
@@ -1162,7 +1163,7 @@ function isTabAllowedForUser(tabId) {
 function switchMainTab(tabId) {
   if (!isTabAllowedForUser(tabId)) {
     const fallback = ['tab-source', 'tab-config', 'tab-canvas', 'tab-pipeline', 'tab-system'].find(isTabAllowedForUser);
-    tabId = fallback || 'tab-userguide';
+    tabId = fallback || ['tab-userguide'].find(isTabAllowedForUser) || 'tab-welcome';
   }
   if (tabId === 'tab-welcome' && state.isInitialized) {
     tabId = 'tab-source';
@@ -3561,11 +3562,11 @@ function renderConfigTable(tableKey) {
   if (tableKey === 'main') {
     rawList = state.config.masters.migration_config || [];
     tbodyId = 'master-config-tbody';
-    colspan = 15;
+    colspan = 17;
   } else if (tableKey === 'rules') {
     rawList = state.config.masters.migration_convert_rule || [];
     tbodyId = 'master-rules-tbody';
-    colspan = 16;
+    colspan = 15;
   } else if (tableKey === 'targets') {
     rawList = state.config.masters.migration_target_config || [];
     tbodyId = 'master-targets-tbody';
@@ -3683,6 +3684,8 @@ function renderConfigTable(tableKey) {
           <span title="Target: [${escapeHtml(c.tgt_schema || 'vendor')}].[${escapeHtml(c.tgt_table || '-')}]">[${escapeHtml(c.tgt_schema || 'vendor')}].[${escapeHtml(c.tgt_table || '-')}]</span>
         </td>
         <td>${formatPkColumns(c.pk_columns)}</td>
+        <td>${c.business_keys ? formatPkColumns(c.business_keys) : '<span class="text-muted">-</span>'}</td>
+        <td class="text-center"><span class="badge ${c.error_policy === 'ALLOW_PARTIAL' ? 'badge-info' : 'badge-neutral'} font-mono text-xs">${escapeHtml(c.error_policy || 'FAIL_ALL')}</span></td>
         <td>${formatCompareColumns(c.compare_columns)}</td>
         <td class="font-mono text-xs">${escapeHtml(c.id_column || '-')}</td>
         <td class="font-mono text-center text-xs">${c.id_width ?? '-'}</td>
@@ -3703,10 +3706,6 @@ function renderConfigTable(tableKey) {
     tbody.innerHTML = pageItems.map((r) => {
       const cfg = (state.config.masters?.migration_config || []).find((c) => c.config_id == r.config_id);
       const cfgName = cfg ? (cfg.name_config || `Config #${r.config_id}`) : `Config #${r.config_id}`;
-      const clientObj = (state.clients || []).find((c) => c.client_id == r.client_id);
-      const envObj = (state.environments || []).find((e) => e.env_id == r.env_id);
-      const clientCode = clientObj ? clientObj.client_code : (r.client_id ? `#${r.client_id}` : '-');
-      const envCode = envObj ? envObj.env_code : (r.env_id ? `#${r.env_id}` : '-');
 
       return `
       <tr>
@@ -3726,12 +3725,6 @@ function renderConfigTable(tableKey) {
         <td class="text-center"><span class="badge ${r.on_unmapped === 'REJECT' ? 'badge-danger' : r.on_unmapped === 'DEFAULT' ? 'badge-info' : 'badge-neutral'} font-mono">${escapeHtml(r.on_unmapped || '-')}</span></td>
         <td class="font-mono text-xs text-center">${escapeHtml(r.default_value !== null && r.default_value !== undefined && r.default_value !== '' ? r.default_value : '-')}</td>
         <td class="text-center"><span class="badge ${r.normalize ? 'badge-success' : 'badge-neutral'}">${r.normalize ? 'Yes' : 'No'}</span></td>
-        <td class="text-center">
-          <div class="flex-gap-1 justify-center text-xs">
-            <span class="badge badge-neutral font-mono" title="Client ID: ${r.client_id || '-'}">${escapeHtml(clientCode)}</span>
-            <span class="badge badge-info font-mono" title="Env ID: ${r.env_id || '-'}">${escapeHtml(envCode)}</span>
-          </div>
-        </td>
         <td class="text-center"><span class="badge ${r.is_active ? 'badge-success' : 'badge-danger'}">${r.is_active ? 'Active' : 'Inactive'}</span></td>
         <td class="sticky-action-col">
           <div class="flex-gap-2 justify-center">
@@ -3773,7 +3766,8 @@ function renderConfigTable(tableKey) {
       `;
     }).join('');
   } else if (tableKey === 'lookups') {
-    tbody.innerHTML = pageItems.map((l) => `
+    tbody.innerHTML = pageItems.map((l) => {
+      return `
       <tr>
         <td><strong class="text-amber">${escapeHtml(l.lookup_name)}</strong></td>
         <td class="text-muted">${escapeHtml(l.master_schema || 'public')}</td>
@@ -3792,7 +3786,8 @@ function renderConfigTable(tableKey) {
           </div>
         </td>
       </tr>
-    `).join('');
+    `;
+    }).join('');
   }
 }
 
@@ -3829,6 +3824,8 @@ const FORM_DEFINITIONS = {
   migration_config: {
     title: 'Migration Config',
     fields: [
+      { name: 'client_id', label: 'Client', type: 'select_client_cascade', required: false },
+      { name: 'env_id', label: 'Environment', type: 'select_env_cascade', required: false },
       { name: 'name_config', label: 'Nama Konfigurasi / Objek', type: 'text', placeholder: 'e.g. Vendor, Akta Perusahaan, Vendor Address' },
       { name: 'exec_order', label: 'Exec Order', type: 'number', default: 1, required: true },
       { name: 'src_schema', label: 'Source Schema', type: 'text', default: 'dbo', required: true },
@@ -3837,6 +3834,8 @@ const FORM_DEFINITIONS = {
       { name: 'tgt_schema', label: 'Target Schema', type: 'text', default: 'vendor', required: true },
       { name: 'tgt_table', label: 'Target Table (PostgreSQL)', type: 'text', placeholder: 'vendor_header', required: true },
       { name: 'pk_columns', label: 'PK Columns', type: 'text', placeholder: 'id', required: true },
+      { name: 'business_keys', label: 'Business Keys (pisahkan koma)', type: 'text', placeholder: 'e.g. vendor_reference_id, npwp' },
+      { name: 'error_policy', label: 'Error Policy', type: 'select', options: ['FAIL_ALL', 'ALLOW_PARTIAL'], default: 'FAIL_ALL', required: true },
       { name: 'compare_columns', label: 'Compare Columns', type: 'textarea', placeholder: 'e.g. name, email, status (Akan terisi otomatis saat simpan jika dikosongkan)' },
       { name: 'id_column', label: 'ID Column', type: 'text', placeholder: 'id' },
       { name: 'id_width', label: 'ID Width', type: 'number', default: 10 },
@@ -3848,8 +3847,6 @@ const FORM_DEFINITIONS = {
   migration_convert_rule: {
     title: 'Convert Rule (migration_convert_rule)',
     fields: [
-      { name: 'client_id', label: '1. Client', type: 'select_client_cascade', required: false },
-      { name: 'env_id', label: '2. Environment', type: 'select_env_cascade', required: false },
       { name: 'config_id', label: '3. Migration Config (Target Pipeline)', type: 'select_config', required: true },
       { name: 'column_name', label: '4. Column Name (Target / Staging Column)', type: 'text', placeholder: 'e.g. company_type_id atau vendor_id', required: true },
       { name: 'source_column', label: '5. Source Column (Di Source View)', type: 'text', placeholder: 'e.g. tipe_perusahaan (kosongkan jika sama)' },
@@ -3996,7 +3993,7 @@ function openUniversalForm(entityType, id = null, existingData = null) {
 
   // Normalisasi existingData untuk Connection & Convert Rule
   let effectiveData = existingData ? { ...existingData } : {};
-  if (entityType === 'connection' || entityType === 'migration_convert_rule') {
+  if (entityType === 'connection' || entityType.startsWith('migration_')) {
     if (isEdit && effectiveData.env_id) {
       const parentEnv = state.environments?.find((e) => e.env_id == effectiveData.env_id);
       if (parentEnv && !effectiveData.client_id) {
@@ -4008,7 +4005,12 @@ function openUniversalForm(entityType, id = null, existingData = null) {
       }
       if (!effectiveData.env_id && effectiveData.client_id) {
         const clientEnvs = state.environments ? state.environments.filter((e) => e.client_id == effectiveData.client_id) : [];
-        if (clientEnvs.length > 0) effectiveData.env_id = clientEnvs[0].env_id;
+        const matchedHeaderEnv = clientEnvs.find((e) => e.env_id == state.selectedEnvId);
+        if (matchedHeaderEnv) {
+          effectiveData.env_id = matchedHeaderEnv.env_id;
+        } else if (clientEnvs.length > 0) {
+          effectiveData.env_id = clientEnvs[0].env_id;
+        }
       }
     }
   }
@@ -4134,6 +4136,15 @@ function openUniversalForm(entityType, id = null, existingData = null) {
   // Interactive cascading enhancements untuk Client -> Environment
   const selClient = container.querySelector('select[name="client_id"]');
   const selEnv = container.querySelector('select[name="env_id"]');
+  if (entityType === 'migration_config') {
+    [selClient, selEnv].forEach((el) => {
+      if (!el) return;
+      el.disabled = true;
+      el.title = 'Mengikuti Client / Environment pada header';
+      const fg = el.closest('.form-group');
+      if (fg) fg.insertAdjacentHTML('beforeend', '<small class="text-muted">Otomatis mengikuti Client / Env di header</small>');
+    });
+  }
   if (selClient && selEnv) {
     selClient.addEventListener('change', () => {
       const cId = parseInt(selClient.value, 10);
@@ -4297,6 +4308,18 @@ async function handleCrudSubmit(e) {
   const entityType = state.config.editingTable;
   const id = state.config.editingId;
 
+  // Client/Env Migration Config dikunci: create mengikuti header, edit mempertahankan nilai record
+  if (entityType === 'migration_config') {
+    if (isEdit) {
+      const cur = (state.config.masters?.migration_config || []).find((c) => String(c.config_id) === String(id));
+      data.client_id = cur?.client_id ?? null;
+      data.env_id = cur?.env_id ?? null;
+    } else {
+      data.client_id = state.selectedClientId || null;
+      data.env_id = state.selectedEnvId || null;
+    }
+  }
+
   // Point 7: Client-side Staging collision guard
   if (entityType === 'migration_config' && data.stg_table) {
     const activeConfigs = state.config.masters?.migration_config || [];
@@ -4328,6 +4351,13 @@ async function handleCrudSubmit(e) {
 
     if (['migration_config', 'migration_convert_rule', 'migration_target_config', 'migration_lookup'].includes(entityType)) {
       if (!isEdit) {
+        const parentCfg = data.config_id
+          ? (state.config.masters?.migration_config || []).find((c) => c.config_id == data.config_id)
+          : null;
+        if (parentCfg) {
+          if (!data.client_id && parentCfg.client_id) data.client_id = parentCfg.client_id;
+          if (!data.env_id && parentCfg.env_id) data.env_id = parentCfg.env_id;
+        }
         if (state.selectedClientId && !data.client_id) data.client_id = state.selectedClientId;
         if (state.selectedEnvId && !data.env_id) data.env_id = state.selectedEnvId;
       }
@@ -8791,6 +8821,7 @@ function applyMenuPermissions(menus) {
     'TAB_PROCESS': document.getElementById('nav-btn-canvas') || document.getElementById('nav-btn-process'),
     'TAB_PIPELINE': document.getElementById('nav-btn-pipeline'),
     'TAB_SYSTEM': document.getElementById('nav-btn-system'),
+    'TAB_USERGUIDE': document.getElementById('nav-btn-userguide'),
   };
 
   if (isSuperadmin) {
@@ -8816,10 +8847,6 @@ function applyMenuPermissions(menus) {
     }
   });
 
-  // Tombol Userguide selalu dapat diakses semua role
-  const userguideBtn = document.getElementById('nav-btn-userguide');
-  if (userguideBtn) userguideBtn.style.display = '';
-
   // Tab custom juga dicek apakah tab aktif saat ini diizinkan
   if (state.activeTab && state.activeTab.startsWith('tab-custom-')) {
     const activeCode = state.activeTab.replace('tab-custom-', '');
@@ -8829,7 +8856,7 @@ function applyMenuPermissions(menus) {
   }
 
   // Jika tab aktif saat ini tidak diizinkan, arahkan ke tab pertama yang diizinkan
-  if (!currentTabIsVisible && state.activeTab !== 'tab-welcome' && state.activeTab !== 'tab-userguide') {
+  if (!currentTabIsVisible && state.activeTab !== 'tab-welcome') {
     const firstAllowedBtn = Object.values(menuNavMap).find(btn => btn && btn.style.display !== 'none');
     if (firstAllowedBtn) {
       const targetTab = firstAllowedBtn.getAttribute('data-tab');

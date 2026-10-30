@@ -13,7 +13,11 @@ Format mengikuti [Keep a Changelog](https://keepachangelog.com/id-ID/1.1.0/). Ta
 - **Role / Menu / Matrix Menu tidak berpengaruh**: API mengirim profil user dalam camelCase (`roleCode`, `roleId`, ...) sedangkan UI membaca snake_case (`role_code`, `role_id`), sehingga `applyMenuPermissions` salah mengenali role dan hak akses tidak diterapkan. Kini profil dinormalisasi (`normalizeAuthUser`).
 - Perubahan matriks kini ikut berlaku pada sesi yang sedang aktif tanpa login ulang: `refreshUserPermissions()` dipanggil setelah simpan matriks, saat tab browser kembali aktif, dan setiap 60 detik.
 - Guard navigasi `isTabAllowedForUser()` di `switchMainTab` agar tab yang tidak diizinkan tidak bisa dibuka lewat state tersimpan (`antam_active_main_tab`).
-- `app.js` naik ke `?v=5.1` untuk menghindari cache lama.
+- **Menu user (mis. OPERATOR) tidak sinkron dengan konfigurasi**: tombol *6. Userguide* dipaksa tampil untuk semua role dan `TAB_USERGUIDE` tidak dicek oleh `isTabAllowedForUser`/`applyMenuPermissions`, sehingga matriks menu diabaikan. Kini Userguide mengikuti `can_view` matriks seperti menu lain (SUPERADMIN tetap melihat semua).
+- Backend (`login` dan `getProfile`) kini hanya mengirim menu yang `can_view` **dan** `is_active`, sehingga menu yang dinonaktifkan di Maintain Menu tidak lagi sampai ke role non-superadmin.
+- `app.js` naik ke `?v=5.4` untuk menghindari cache lama.
+- **Master data Migration Config belum menampilkan semua kolom**: tabel *Migration Config* kini menampilkan `business_keys` dan `error_policy`. Kolom Client/Env hanya ditampilkan di *Migration Config*; tabel turunan (Convert Rules, Target Config, Master Lookup) tidak menampilkannya.
+- Form entri/edit melengkapi field yang kurang: `business_keys`, `error_policy` (`FAIL_ALL`/`ALLOW_PARTIAL`, default `FAIL_ALL`) pada Migration Config, serta tampilan Client/Environment pada Migration Config (terkunci, otomatis mengikuti Client/Env di header saat tambah data; saat edit nilai record dipertahankan). Form tabel turunan tidak lagi menampilkan Client/Environment; nilainya mengikuti Client/Env yang sedang dipilih saat data dibuat.
 
 ### Ditambahkan
 - **Chatbot Helpdesk** (pojok kanan bawah): asisten berbasis aturan (tanpa API eksternal) untuk kendala operasional — koneksi/timeout, login & RBAC, Flow 1–4, konfigurasi, canvas, rekonsiliasi & Berita Acara. Fitur: chip saran, tombol pintasan ke tab terkait, dan diagnosa langsung via `/api/health`. Berkas: `src/public/js/helpdesk-bot.js`; widget disembunyikan di layar login dan saat cetak.
