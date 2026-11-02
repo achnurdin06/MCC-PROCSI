@@ -8,6 +8,13 @@
     let url = typeof resource === 'string' ? resource : (resource?.url || '');
     if (url.startsWith('/api') || url.includes('/api/')) {
       const token = (window.state && window.state.userToken) || localStorage.getItem('antam_token');
+      const activeMenuCode = getMenuCodeForTab(window.state?.activeTab);
+      if (activeMenuCode) {
+        init = init || {};
+        const headers = new Headers(init.headers || {});
+        headers.set('X-Active-Menu-Code', activeMenuCode);
+        init.headers = headers;
+      }
       if (token && !url.includes('/api/auth/login')) {
         init = init || {};
         const headers = new Headers(init.headers || {});
@@ -36,6 +43,13 @@ const state = {
   activeProcessSubtab: 'subtab-runs',
   activeSettingTab: 'setting-tab-clients',
   health: null,
+  auditTrail: {
+    limit: 50,
+    offset: 0,
+    total: 0,
+    search: '',
+    events: [],
+  },
 
   // Global Context (Client, Environment, Connections)
   clients: [],
@@ -846,6 +860,45 @@ function setupEventListeners() {
   });
   document.getElementById('form-universal-crud').addEventListener('submit', (e) => handleCrudSubmit(e));
 
+  document.getElementById('btn-audit-refresh')?.addEventListener('click', () => loadAuditTrail());
+  document.getElementById('btn-audit-first')?.addEventListener('click', () => {
+    state.auditTrail.offset = 0;
+    loadAuditTrail();
+  });
+  document.getElementById('btn-audit-prev')?.addEventListener('click', () => {
+    state.auditTrail.offset = Math.max(0, state.auditTrail.offset - state.auditTrail.limit);
+    loadAuditTrail();
+  });
+  document.getElementById('btn-audit-next')?.addEventListener('click', () => {
+    state.auditTrail.offset += state.auditTrail.limit;
+    loadAuditTrail();
+  });
+  document.getElementById('btn-audit-last')?.addEventListener('click', () => {
+    const lastPage = Math.max(0, Math.ceil(state.auditTrail.total / state.auditTrail.limit) - 1);
+    state.auditTrail.offset = lastPage * state.auditTrail.limit;
+    loadAuditTrail();
+  });
+  document.getElementById('audit-page-buttons')?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-audit-offset]');
+    if (!button) return;
+    state.auditTrail.offset = Number(button.dataset.auditOffset) || 0;
+    loadAuditTrail();
+  });
+  document.getElementById('audit-page-size')?.addEventListener('change', (event) => {
+    state.auditTrail.limit = Number(event.target.value) || 50;
+    state.auditTrail.offset = 0;
+    loadAuditTrail();
+  });
+  let auditSearchTimer;
+  document.getElementById('audit-search')?.addEventListener('input', (event) => {
+    clearTimeout(auditSearchTimer);
+    auditSearchTimer = setTimeout(() => {
+      state.auditTrail.search = event.target.value.trim();
+      state.auditTrail.offset = 0;
+      loadAuditTrail();
+    }, 300);
+  });
+
   // Modal Delete Confirm
   document.getElementById('btn-close-delete-modal').addEventListener('click', () => {
     document.getElementById('modal-delete-confirm').classList.add('hidden');
@@ -1146,29 +1199,50 @@ function setupSearchFilter(inputId, tbodyId) {
 function isTabAllowedForUser(tabId) {
   const user = state.currentUser;
   if (!user || user.role_code === 'SUPERADMIN') return true;
+  const code = getMenuCodeForTab(tabId);
+  if (!code) return true;
+  return (state.userMenus || []).some(m => m.menu_code === code && m.can_view);
+}
+
+function getMenuCodeForTab(tabId) {
   const codeByTab = {
     'tab-source': 'TAB_SOURCE',
     'tab-config': 'TAB_CONFIG',
     'tab-canvas': 'TAB_PROCESS',
     'tab-process': 'TAB_PROCESS',
     'tab-pipeline': 'TAB_PIPELINE',
+    'tab-audit': 'TAB_AUDIT',
     'tab-system': 'TAB_SYSTEM',
     'tab-userguide': 'TAB_USERGUIDE',
   };
-  const code = tabId && tabId.startsWith('tab-custom-') ? tabId.replace('tab-custom-', '') : codeByTab[tabId];
-  if (!code) return true;
-  return (state.userMenus || []).some(m => m.menu_code === code && m.can_view);
+  if (tabId && tabId.startsWith('tab-custom-')) return tabId.replace('tab-custom-', '');
+  return codeByTab[tabId] || null;
 }
 
 function switchMainTab(tabId) {
   if (!isTabAllowedForUser(tabId)) {
-    const fallback = ['tab-source', 'tab-config', 'tab-canvas', 'tab-pipeline', 'tab-system'].find(isTabAllowedForUser);
+    const fallback = ['tab-source', 'tab-config', 'tab-canvas', 'tab-pipeline', 'tab-audit', 'tab-system'].find(isTabAllowedForUser);
     tabId = fallback || ['tab-userguide'].find(isTabAllowedForUser) || 'tab-welcome';
   }
   if (tabId === 'tab-welcome' && state.isInitialized) {
     tabId = 'tab-source';
   }
+  const previousTab = state.activeTab;
   state.activeTab = tabId;
+  const menuCode = getMenuCodeForTab(tabId);
+  if (menuCode && tabId !== previousTab && state.userToken) {
+    authFetch('/api/audit-trail/menu', {
+      method: 'POST',
+      body: JSON.stringify({ menuCode, envId: state.selectedEnvId }),
+    }).then(async (response) => {
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.error || `HTTP ${response.status}`);
+      }
+    }).catch((err) => {
+      console.error('Gagal mencatat menu pada audit trail:', err.message);
+    });
+  }
   try {
     localStorage.setItem('antam_active_main_tab', tabId);
   } catch (_) {}
@@ -1209,12 +1283,118 @@ function loadCurrentTab() {
     }
   } else if (tabId === 'tab-pipeline') {
     loadPipelineReconciliation();
+  } else if (tabId === 'tab-audit') {
+    loadAuditTrail();
   } else if (tabId === 'tab-system') {
     loadSystemAdministration();
   } else if (tabId === 'tab-userguide') {
     loadUserguideView();
   } else if (tabId && tabId.startsWith('tab-custom-')) {
     loadCustomTabView(tabId);
+  }
+}
+
+async function loadAuditTrail() {
+  const body = document.getElementById('audit-trail-tbody');
+  const info = document.getElementById('audit-pagination-info');
+  const prev = document.getElementById('btn-audit-prev');
+  const next = document.getElementById('btn-audit-next');
+  const firstButton = document.getElementById('btn-audit-first');
+  const lastButton = document.getElementById('btn-audit-last');
+  const pageButtons = document.getElementById('audit-page-buttons');
+  if (!body) return;
+
+  body.innerHTML = '<tr><td colspan="9" class="text-center py-8 text-muted">Memuat audit trail...</td></tr>';
+  try {
+    const params = new URLSearchParams({
+      limit: String(state.auditTrail.limit),
+      offset: String(state.auditTrail.offset),
+    });
+    if (state.auditTrail.search) params.set('search', state.auditTrail.search);
+    const response = await authFetch(`/api/audit-trail?${params.toString()}`);
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.toLowerCase().includes('application/json')) {
+      if (contentType.toLowerCase().includes('text/html')) {
+        throw new Error(
+          `Server mengembalikan halaman HTML (HTTP ${response.status}), bukan data Audit Trail. ` +
+          'Endpoint mungkin belum tersedia pada server yang berjalan. Restart server dan muat ulang halaman.'
+        );
+      }
+      throw new Error(`Respons server bukan JSON (HTTP ${response.status}).`);
+    }
+
+    const json = await response.json();
+    if (!response.ok || !json.success) {
+      throw new Error(json.error || `Gagal memuat audit trail (HTTP ${response.status}).`);
+    }
+
+    const data = json.data;
+    state.auditTrail.events = data.events || [];
+    state.auditTrail.total = Number(data.total) || 0;
+    state.auditTrail.limit = Number(data.limit) || state.auditTrail.limit;
+    state.auditTrail.offset = Number(data.offset) || 0;
+    const pageSize = document.getElementById('audit-page-size');
+    if (pageSize) pageSize.value = String(state.auditTrail.limit);
+
+    if (state.auditTrail.events.length === 0) {
+      body.innerHTML = '<tr><td colspan="9" class="text-center py-8 text-muted">Belum ada aktivitas yang tercatat.</td></tr>';
+    } else {
+      body.innerHTML = state.auditTrail.events.map((event) => {
+        const statusClass = event.http_status >= 500 ? 'badge-danger'
+          : event.http_status >= 400 ? 'badge-warning' : 'badge-success';
+        const timestamp = new Date(event.created_at).toLocaleString('id-ID');
+        const scope = [
+          event.client_id ? `Client #${event.client_id}` : '',
+          event.env_id ? `Env #${event.env_id}` : '',
+        ].filter(Boolean).join(' / ') || '-';
+        return `
+          <tr>
+            <td class="whitespace-nowrap">${escapeHtml(timestamp)}</td>
+            <td><strong>${escapeHtml(event.actor_username)}</strong><br><span class="text-xs text-muted">${escapeHtml(event.actor_role)}</span></td>
+            <td>${escapeHtml(event.menu_name || event.menu_code || '-')}</td>
+            <td>${escapeHtml(event.action)}</td>
+            <td><span class="font-mono">${escapeHtml(event.http_method)} ${escapeHtml(event.endpoint)}</span></td>
+            <td><span class="badge ${statusClass}">${escapeHtml(event.http_status)}</span></td>
+            <td>${escapeHtml(scope)}</td>
+            <td>${escapeHtml(event.ip_address || '-')}</td>
+            <td>${escapeHtml(event.duration_ms)} ms</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    const first = state.auditTrail.total === 0 ? 0 : state.auditTrail.offset + 1;
+    const last = state.auditTrail.offset + state.auditTrail.events.length;
+    const totalPages = Math.ceil(state.auditTrail.total / state.auditTrail.limit);
+    const currentPage = totalPages === 0 ? 0 : Math.floor(state.auditTrail.offset / state.auditTrail.limit);
+    if (info) {
+      info.textContent = state.auditTrail.total === 0
+        ? 'Tidak ada aktivitas'
+        : `Menampilkan ${first}-${last} dari ${state.auditTrail.total} · Halaman ${currentPage + 1} dari ${totalPages}`;
+    }
+    const isFirstPage = currentPage <= 0;
+    const isLastPage = totalPages === 0 || currentPage >= totalPages - 1;
+    if (firstButton) firstButton.disabled = isFirstPage;
+    if (prev) prev.disabled = isFirstPage;
+    if (next) next.disabled = isLastPage;
+    if (lastButton) lastButton.disabled = isLastPage;
+    if (pageButtons) {
+      const startPage = Math.max(0, Math.min(currentPage - 2, totalPages - 5));
+      const endPage = Math.min(totalPages, startPage + 5);
+      pageButtons.innerHTML = Array.from({ length: endPage - startPage }, (_, index) => {
+        const page = startPage + index;
+        const active = page === currentPage;
+        return `<button type="button" class="btn btn-secondary btn-sm${active ? ' active' : ''}" data-audit-offset="${page * state.auditTrail.limit}" aria-label="Halaman ${page + 1}" ${active ? 'aria-current="page" disabled' : ''}>${page + 1}</button>`;
+      }).join('');
+    }
+  } catch (err) {
+    body.innerHTML = `<tr><td colspan="9" class="text-center py-8 text-rose-400">${escapeHtml(err.message)}</td></tr>`;
+    if (info) info.textContent = 'Gagal memuat aktivitas';
+    if (firstButton) firstButton.disabled = true;
+    if (prev) prev.disabled = true;
+    if (next) next.disabled = true;
+    if (lastButton) lastButton.disabled = true;
+    if (pageButtons) pageButtons.innerHTML = '';
   }
 }
 
@@ -8742,6 +8922,7 @@ function syncNavTabsWithMenus(menus) {
     'TAB_CONFIG': document.getElementById('nav-btn-config'),
     'TAB_PROCESS': document.getElementById('nav-btn-canvas') || document.getElementById('nav-btn-process'),
     'TAB_PIPELINE': document.getElementById('nav-btn-pipeline'),
+    'TAB_AUDIT': document.getElementById('nav-btn-audit'),
     'TAB_SYSTEM': document.getElementById('nav-btn-system'),
     'TAB_USERGUIDE': document.getElementById('nav-btn-userguide'),
   };
@@ -8825,6 +9006,7 @@ function applyMenuPermissions(menus) {
     'TAB_CONFIG': document.getElementById('nav-btn-config'),
     'TAB_PROCESS': document.getElementById('nav-btn-canvas') || document.getElementById('nav-btn-process'),
     'TAB_PIPELINE': document.getElementById('nav-btn-pipeline'),
+    'TAB_AUDIT': document.getElementById('nav-btn-audit'),
     'TAB_SYSTEM': document.getElementById('nav-btn-system'),
     'TAB_USERGUIDE': document.getElementById('nav-btn-userguide'),
   };

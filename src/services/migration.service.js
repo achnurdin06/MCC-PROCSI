@@ -10,7 +10,7 @@ function sanitizeIdentifier(name) {
   return clean.length > 0 ? clean : null;
 }
 
-const BLOCKED_BROWSE_TABLES = new Set(['sys_users', 'sys_roles', 'master_connection']);
+const BLOCKED_BROWSE_TABLES = new Set(['sys_users', 'sys_roles', 'master_connection', 'audit_trail']);
 
 class MigrationService {
   /**

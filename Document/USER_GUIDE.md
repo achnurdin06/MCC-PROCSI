@@ -47,6 +47,7 @@
    - 8.2 Manajemen Peran (Master Roles)
    - 8.3 Maintain Menu & Navigasi Sistem (Menu Management)
    - 8.4 Matriks Hak Akses Menu & Perizinan (Menu & Permission Matrix)
+   - 8.5 Audit Trail
 9. [Menu 6: Userguide Terintegrasi](#9-menu-6-userguide-terintegrasi)
    - 9.1 Fitur Pencarian Tutorial & Filter Kategori
    - 9.2 Navigasi Cepat & Cetak Panduan
@@ -460,6 +461,13 @@ Menu **System Administration** menyediakan tata kelola autentikasi pengguna, per
     - **Delete (Hapus)**: Izin mengeksekusi penghapusan konfigurasi, pembatalan (*rollback*), atau pembersihan (*purge*).
   - Dilengkapi fitur *Pilih Semua (Check-All)* pada header setiap kolom perizinan.
 - **Tombol Simpan**: Tombol `💾 Simpan Perubahan Matriks` menyimpan pembaruan otorisasi ke database secara instan tanpa perlu me-restart server via endpoint `POST /api/auth/role-menus/:roleId`.
+
+### 8.5 Audit Trail
+- Menu **Audit Trail** tersedia untuk role `VIEWER` dan `SUPERADMIN` dan menampilkan aktivitas API yang tercatat, termasuk waktu, pengguna, aksi, endpoint, status HTTP, scope client/environment, alamat IP, dan durasi.
+- Gunakan kolom pencarian dan tombol **Refresh** untuk mencari atau memuat ulang aktivitas; pilih jumlah baris 25/50/100, lalu gunakan tombol pertama/sebelumnya, nomor halaman, berikutnya, atau terakhir.
+- Kolom **Menu** menunjukkan halaman aplikasi yang sedang dibuka saat aktivitas API terjadi; perpindahan menu juga tercatat sebagai `MENU_OPEN`.
+- VIEWER hanya dapat membaca aktivitas sesuai assignment client/environment-nya; jika tidak memiliki assignment, akses dibatasi pada aktivitas akun sendiri. SUPERADMIN dapat melihat seluruh aktivitas.
+- Login berhasil dan gagal dicatat. Body request, query string, token, password, dan kredensial koneksi tidak disimpan dalam audit trail.
 
 ---
 

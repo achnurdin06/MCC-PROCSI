@@ -196,7 +196,7 @@ Bagian ini melengkapi laporan di atas dengan hasil pengujian pada putaran terakh
 | S-01 | Request endpoint operasional tanpa token | `401` + pesan akses ditolak | ✅ PASS |
 | S-02 | Request endpoint tulis dengan role `VIEWER` | `403` | ✅ PASS |
 | S-03 | Validator query dengan statement majemuk / DDL | Ditolak oleh `assertReadOnlySelect` | ✅ PASS |
-| S-04 | Browse tabel terlarang (`sys_users`, `sys_roles`, `master_connection`) | Ditolak | ✅ PASS |
+| S-04 | Browse tabel terlarang (`sys_users`, `sys_roles`, `master_connection`, `audit_trail`) | Ditolak | ✅ PASS |
 | S-05 | Login gagal berulang > 10 kali/menit (IP+username) | `429` | ✅ PASS |
 | S-06 | Response `GET /api/context/connections` | Password tersamar + `has_password` | ✅ PASS |
 | S-07 | Startup tanpa `JWT_SECRET` / `ENCRYPTION_MASTER_KEY` yang valid | Error saat secret dipakai (login/enkripsi gagal, bukan crash saat boot) | ✅ PASS |
@@ -225,3 +225,18 @@ Bagian ini melengkapi laporan di atas dengan hasil pengujian pada putaran terakh
 | 1 | Config 20 (Siujk) belum memiliki `migration_target_config` | Flow 2 akan ditolak guard `NO_TARGET_CONFIG`. Lihat [MIGRATION_FLOWS.md](./MIGRATION_FLOWS.md#8-kelemahan-yang-diketahui-status-mitigasi--roadmap) |
 | 2 | State run & rate limiter di memori | Hanya aman untuk deployment single instance. Lihat [ARCHITECTURE.md](./ARCHITECTURE.md) |
 | 3 | Durasi Flow 1 bergantung pada stabilitas tunnel SSH | Belum ada instrumentasi khusus |
+
+## 11. Verifikasi Audit Trail & Enkripsi Master Connection
+
+Validasi perubahan terbaru dijalankan secara lokal dengan database dimock; tidak ada koneksi atau perubahan pada database dev/produksi.
+
+| Skenario | Hasil |
+|---|---|
+| `node --check` seluruh file JavaScript yang berubah | ✅ PASS |
+| `git diff --check` | ✅ PASS |
+| Wizard dan penyimpanan environment menyimpan password DB/SSH sebagai `ENC:v1:` serta hanya mengembalikan nilai tersamar | ✅ PASS |
+| Kredensial lama plaintext tetap dipertahankan pada update kosong/sentinel dan dienkripsi ketika disentuh | ✅ PASS |
+| Audit VIEWER mengikuti scope environment, pencarian meng-escape wildcard, serta limit/offset dibatasi | ✅ PASS |
+| Audit SUPERADMIN tanpa filter scope dan `audit_trail` ditolak dari generic table browse | ✅ PASS |
+| Audit Trail limit 25/50/100, clamping halaman terakhir, pencarian menu, kolom konteks, event `MENU_OPEN`, serta validasi assignment | ✅ PASS dengan database mock |
+| Integrasi DDL/RBAC dan pencatatan/pembacaan melalui PostgreSQL dev | Belum diuji; perlu smoke test pada database dev |

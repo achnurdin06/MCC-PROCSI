@@ -30,6 +30,7 @@ master_client 1─* master_environment 1─* master_connection
 sys_roles 1─* sys_users ─< sys_user_clients >─ master_client
                        └─< sys_user_environments >─ master_environment
 sys_roles ─< sys_role_menus >─ sys_menus
+sys_users 1─* audit_trail
 ```
 
 ## 2. Tabel Master
@@ -81,8 +82,9 @@ sys_roles ─< sys_role_menus >─ sys_menus
 | `sys_user_clients`, `sys_user_environments` | Pembatasan akses data per client/env |
 | `sys_menus` | `menu_id`, `menu_code`, `menu_name`, `menu_icon`, `menu_order`, `route_tab`, `sub_title`, `content_html`, `is_custom`, `is_active` |
 | `sys_role_menus` | `role_id`, `menu_id`, `can_view/create/update/delete` |
+| `audit_trail` | `audit_id`, aktor, aksi, method, endpoint, status HTTP, scope client/environment, kode/nama menu, IP, user-agent, durasi, waktu. Dibuat otomatis; tidak menyimpan body/query/token/password. |
 
-Menu bawaan: `TAB_SOURCE`, `TAB_CONFIG`, `TAB_PROCESS` (Workflow Canvas), `TAB_PIPELINE`, `TAB_SYSTEM`, `TAB_USERGUIDE`; menu kustom: `MENU_SOP` (`is_custom = true`, konten HTML).
+Menu bawaan: `TAB_SOURCE`, `TAB_CONFIG`, `TAB_PROCESS` (Workflow Canvas), `TAB_PIPELINE`, `TAB_AUDIT`, `TAB_SYSTEM`, `TAB_USERGUIDE`; menu kustom: `MENU_SOP` (`is_custom = true`, konten HTML). `TAB_AUDIT` otomatis diberi izin baca untuk role `VIEWER` dan `SUPERADMIN`.
 
 ## 6. Fungsi & Prosedur ETL (`mc_center`)
 

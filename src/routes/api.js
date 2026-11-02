@@ -6,6 +6,7 @@ const sourceController = require('../controllers/source.controller');
 const etlController = require('../controllers/etl.controller');
 const pipelineController = require('../controllers/pipeline.controller');
 const authController = require('../controllers/auth.controller');
+const auditTrailController = require('../controllers/audit-trail.controller');
 const { requireAuth, requireRole, optionalAuth } = require('../middleware/auth.middleware');
 const { loginRateLimiter, captchaRateLimiter } = require('../middleware/rate-limiter.middleware');
 const { sqlInjectionGuard } = require('../middleware/input-guard.middleware');
@@ -13,6 +14,7 @@ const { sourceConnectionMiddleware } = require('../config/source-connection-cont
 
 const ADMIN = requireRole(['SUPERADMIN']);
 const OPERATIONS = requireRole(['SUPERADMIN', 'OPERATOR']);
+const AUDIT_VIEWERS = requireRole(['VIEWER', 'SUPERADMIN']);
 
 // ==========================================
 // 0. Autentikasi & RBAC (User, Role, Menu)
@@ -46,6 +48,10 @@ router.delete('/auth/menus/:id', requireAuth, requireRole(['SUPERADMIN']), (req,
 router.get('/auth/role-menus/:roleId', requireAuth, (req, res) => authController.getRolePermissions(req, res));
 router.post('/auth/role-menus/:roleId', requireAuth, requireRole(['SUPERADMIN']), (req, res) => authController.saveRolePermissions(req, res));
 router.put('/auth/role-menus/:roleId', requireAuth, requireRole(['SUPERADMIN']), (req, res) => authController.saveRolePermissions(req, res));
+
+// Read-only audit trail for VIEWER and SUPERADMIN
+router.post('/audit-trail/menu', requireAuth, (req, res) => auditTrailController.recordMenu(req, res));
+router.get('/audit-trail', requireAuth, AUDIT_VIEWERS, (req, res) => auditTrailController.list(req, res));
 
 // ==========================================
 // 1. Core Health Check (Public untuk Liveness/Readiness probe)
