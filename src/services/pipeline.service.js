@@ -509,7 +509,7 @@ class PipelineService {
         execOrder: cfg.exec_order,
         isActive: cfg.is_active,
         source: {
-          database: `${process.env.MSSQL_DATABASE || 'database_sumber'} (Sumber)`,
+          database: 'SQL Server (Sumber)',
           schema: cleanSrcSchema,
           view: cleanSrcView,
           rows: srcRows,
@@ -903,7 +903,7 @@ class PipelineService {
       execOrder: cfg.exec_order,
       modName,
       source: {
-        database: process.env.MSSQL_DATABASE || 'database_sumber',
+        database: 'SQL Server',
         schema: cleanSrcSchema,
         view: cleanSrcView,
         rows: srcRows,
@@ -1517,7 +1517,7 @@ class PipelineService {
       source: {
         schema: cleanSrcSchema,
         view: cleanSrcView,
-        database: `${process.env.MSSQL_DATABASE || 'database_sumber'} (Sumber)`,
+        database: 'SQL Server (Sumber)',
         rowsCount: sourceRowsCount,
         columnsCount: sourceCols.length,
         columns: sourceCols,
@@ -1654,5 +1654,3 @@ class PipelineService {
 }
 
 module.exports = new PipelineService();
-
-

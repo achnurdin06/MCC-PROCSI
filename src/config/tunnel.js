@@ -2,174 +2,136 @@ const net = require('net');
 const { Client } = require('ssh2');
 require('./env');
 
-let sshClient = null;
-let netServer = null;
-let isTunnelReady = false;
-let initPromise = null;
+const tunnels = new Map();
+const pendingTunnels = new Map();
 
-const tunnelConfig = {
-  enabled: process.env.MSSQL_USE_SSH_TUNNEL === 'true',
-  sshHost: process.env.MSSQL_SSH_HOST || process.env.MSSQL_SERVER || '',
-  sshPort: parseInt(process.env.MSSQL_SSH_PORT, 10) || 22,
-  sshUser: process.env.MSSQL_SSH_USER || '',
-  sshPassword: process.env.MSSQL_SSH_PASSWORD || '',
-  remoteHost: '127.0.0.1', // Dari perspektif SSH server
-  remotePort: parseInt(process.env.MSSQL_PORT, 10) || 1433,
-  localPort: parseInt(process.env.LOCAL_TUNNEL_PORT, 10) || 11433,
-};
-
-function createTunnel() {
-  if (initPromise) return initPromise;
-
-  initPromise = new Promise((resolve, rejectRaw) => {
-    let settled = false;
-    const reject = (err) => {
-      if (settled) return;
-      settled = true;
-      rejectRaw(err);
-    };
-    if (!tunnelConfig.enabled) {
-      return resolve(null);
+function openTunnel(connection, key) {
+  return new Promise((resolve, reject) => {
+    if (!connection.ssh_host || !connection.ssh_user || !connection.ssh_password) {
+      reject(new Error('SSH tunnel aktif, tetapi host, user, atau password SSH belum dikonfigurasi di Master Connection.'));
+      return;
     }
-
-    if (isTunnelReady && netServer && sshClient) {
-      return resolve(tunnelConfig.localPort);
-    }
-
-    console.log(`🔌 Membuka SSH tunnel ke ${tunnelConfig.sshHost}:${tunnelConfig.sshPort} (user: ${tunnelConfig.sshUser})...`);
 
     const client = new Client();
+    let server = null;
+    let settled = false;
+    const finishError = (err) => {
+      if (settled) return;
+      settled = true;
+      if (server?.listening) server.close();
+      client.destroy();
+      reject(err);
+    };
 
-    client.on('ready', () => {
-      console.log('✓ SSH tunnel tersambung!');
-      sshClient = client;
-
-      // Jika netServer lama masih ada, bersihkan dulu
-      if (netServer) {
-        try { netServer.close(); } catch (e) {}
-        netServer = null;
-      }
-
-      const server = net.createServer((socket) => {
+    client.once('ready', () => {
+      server = net.createServer((socket) => {
         socket.on('error', (err) => {
           console.warn('Local tunnel client socket error:', err.message);
         });
 
-        if (!sshClient) {
-          socket.destroy();
-          return;
-        }
-
-        try {
-          client.forwardOut(
-            '127.0.0.1',
-            socket.remotePort,
-            tunnelConfig.remoteHost,
-            tunnelConfig.remotePort,
-            (err, stream) => {
-              if (err) {
-                console.warn('SSH forwardOut error:', err.message);
-                socket.destroy();
-                return;
-              }
-              socket.pipe(stream).pipe(socket);
-              socket.on('error', () => { try { stream.destroy(); } catch (e) {} });
-              stream.on('error', () => { try { socket.destroy(); } catch (e) {} });
+        client.forwardOut(
+          '127.0.0.1',
+          socket.remotePort,
+          connection.host,
+          parseInt(connection.port, 10) || 1433,
+          (err, stream) => {
+            if (err) {
+              console.warn('SSH forwardOut error:', err.message);
+              socket.destroy();
+              return;
             }
-          );
-        } catch (fwdErr) {
-          console.warn('SSH forwardOut catch error:', fwdErr.message);
-          socket.destroy();
-        }
+            socket.pipe(stream).pipe(socket);
+            socket.on('error', () => stream.destroy());
+            stream.on('error', () => socket.destroy());
+          }
+        );
       });
 
       server.on('error', (err) => {
-        if (err.code === 'EADDRINUSE') {
-          console.log(`ℹ️ Port lokal ${tunnelConfig.localPort} sudah digunakan, menggunakan listener yang ada.`);
-          isTunnelReady = true;
-          netServer = server;
-          resolve(tunnelConfig.localPort);
-        } else {
-          console.error('Local tunnel net server error:', err.message);
-          reject(err);
+        if (!settled) {
+          finishError(err);
+          return;
         }
+        console.warn('Local tunnel server error:', err.message);
+        closeTunnel(key).catch((closeErr) => {
+          console.warn('Gagal menutup SSH tunnel setelah error:', closeErr.message);
+        });
       });
-
-      server.listen(tunnelConfig.localPort, '127.0.0.1', () => {
-        console.log(`✓ Port forward aktif di 127.0.0.1:${tunnelConfig.localPort} -> remote 1433`);
-        isTunnelReady = true;
-        netServer = server;
-        resolve(tunnelConfig.localPort);
+      server.listen(0, '127.0.0.1', () => {
+        const tunnel = {
+          client,
+          server,
+          localPort: server.address().port,
+          key,
+        };
+        tunnels.set(key, tunnel);
+        settled = true;
+        resolve(tunnel);
       });
     });
 
     client.on('error', (err) => {
-      console.warn('SSH Connection warning/error:', err.message);
-      reject(err);
-      closeTunnel().catch(() => {});
-    });
-
-    client.on('close', () => {
-      console.log('SSH connection closed.');
-      reject(new Error('Koneksi SSH tunnel terputus sebelum siap'));
-      closeTunnel().catch(() => {});
-    });
-
-    try {
-      client.connect({
-        host: tunnelConfig.sshHost,
-        port: tunnelConfig.sshPort,
-        username: tunnelConfig.sshUser,
-        password: tunnelConfig.sshPassword,
-        readyTimeout: 30000,
-        keepaliveInterval: 10000,
-        keepaliveCountMax: 3,
+      if (!settled) {
+        finishError(err);
+        return;
+      }
+      console.warn('SSH tunnel connection error:', err.message);
+      closeTunnel(key).catch((closeErr) => {
+        console.warn('Gagal menutup SSH tunnel setelah error:', closeErr.message);
       });
-    } catch (err) {
-      initPromise = null;
-      reject(err);
-    }
+    });
+    client.once('close', () => {
+      const tunnel = tunnels.get(key);
+      if (tunnel?.client === client) {
+        tunnel.server.close();
+        tunnels.delete(key);
+      }
+      if (!settled) finishError(new Error('Koneksi SSH tunnel terputus sebelum siap.'));
+    });
+
+    client.connect({
+      host: connection.ssh_host,
+      port: parseInt(connection.ssh_port, 10) || 22,
+      username: connection.ssh_user,
+      password: connection.ssh_password,
+      readyTimeout: 30000,
+      keepaliveInterval: 10000,
+      keepaliveCountMax: 3,
+    });
   });
-
-  return initPromise;
 }
 
-async function ensureTunnel() {
-  if (!tunnelConfig.enabled) {
-    return null;
-  }
-  if (!isTunnelReady || !sshClient) {
-    await closeTunnel();
-    return await createTunnel();
-  }
-  return tunnelConfig.localPort;
+async function ensureTunnel(connection, key = String(connection.connection_id || 'test')) {
+  const existing = tunnels.get(key);
+  if (existing?.client && existing?.server?.listening) return existing.localPort;
+  if (pendingTunnels.has(key)) return pendingTunnels.get(key);
+  const pending = openTunnel(connection, key)
+    .then((tunnel) => tunnel.localPort)
+    .finally(() => pendingTunnels.delete(key));
+  pendingTunnels.set(key, pending);
+  return pending;
 }
 
-async function closeTunnel() {
-  isTunnelReady = false;
-  initPromise = null;
-  if (netServer) {
-    try {
-      netServer.close();
-    } catch (e) {}
-    netServer = null;
-  }
-  if (sshClient) {
-    try {
-      sshClient.end();
-      sshClient.destroy();
-    } catch (e) {}
-    sshClient = null;
-  }
-  console.log('✓ SSH tunnel ditutup / di-reset.');
+async function closeTunnel(key = null) {
+  const selected = key === null ? [...tunnels.values()] : [tunnels.get(String(key))].filter(Boolean);
+  await Promise.all(selected.map(async (tunnel) => {
+    tunnels.delete(tunnel.key);
+    await new Promise((resolve) => {
+      if (!tunnel.server.listening) return resolve();
+      tunnel.server.close(resolve);
+    });
+    tunnel.client.end();
+    tunnel.client.destroy();
+  }));
+  if (key === null) pendingTunnels.clear();
 }
 
-function isTunnelActive() {
-  return isTunnelReady && !!sshClient && !!netServer;
+function isTunnelActive(key) {
+  const tunnel = tunnels.get(String(key));
+  return Boolean(tunnel?.client && tunnel?.server?.listening);
 }
 
 module.exports = {
-  tunnelConfig,
   ensureTunnel,
   isTunnelActive,
   closeTunnel,

@@ -1,10 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const { queryPostgres } = require('../config/postgres');
-const sql = require('mssql');
 const { Pool } = require('pg');
-const { checkSqlServerConnection, getSqlServerPool, querySqlServer } = require('../config/sqlserver');
-const { ensureTunnel } = require('../config/tunnel');
+const { querySqlServer, testSqlServerConnection } = require('../config/sqlserver');
 const { encrypt, decrypt, isEncrypted, maskCredential } = require('../utils/encryption');
 const { assertReadOnlySelect, assertSafeIdentifier } = require('../utils/sql-guard');
 const pipelineService = require('./pipeline.service');
@@ -45,6 +43,18 @@ const ALLOWED_CONFIG_TABLES = {
 let inMemoryClients = [];
 let inMemoryEnvironments = [];
 let inMemoryConnections = [];
+
+function getActiveEnvironmentConnection(connections, role) {
+  const activeConnections = connections.filter((connection) => (
+    String(connection.db_role || '').toUpperCase() === role
+    && connection.is_active !== false
+    && connection.is_active !== 0
+  ));
+  if (activeConnections.length > 1) {
+    throw new Error(`Environment memiliki lebih dari satu koneksi ${role} aktif.`);
+  }
+  return activeConnections[0] || null;
+}
 
 class EtlService {
   constructor() {
@@ -377,15 +387,9 @@ class EtlService {
       `, [parseInt(envId, 10)]);
 
       const connections = connRes.rows;
-      const sourceConn = connections.find(c => (c.db_role || '').toUpperCase() === 'SOURCE' && c.is_active !== false)
-        || connections.find(c => (c.db_type || '').toUpperCase() === 'MSSQL' && c.is_active !== false)
-        || null;
-
-      const targetConn = connections.find(c => (c.db_role || '').toUpperCase() === 'TARGET' && c.is_active !== false)
-        || connections.find(c => (c.db_type || '').toUpperCase() === 'POSTGRESQL' && c.is_active !== false)
-        || null;
-
-      const stagingConn = connections.find(c => (c.db_role || '').toUpperCase() === 'STAGING' && c.is_active !== false) || null;
+      const sourceConn = getActiveEnvironmentConnection(connections, 'SOURCE');
+      const targetConn = getActiveEnvironmentConnection(connections, 'TARGET');
+      const stagingConn = getActiveEnvironmentConnection(connections, 'STAGING');
 
       return {
         environment: envRes.rows[0],
@@ -399,8 +403,8 @@ class EtlService {
       if (!env) throw err;
       const client = inMemoryClients.find(c => c.client_id == env.client_id);
       const conns = inMemoryConnections.filter(c => c.env_id == envId);
-      const sourceConn = conns.find(c => (c.db_role || '').toUpperCase() === 'SOURCE') || null;
-      const targetConn = conns.find(c => (c.db_role || '').toUpperCase() === 'TARGET') || null;
+      const sourceConn = getActiveEnvironmentConnection(conns, 'SOURCE');
+      const targetConn = getActiveEnvironmentConnection(conns, 'TARGET');
       return {
         environment: { ...env, client_code: client?.client_code, client_name: client?.client_name },
         connections: conns,
@@ -427,28 +431,30 @@ class EtlService {
     return {
       environment: details.environment,
       source: {
-        role: 'Source Database (MSSQL)',
+        role: `Source Database (${sourceConn?.db_type || 'SOURCE'})`,
+        configured: Boolean(sourceConn),
         connection_id: sourceConn?.connection_id || null,
         connection_name: sourceConn?.connection_name || 'Tidak ada koneksi SOURCE',
-        db_type: sourceConn?.db_type || 'MSSQL',
-        database: sourceConn?.database_name || process.env.MSSQL_DATABASE || '',
-        db_schema: sourceConn?.db_schema || 'dbo',
-        host: sourceConn?.host || 'localhost',
-        port: sourceConn?.port || 1433,
+        db_type: sourceConn?.db_type || null,
+        database: sourceConn?.database_name || '',
+        db_schema: sourceConn?.db_schema || '',
+        host: sourceConn?.host || '',
+        port: sourceConn?.port || null,
         connected: Boolean(sourceHealth.success),
         latencyMs: sourceHealth.latencyMs || 0,
         error: sourceHealth.error || null,
         version: sourceHealth.version || null,
       },
       target: {
-        role: 'Target Database (PostgreSQL)',
+        role: `Target Database (${targetConn?.db_type || 'TARGET'})`,
+        configured: Boolean(targetConn),
         connection_id: targetConn?.connection_id || null,
         connection_name: targetConn?.connection_name || 'Tidak ada koneksi TARGET',
-        db_type: targetConn?.db_type || 'POSTGRESQL',
-        database: targetConn?.database_name || process.env.APP_DB_NAME || process.env.PG_DATABASE || '',
-        db_schema: targetConn?.db_schema || 'vendor',
-        host: targetConn?.host || 'localhost',
-        port: targetConn?.port || 5432,
+        db_type: targetConn?.db_type || null,
+        database: targetConn?.database_name || '',
+        db_schema: targetConn?.db_schema || '',
+        host: targetConn?.host || '',
+        port: targetConn?.port || null,
         connected: Boolean(targetHealth.success),
         latencyMs: targetHealth.latencyMs || 0,
         error: targetHealth.error || null,
@@ -1038,19 +1044,47 @@ class EtlService {
   }
 
   async testConnection(data) {
-    let { db_type = 'POSTGRESQL', host, port, database_name, username, password, connection_id } = data;
+    let {
+      db_type = 'POSTGRESQL',
+      host,
+      port,
+      database_name,
+      username,
+      password,
+      connection_id,
+      use_ssh_tunnel = false,
+      ssh_host,
+      ssh_port,
+      ssh_user,
+      ssh_password,
+    } = data;
     const startTime = Date.now();
 
-    // Password hanya dari DB (via connection_id) atau plaintext baru; ciphertext kiriman klien tidak pernah didekripsi
-    if (password === '••••••••' || (typeof password === 'string' && password.startsWith('ENC:'))) {
-      password = undefined;
-      if (connection_id) {
-        try {
-          const cur = await queryPostgres('SELECT password FROM mc_center.master_connection WHERE connection_id = $1', [parseInt(connection_id, 10)]);
-          if (cur.rows.length > 0 && cur.rows[0].password) {
-            password = decrypt(cur.rows[0].password);
-          }
-        } catch (_) {}
+    if (connection_id) {
+      const current = await queryPostgres(`
+        SELECT host, port, database_name, username, password, use_ssh_tunnel,
+               ssh_host, ssh_port, ssh_user, ssh_password
+        FROM mc_center.master_connection
+        WHERE connection_id = $1
+      `, [parseInt(connection_id, 10)]);
+      const saved = current.rows[0];
+      if (saved) {
+        host = host || saved.host;
+        port = port || saved.port;
+        database_name = database_name || saved.database_name;
+        username = username || saved.username;
+        if (data.use_ssh_tunnel === undefined || data.use_ssh_tunnel === null) {
+          use_ssh_tunnel = saved.use_ssh_tunnel;
+        }
+        ssh_host = ssh_host || saved.ssh_host;
+        ssh_port = ssh_port || saved.ssh_port;
+        ssh_user = ssh_user || saved.ssh_user;
+        if (!password || password === '••••••••' || String(password).startsWith('ENC:')) {
+          password = saved.password ? decrypt(saved.password) : '';
+        }
+        if (!ssh_password || ssh_password === '••••••••' || String(ssh_password).startsWith('ENC:')) {
+          ssh_password = saved.ssh_password ? decrypt(saved.ssh_password) : '';
+        }
       }
     }
     if (host && isBlockedTestHost(host)) {
@@ -1058,87 +1092,18 @@ class EtlService {
     }
 
     if (db_type.toUpperCase() === 'MSSQL') {
-      const isAntamHost = !host || host === process.env.MSSQL_SERVER || host === process.env.MSSQL_SSH_HOST || host === '127.0.0.1' || host === 'localhost';
-      const isAntamDb = !database_name || database_name === process.env.MSSQL_DATABASE;
-      const isAntamUser = !username || username === process.env.MSSQL_USER || username === 'sa';
-
-      // 1. Jika ini koneksi default dari .env (host / database / user sama), gunakan managed connection pool langsung
-      if (isAntamHost && isAntamDb && isAntamUser) {
-        try {
-          const sqlResult = await checkSqlServerConnection();
-          if (sqlResult.connected) {
-            return {
-              success: true,
-              latencyMs: sqlResult.latencyMs,
-              message: 'Koneksi ke SQL Server berhasil (via SSH Tunnel)!',
-              version: sqlResult.version,
-            };
-          } else {
-            return {
-              success: false,
-              latencyMs: sqlResult.latencyMs,
-              error: sqlResult.error || 'Gagal terhubung ke SQL Server via SSH Tunnel',
-            };
-          }
-        } catch (err) {
-          return {
-            success: false,
-            latencyMs: Date.now() - startTime,
-            error: err.message,
-          };
-        }
-      }
-
-      // 2. Jika koneksi custom MSSQL: cek apakah membutuhkan SSH tunnel
-      let targetServer = host || 'localhost';
-      let targetPort = parseInt(port, 10) || 1433;
-
-      const requiresTunnel = (process.env.MSSQL_USE_SSH_TUNNEL === 'true' && isAntamHost) || (!!process.env.MSSQL_SSH_HOST && host === process.env.MSSQL_SSH_HOST);
-      if (requiresTunnel) {
-        try {
-          await ensureTunnel();
-          targetServer = '127.0.0.1';
-          targetPort = parseInt(process.env.LOCAL_TUNNEL_PORT, 10) || 11433;
-        } catch (tunnelErr) {
-          return {
-            success: false,
-            latencyMs: Date.now() - startTime,
-            error: `SSH Tunnel Error: ${tunnelErr.message}`,
-          };
-        }
-      }
-
-      const config = {
-        server: targetServer,
-        port: targetPort,
-        user: username || process.env.MSSQL_USER || 'sa',
-        password: password || process.env.MSSQL_PASSWORD || '',
-        database: database_name || process.env.MSSQL_DATABASE || '',
-        options: {
-          encrypt: process.env.MSSQL_ENCRYPT === 'true',
-          trustServerCertificate: process.env.MSSQL_TRUST_SERVER_CERTIFICATE !== 'false',
-          enableArithAbort: true,
-        },
-        connectionTimeout: parseInt(process.env.MSSQL_CONNECTION_TIMEOUT, 10) || 15000,
-      };
-
-      try {
-        const pool = await new sql.ConnectionPool(config).connect();
-        const res = await pool.request().query('SELECT @@VERSION AS version');
-        await pool.close();
-        return {
-          success: true,
-          latencyMs: Date.now() - startTime,
-          message: 'Koneksi ke SQL Server berhasil!',
-          version: res.recordset[0]?.version?.split('\n')[0],
-        };
-      } catch (err) {
-        return {
-          success: false,
-          latencyMs: Date.now() - startTime,
-          error: err.message,
-        };
-      }
+      return testSqlServerConnection({
+        host,
+        port,
+        database_name,
+        username,
+        password,
+        use_ssh_tunnel: use_ssh_tunnel === true || use_ssh_tunnel === 'true',
+        ssh_host,
+        ssh_port,
+        ssh_user,
+        ssh_password,
+      });
     } else {
       // PostgreSQL
       const pool = new Pool({
@@ -2198,13 +2163,13 @@ class EtlService {
         { name: "PG_PASSWORD", value: String(decrypt(targetConn.password || '')), description: "" },
         { name: "MSSQL_HOST", value: String(sourceConn.host || 'localhost'), description: "" },
         { name: "MSSQL_PORT", value: String(sourceConn.port || 1433), description: "" },
-        { name: "MSSQL_DB", value: String(sourceConn.database_name || process.env.MSSQL_DATABASE || ''), description: "" },
+        { name: "MSSQL_DB", value: String(sourceConn.database_name || ''), description: "" },
         { name: "MSSQL_USER", value: String(sourceConn.username || 'sa'), description: "" },
         { name: "MSSQL_PASSWORD", value: String(decrypt(sourceConn.password || '')), description: "" },
-        { name: "MSSQL_USER_SSH", value: String(sourceConn.ssh_user || process.env.MSSQL_SSH_USER || ''), description: "" },
+        { name: "MSSQL_USER_SSH", value: String(sourceConn.ssh_user || ''), description: "" },
         { name: "MSSQL_PASSWORD_SSH", value: String(decrypt(sourceConn.ssh_password || '')), description: "" },
         { name: "MSSQL_PORT_SSH", value: String(sourceConn.ssh_port || 22), description: "" },
-        { name: "MSSQL_HOST_SSH", value: String(sourceConn.ssh_host || sourceConn.host || process.env.MSSQL_SSH_HOST || ''), description: "" },
+        { name: "MSSQL_HOST_SSH", value: String(sourceConn.ssh_host || sourceConn.host || ''), description: "" },
       ]
     };
 

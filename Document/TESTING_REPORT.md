@@ -217,7 +217,7 @@ Bagian ini melengkapi laporan di atas dengan hasil pengujian pada putaran terakh
 | Status run | Seluruhnya `SUCCESS` |
 | `staging_data_history` — `NEW_DELTA` | 113 baris |
 | `staging_data_history` — `ALREADY_IN_TARGET` | 37 baris |
-| Health check `/api/health` | SQL Server & PostgreSQL `connected` |
+| Health check `/api/health` | PostgreSQL database kontrol aplikasi `applicationDatabase.connected`; SOURCE/TARGET diuji per environment |
 
 ### 10.4 Risiko Terbuka
 | # | Risiko | Catatan |

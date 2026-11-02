@@ -84,7 +84,7 @@ class SourceService {
     }
     const dbType = conn.db_type.toUpperCase();
     const schemaName = assertSafeSchema(conn.db_schema, dbType === 'MSSQL' ? 'dbo' : 'public');
-    const databaseName = conn.database_name || process.env.MSSQL_DATABASE || '';
+    const databaseName = conn.database_name || '';
 
     let views = [];
 
@@ -441,8 +441,9 @@ class SourceService {
     if (!cleanView) throw new Error('Nama view tidak valid.');
 
     const conn = await this.getConnectionMeta(connectionId);
-    const dbType = conn ? conn.db_type.toUpperCase() : 'MSSQL';
-    const schemaName = conn ? assertSafeSchema(conn.db_schema, dbType === 'MSSQL' ? 'dbo' : 'public') : 'dbo';
+    if (!conn) throw new Error('Koneksi database harus dipilih melalui Master Connection.');
+    const dbType = conn.db_type.toUpperCase();
+    const schemaName = assertSafeSchema(conn.db_schema, dbType === 'MSSQL' ? 'dbo' : 'public');
 
     let dbDefinition = null;
     try {

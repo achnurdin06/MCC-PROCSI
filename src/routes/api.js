@@ -9,6 +9,7 @@ const authController = require('../controllers/auth.controller');
 const { requireAuth, requireRole, optionalAuth } = require('../middleware/auth.middleware');
 const { loginRateLimiter, captchaRateLimiter } = require('../middleware/rate-limiter.middleware');
 const { sqlInjectionGuard } = require('../middleware/input-guard.middleware');
+const { sourceConnectionMiddleware } = require('../config/source-connection-context');
 
 const ADMIN = requireRole(['SUPERADMIN']);
 const OPERATIONS = requireRole(['SUPERADMIN', 'OPERATOR']);
@@ -84,14 +85,15 @@ router.post('/context/connections/test', requireAuth, ADMIN, (req, res) => etlCo
 // ==========================================
 // 3. Modul 1: Source Data (SQL Server dbo Views & View Management)
 // ==========================================
-router.get('/source/views', requireAuth, (req, res) => sourceController.getViewsSummary(req, res));
-router.get('/source/view-data', requireAuth, (req, res) => sourceController.getViewData(req, res));
-router.get('/source/view-definition', requireAuth, (req, res) => sourceController.getViewDefinition(req, res));
-router.post('/source/save-view-definition', requireAuth, ADMIN, (req, res) => sourceController.saveViewDefinition(req, res));
-router.post('/source/create-view', requireAuth, ADMIN, (req, res) => sourceController.createOrAlterView(req, res));
-router.post('/source/validate-query', requireAuth, ADMIN, (req, res) => sourceController.validateQuery(req, res));
-router.delete('/source/drop-view/:viewName', requireAuth, ADMIN, (req, res) => sourceController.dropView(req, res));
-router.post('/source/sync-all-views', requireAuth, ADMIN, (req, res) => sourceController.syncAllViews(req, res));
+router.use('/source', requireAuth, sourceConnectionMiddleware);
+router.get('/source/views', (req, res) => sourceController.getViewsSummary(req, res));
+router.get('/source/view-data', (req, res) => sourceController.getViewData(req, res));
+router.get('/source/view-definition', (req, res) => sourceController.getViewDefinition(req, res));
+router.post('/source/save-view-definition', ADMIN, (req, res) => sourceController.saveViewDefinition(req, res));
+router.post('/source/create-view', ADMIN, (req, res) => sourceController.createOrAlterView(req, res));
+router.post('/source/validate-query', ADMIN, (req, res) => sourceController.validateQuery(req, res));
+router.delete('/source/drop-view/:viewName', ADMIN, (req, res) => sourceController.dropView(req, res));
+router.post('/source/sync-all-views', ADMIN, (req, res) => sourceController.syncAllViews(req, res));
 
 // ==========================================
 // 4. Modul 2: Migration Config (Master Tables & CRUD)
@@ -99,9 +101,9 @@ router.post('/source/sync-all-views', requireAuth, ADMIN, (req, res) => sourceCo
 router.get('/etl/configs', requireAuth, (req, res) => etlController.getMasterConfigs(req, res));
 router.get('/etl/configs/export', requireAuth, (req, res) => etlController.exportConfigs(req, res));
 router.post('/etl/configs/import', requireAuth, ADMIN, (req, res) => etlController.importConfigs(req, res));
-router.post('/etl/configs/test-precheck', requireAuth, ADMIN, (req, res) => etlController.testPrecheckSql(req, res));
-router.get('/etl/configs/migration_config/defaults', requireAuth, (req, res) => etlController.generateConfigDefaults(req, res));
-router.post('/etl/configs/migration_config/defaults', requireAuth, OPERATIONS, (req, res) => etlController.generateConfigDefaults(req, res));
+router.post('/etl/configs/test-precheck', requireAuth, ADMIN, sourceConnectionMiddleware, (req, res) => etlController.testPrecheckSql(req, res));
+router.get('/etl/configs/migration_config/defaults', requireAuth, sourceConnectionMiddleware, (req, res) => etlController.generateConfigDefaults(req, res));
+router.post('/etl/configs/migration_config/defaults', requireAuth, OPERATIONS, sourceConnectionMiddleware, (req, res) => etlController.generateConfigDefaults(req, res));
 router.get('/etl/configs/migration_target_config/defaults', requireAuth, (req, res) => etlController.generateTargetConfigDefaults(req, res));
 router.post('/etl/configs/migration_target_config/defaults', requireAuth, OPERATIONS, (req, res) => etlController.generateTargetConfigDefaults(req, res));
 router.post('/etl/configs/:table', requireAuth, OPERATIONS, (req, res) => etlController.createConfigRecord(req, res));
@@ -121,32 +123,34 @@ router.get('/etl/error-logs', requireAuth, (req, res) => etlController.getErrorL
 // ==========================================
 // 6. Modul 4: Hasil Migrasi (Pipeline 3-Tier Reconciliation)
 // ==========================================
-router.get('/reconciliation/pipeline', requireAuth, (req, res) => pipelineController.getPipelineSummary(req, res));
-router.get('/reconciliation/config-details', requireAuth, (req, res) => pipelineController.getConfigDetail(req, res));
-router.get('/reconciliation/stage-data', requireAuth, (req, res) => pipelineController.getPipelineStageData(req, res));
-router.get('/reconciliation/compare', requireAuth, (req, res) => pipelineController.comparePipelineConfig(req, res));
-router.get('/reconciliation/berita-acara', requireAuth, (req, res) => pipelineController.getBeritaAcara(req, res));
-router.get('/reconciliation/staging-history', requireAuth, (req, res) => pipelineController.getStagingHistory(req, res));
-router.get('/reconciliation/staging-history/runs', requireAuth, (req, res) => pipelineController.getStagingHistoryRuns(req, res));
+router.use('/reconciliation', requireAuth, sourceConnectionMiddleware);
+router.get('/reconciliation/pipeline', (req, res) => pipelineController.getPipelineSummary(req, res));
+router.get('/reconciliation/config-details', (req, res) => pipelineController.getConfigDetail(req, res));
+router.get('/reconciliation/stage-data', (req, res) => pipelineController.getPipelineStageData(req, res));
+router.get('/reconciliation/compare', (req, res) => pipelineController.comparePipelineConfig(req, res));
+router.get('/reconciliation/berita-acara', (req, res) => pipelineController.getBeritaAcara(req, res));
+router.get('/reconciliation/staging-history', (req, res) => pipelineController.getStagingHistory(req, res));
+router.get('/reconciliation/staging-history/runs', (req, res) => pipelineController.getStagingHistoryRuns(req, res));
 
 const flowCanvasController = require('../controllers/flow-canvas.controller');
 
 // ==========================================
 // 7. Modul 5: Visual Workflow Canvas & Dynamic Orchestrator
 // ==========================================
-router.get('/flows/presets', requireAuth, (req, res) => flowCanvasController.getPresets(req, res));
-router.post('/flows/execute', requireAuth, OPERATIONS, (req, res) => flowCanvasController.executeFlow(req, res));
-router.post('/flows/flow-1-staging', requireAuth, OPERATIONS, (req, res) => flowCanvasController.executeFlow1(req, res));
-router.post('/flows/flow-2-post', requireAuth, OPERATIONS, (req, res) => flowCanvasController.executeFlow2(req, res));
-router.post('/flows/flow-3-rollback', requireAuth, OPERATIONS, (req, res) => flowCanvasController.executeFlow3(req, res));
-router.post('/flows/flow-4-purge', requireAuth, OPERATIONS, (req, res) => flowCanvasController.executeFlow4(req, res));
-router.post('/flows/flow-4-purge-preview', requireAuth, OPERATIONS, (req, res) => flowCanvasController.previewFlow4(req, res));
-router.get('/flows/stream/:runId', requireAuth, (req, res) => flowCanvasController.streamFlowEvents(req, res));
-router.get('/flows/error-diagnostic/:runId', requireAuth, (req, res) => flowCanvasController.getErrorDiagnostic(req, res));
+router.use('/flows', requireAuth, sourceConnectionMiddleware);
+router.get('/flows/presets', (req, res) => flowCanvasController.getPresets(req, res));
+router.post('/flows/execute', OPERATIONS, (req, res) => flowCanvasController.executeFlow(req, res));
+router.post('/flows/flow-1-staging', OPERATIONS, (req, res) => flowCanvasController.executeFlow1(req, res));
+router.post('/flows/flow-2-post', OPERATIONS, (req, res) => flowCanvasController.executeFlow2(req, res));
+router.post('/flows/flow-3-rollback', OPERATIONS, (req, res) => flowCanvasController.executeFlow3(req, res));
+router.post('/flows/flow-4-purge', OPERATIONS, (req, res) => flowCanvasController.executeFlow4(req, res));
+router.post('/flows/flow-4-purge-preview', OPERATIONS, (req, res) => flowCanvasController.previewFlow4(req, res));
+router.get('/flows/stream/:runId', sourceConnectionMiddleware, (req, res) => flowCanvasController.streamFlowEvents(req, res));
+router.get('/flows/error-diagnostic/:runId', sourceConnectionMiddleware, (req, res) => flowCanvasController.getErrorDiagnostic(req, res));
 
 // Legacy compatibility
-router.get('/tables', requireAuth, (req, res) => migrationController.getTables(req, res));
-router.get('/summary', requireAuth, (req, res) => migrationController.getSummary(req, res));
-router.get('/data', requireAuth, ADMIN, (req, res) => migrationController.getTableData(req, res));
+router.get('/tables', requireAuth, sourceConnectionMiddleware, (req, res) => migrationController.getTables(req, res));
+router.get('/summary', requireAuth, sourceConnectionMiddleware, (req, res) => migrationController.getSummary(req, res));
+router.get('/data', requireAuth, ADMIN, sourceConnectionMiddleware, (req, res) => migrationController.getTableData(req, res));
 
 module.exports = router;

@@ -11,7 +11,7 @@ const nodeEnv = envInfo.nodeEnv;
 
 const apiRoutes = require('./routes/api');
 const { getPostgresPool } = require('./config/postgres');
-const { getSqlServerPool } = require('./config/sqlserver');
+const { closeAllSqlServerPools } = require('./config/sqlserver');
 const { closeTunnel } = require('./config/tunnel');
 
 const app = express();
@@ -186,17 +186,11 @@ async function gracefulShutdown(signal) {
     }
 
     try {
-      const sqlPool = await getSqlServerPool();
-      await sqlPool.close();
-      console.log('✓ SQL Server pool ditutup.');
-    } catch (e) {
-      // ignore
-    }
-
-    try {
+      await closeAllSqlServerPools();
       await closeTunnel();
+      console.log('✓ SQL Server pools dan SSH tunnel ditutup.');
     } catch (e) {
-      // ignore
+      console.warn('Gagal menutup koneksi SQL Server:', e.message);
     }
 
     process.exit(0);

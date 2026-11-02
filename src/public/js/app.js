@@ -1383,57 +1383,13 @@ function resetVolatileStateAndUI() {
 // HEALTH CHECK
 // =========================================================================
 async function checkHealth() {
-  const mssqlBadge = document.getElementById('mssql-status');
-  const pgBadge = document.getElementById('pg-status');
-  const mssqlMeta = document.getElementById('mssql-meta');
-  const pgMeta = document.getElementById('pg-meta');
-
-  mssqlBadge.className = 'db-badge loading';
-  pgBadge.className = 'db-badge loading';
-  mssqlMeta.textContent = 'Memeriksa...';
-  pgMeta.textContent = 'Memeriksa...';
-
   try {
     const res = await fetch('/api/health');
     const json = await res.json();
     state.health = json;
-
-    const data = json.data || json;
-    const mssqlTitle = document.getElementById('mssql-title');
-    const pgTitle = document.getElementById('pg-title');
-
-    const m = data.sqlserver || data.mssql;
-    if (m && m.connected) {
-      mssqlBadge.className = 'db-badge connected';
-      if (mssqlTitle) mssqlTitle.textContent = `${m.database || 'database_sumber'} (Source)`;
-      mssqlMeta.textContent = `${m.latencyMs}ms`;
-      mssqlMeta.title = `Host: ${m.host || 'SQL Server'} (Connected)`;
-    } else {
-      mssqlBadge.className = 'db-badge error';
-      if (mssqlTitle) mssqlTitle.textContent = `${m?.database || 'database_sumber'} (Source)`;
-      const errText = m?.error ? (m.error.length > 25 ? m.error.slice(0, 22) + '...' : m.error) : 'Disconnected';
-      mssqlMeta.textContent = errText;
-      mssqlMeta.title = m?.error || 'SQL Server Disconnected';
-    }
-
-    const p = data.postgres;
-    if (p && p.connected) {
-      pgBadge.className = 'db-badge connected';
-      if (pgTitle) pgTitle.textContent = `${p.database || 'database_target'} (Target)`;
-      pgMeta.textContent = `${p.latencyMs}ms`;
-      pgMeta.title = `Host: ${p.host || 'PostgreSQL'} (Connected)`;
-    } else {
-      pgBadge.className = 'db-badge error';
-      if (pgTitle) pgTitle.textContent = `${p?.database || 'database_target'} (Target)`;
-      const errText = p?.error ? (p.error.length > 25 ? p.error.slice(0, 22) + '...' : p.error) : 'Disconnected';
-      pgMeta.textContent = errText;
-      pgMeta.title = p?.error || 'PostgreSQL Disconnected';
-    }
   } catch (err) {
-    mssqlBadge.className = 'db-badge error';
-    pgBadge.className = 'db-badge error';
-    mssqlMeta.textContent = 'Koneksi gagal';
-    pgMeta.textContent = 'Koneksi gagal';
+    state.health = null;
+    console.warn('Gagal memeriksa database aplikasi:', err.message);
   }
 }
 
@@ -1551,7 +1507,9 @@ async function resolveEnvironmentConnections(envId) {
   try {
     const res = await authFetch(`/api/context/environments/${envId}/health`);
     const json = await res.json();
-    if (!json.success) return;
+    if (!res.ok || !json.success) {
+      throw new Error(json.error || 'Gagal memuat koneksi environment.');
+    }
 
     const healthData = json.data;
     state.activeSourceConnection = healthData.source;
@@ -1560,6 +1518,11 @@ async function resolveEnvironmentConnections(envId) {
 
     updateHeaderConnectionUI(healthData.source, healthData.target);
   } catch (err) {
+    state.activeSourceConnection = null;
+    state.activeTargetConnection = null;
+    state.selectedSourceConnectionId = null;
+    const unavailable = { configured: false, connected: false, error: err.message };
+    updateHeaderConnectionUI(unavailable, unavailable);
     console.warn('Gagal resolve koneksi environment:', err.message);
   }
 }
@@ -1571,10 +1534,10 @@ function updateHeaderConnectionUI(source, target) {
   const tgtTypeEl = document.getElementById('hdr-target-type');
   const tgtMetaEl = document.getElementById('hdr-target-meta');
 
-  if (srcTypeEl) srcTypeEl.textContent = source?.db_type || 'SQL Server';
-  if (srcMetaEl) srcMetaEl.textContent = source ? `${source.database}.${source.db_schema}` : 'belum ada source';
-  if (tgtTypeEl) tgtTypeEl.textContent = target?.db_type || 'PostgreSQL';
-  if (tgtMetaEl) tgtMetaEl.textContent = target ? `${target.database}.${target.db_schema}` : 'belum ada target';
+  if (srcTypeEl) srcTypeEl.textContent = source?.db_type || 'SOURCE';
+  if (srcMetaEl) srcMetaEl.textContent = source?.configured ? `${source.database}.${source.db_schema}` : 'belum dikonfigurasi untuk environment ini';
+  if (tgtTypeEl) tgtTypeEl.textContent = target?.db_type || 'TARGET';
+  if (tgtMetaEl) tgtMetaEl.textContent = target?.configured ? `${target.database}.${target.db_schema}` : 'belum dikonfigurasi untuk environment ini';
 
   // 2. Badges Status Database Header Kanan Atas
   const mssqlBadge = document.getElementById('mssql-status');
@@ -1587,13 +1550,13 @@ function updateHeaderConnectionUI(source, target) {
   if (mssqlBadge && mssqlMeta) {
     if (source && source.connected) {
       mssqlBadge.className = 'db-badge connected';
-      if (mssqlTitle) mssqlTitle.textContent = `${source.database || 'database_sumber'} (Source)`;
+      if (mssqlTitle) mssqlTitle.textContent = `${source.database || source.connection_name} (Source)`;
       mssqlMeta.textContent = `${source.latencyMs}ms`;
       mssqlMeta.title = `Host: ${source.host}:${source.port} (${source.version || 'Connected'})`;
     } else {
       mssqlBadge.className = 'db-badge error';
-      if (mssqlTitle) mssqlTitle.textContent = `${source?.database || 'database_sumber'} (Source)`;
-      const errStr = source ? (source.error ? (source.error.length > 25 ? source.error.slice(0, 22) + '...' : source.error) : 'Disconnected') : 'No Source Conn';
+      if (mssqlTitle) mssqlTitle.textContent = `${source?.database || 'Belum dikonfigurasi'} (Source)`;
+      const errStr = source ? (source.error ? (source.error.length > 25 ? source.error.slice(0, 22) + '...' : source.error) : 'Disconnected') : 'Pilih environment';
       mssqlMeta.textContent = errStr;
       mssqlMeta.title = source?.error || 'Tidak terhubung';
     }
@@ -1602,13 +1565,13 @@ function updateHeaderConnectionUI(source, target) {
   if (pgBadge && pgMeta) {
     if (target && target.connected) {
       pgBadge.className = 'db-badge connected';
-      if (pgTitle) pgTitle.textContent = `${target.database || 'database_target'} (Target)`;
+      if (pgTitle) pgTitle.textContent = `${target.database || target.connection_name} (Target)`;
       pgMeta.textContent = `${target.latencyMs}ms`;
       pgMeta.title = `Host: ${target.host}:${target.port} (${target.version || 'Connected'})`;
     } else {
       pgBadge.className = 'db-badge error';
-      if (pgTitle) pgTitle.textContent = `${target?.database || 'database_target'} (Target)`;
-      const errStr = target ? (target.error ? (target.error.length > 25 ? target.error.slice(0, 22) + '...' : target.error) : 'Disconnected') : 'No Target Conn';
+      if (pgTitle) pgTitle.textContent = `${target?.database || 'Belum dikonfigurasi'} (Target)`;
+      const errStr = target ? (target.error ? (target.error.length > 25 ? target.error.slice(0, 22) + '...' : target.error) : 'Disconnected') : 'Pilih environment';
       pgMeta.textContent = errStr;
       pgMeta.title = target?.error || 'Tidak terhubung';
     }
@@ -3728,6 +3691,7 @@ function renderConfigTable(tableKey) {
         <td class="text-center"><span class="badge ${r.is_active ? 'badge-success' : 'badge-danger'}">${r.is_active ? 'Active' : 'Inactive'}</span></td>
         <td class="sticky-action-col">
           <div class="flex-gap-2 justify-center">
+            <button class="btn btn-secondary btn-xs btn-icon-only" onclick="cloneRule(${r.rule_id})" title="Duplikat" aria-label="Duplikat">📋</button>
             <button class="btn btn-secondary btn-xs btn-icon-only" onclick="openEditConfigModal('migration_convert_rule', ${r.rule_id})" title="Edit" aria-label="Edit">✏️</button>
             <button class="btn btn-danger btn-xs btn-icon-only" onclick="openDeleteModal('migration_convert_rule', ${r.rule_id}, 'Rule #${r.rule_id} (${escapeHtml(r.column_name || '')})')" title="Hapus" aria-label="Hapus">🗑️</button>
           </div>
@@ -3758,6 +3722,7 @@ function renderConfigTable(tableKey) {
         <td class="text-center"><span class="badge ${t.is_active ? 'badge-success' : 'badge-danger'}">${t.is_active ? 'Active' : 'Inactive'}</span></td>
         <td class="sticky-action-col">
           <div class="flex-gap-2 justify-center">
+            <button class="btn btn-secondary btn-xs btn-icon-only" onclick="cloneTarget(${t.target_config_id})" title="Duplikat" aria-label="Duplikat">📋</button>
             <button class="btn btn-secondary btn-xs btn-icon-only" onclick="openEditConfigModal('migration_target_config', ${t.target_config_id})" title="Edit" aria-label="Edit">✏️</button>
             <button class="btn btn-danger btn-xs btn-icon-only" onclick="openDeleteModal('migration_target_config', ${t.target_config_id}, 'Target #${t.target_config_id}')" title="Hapus" aria-label="Hapus">🗑️</button>
           </div>
@@ -3781,6 +3746,7 @@ function renderConfigTable(tableKey) {
         <td class="wrap-col text-muted text-xs" style="max-width: 180px;">${escapeHtml(l.description || '-')}</td>
         <td class="sticky-action-col">
           <div class="flex-gap-2 justify-center">
+            <button class="btn btn-secondary btn-xs btn-icon-only" onclick="cloneLookup('${escapeJsArg(l.lookup_name)}')" title="Duplikat" aria-label="Duplikat">📋</button>
             <button class="btn btn-secondary btn-xs btn-icon-only" onclick="openEditConfigModal('migration_lookup', '${escapeJsArg(l.lookup_name)}')" title="Edit" aria-label="Edit">✏️</button>
             <button class="btn btn-danger btn-xs btn-icon-only" onclick="openDeleteModal('migration_lookup', '${escapeJsArg(l.lookup_name)}', '${escapeJsArg(l.lookup_name)}')" title="Hapus" aria-label="Hapus">🗑️</button>
           </div>
@@ -4654,6 +4620,42 @@ window.cloneConfig = function (configId) {
   }
   showToast(`📋 Menyalin konfigurasi #${configId} sebagai data baru...`, 'info', 2000);
   openUniversalForm('migration_config', null, cloneData);
+};
+
+window.cloneRule = function (ruleId) {
+  const src = (state.config.masters?.migration_convert_rule || []).find((r) => r.rule_id == ruleId);
+  if (!src) {
+    showToast(`Rule #${ruleId} tidak ditemukan.`, 'error');
+    return;
+  }
+  const cloneData = { ...src };
+  delete cloneData.rule_id;
+  showToast(`📋 Menyalin convert rule #${ruleId} sebagai data baru...`, 'info', 2000);
+  openUniversalForm('migration_convert_rule', null, cloneData);
+};
+
+window.cloneTarget = function (targetId) {
+  const src = (state.config.masters?.migration_target_config || []).find((t) => t.target_config_id == targetId);
+  if (!src) {
+    showToast(`Target #${targetId} tidak ditemukan.`, 'error');
+    return;
+  }
+  const cloneData = { ...src };
+  delete cloneData.target_config_id;
+  showToast(`📋 Menyalin target config #${targetId} sebagai data baru...`, 'info', 2000);
+  openUniversalForm('migration_target_config', null, cloneData);
+};
+
+// lookup_name adalah PK, jadi diberi suffix agar tidak bentrok saat disimpan
+window.cloneLookup = function (lookupName) {
+  const src = (state.config.masters?.migration_lookup || []).find((l) => l.lookup_name == lookupName);
+  if (!src) {
+    showToast(`Lookup '${lookupName}' tidak ditemukan.`, 'error');
+    return;
+  }
+  const cloneData = { ...src, lookup_name: `${src.lookup_name}_copy` };
+  showToast(`📋 Menyalin lookup '${lookupName}' sebagai data baru...`, 'info', 2000);
+  openUniversalForm('migration_lookup', null, cloneData);
 };
 
 /**
@@ -10801,5 +10803,3 @@ window.toggleModalSettings = toggleModalSettings;
 window.scrollToTopUserguide = scrollToTopUserguide;
 window.setGuideFilter = setGuideFilter;
 window.filterGuideTopics = filterGuideTopics;
-
-
