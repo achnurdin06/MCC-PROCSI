@@ -39,6 +39,22 @@ const ALLOWED_CONFIG_TABLES = {
   migration_lookup: { pk: 'lookup_name', autoPk: false },
 };
 
+function encryptConnectionSecret(value) {
+  if (value === '••••••••' || value === '__UNCHANGED__') return '';
+  if (value === null || value === undefined || String(value).trim() === '') return '';
+  return isEncrypted(value) ? value : encrypt(value);
+}
+
+function maskConnectionSecrets(connection) {
+  return {
+    ...connection,
+    has_password: Boolean(connection.password),
+    has_ssh_password: Boolean(connection.ssh_password),
+    password: maskCredential(connection.password),
+    ssh_password: maskCredential(connection.ssh_password),
+  };
+}
+
 // Fallback in-memory storage if remote DB is offline/unreachable
 let inMemoryClients = [];
 let inMemoryEnvironments = [];
@@ -202,6 +218,15 @@ class EtlService {
     if (!environment || !environment.env_code || !environment.env_name) {
       throw new Error('Informasi Environment (kode & nama) wajib diisi.');
     }
+    if (!Array.isArray(connections)) {
+      throw new Error('Daftar koneksi harus berupa array.');
+    }
+
+    const preparedConnections = connections.map((conn) => ({
+      connection: conn,
+      password: encryptConnectionSecret(conn.password),
+      sshPassword: encryptConnectionSecret(conn.ssh_password),
+    }));
 
     try {
       // 1. Simpan Client
@@ -222,13 +247,13 @@ class EtlService {
 
       // 3. Simpan Multiple Connections
       const savedConnections = [];
-      for (const conn of connections) {
+      for (const { connection: conn, password, sshPassword } of preparedConnections) {
         if (!conn.connection_name || !conn.host) continue;
         const connRes = await queryPostgres(`
           INSERT INTO mc_center.master_connection (
             env_id, connection_name, db_type, db_role, host, port, database_name,
-            db_schema, username, password, use_ssh_tunnel, ssh_host, ssh_port, ssh_user, is_active
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            db_schema, username, password, use_ssh_tunnel, ssh_host, ssh_port, ssh_user, ssh_password, is_active
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
           RETURNING *
         `, [
           savedEnv.env_id,
@@ -240,14 +265,15 @@ class EtlService {
           conn.database_name || '',
           conn.db_schema || (conn.db_type === 'MSSQL' ? 'dbo' : 'public'),
           conn.username || '',
-          conn.password || '',
+          password,
           Boolean(conn.use_ssh_tunnel),
           conn.ssh_host || null,
           parseInt(conn.ssh_port, 10) || 22,
           conn.ssh_user || null,
+          sshPassword,
           conn.is_active !== false,
         ]);
-        savedConnections.push(connRes.rows[0]);
+        savedConnections.push(maskConnectionSecrets(connRes.rows[0]));
       }
 
       return {
@@ -510,6 +536,24 @@ class EtlService {
         if (!conn.connection_name || !conn.host) continue;
 
         if (conn.connection_id) {
+          const currentSecrets = await queryPostgres(
+            'SELECT password, ssh_password FROM mc_center.master_connection WHERE connection_id = $1',
+            [parseInt(conn.connection_id, 10)]
+          );
+          const currentPassword = currentSecrets.rows[0]?.password || '';
+          const currentSshPassword = currentSecrets.rows[0]?.ssh_password || '';
+          const passwordInput = conn.password;
+          const sshPasswordInput = conn.ssh_password;
+          const passwordUnchanged = passwordInput == null || String(passwordInput).trim() === ''
+            || passwordInput === '••••••••' || passwordInput === '__UNCHANGED__';
+          const sshPasswordUnchanged = sshPasswordInput == null || String(sshPasswordInput).trim() === ''
+            || sshPasswordInput === '••••••••' || sshPasswordInput === '__UNCHANGED__';
+          const encryptedPassword = passwordUnchanged
+            ? (currentPassword && !isEncrypted(currentPassword) ? encrypt(currentPassword) : currentPassword)
+            : encryptConnectionSecret(passwordInput);
+          const encryptedSshPassword = sshPasswordUnchanged
+            ? (currentSshPassword && !isEncrypted(currentSshPassword) ? encrypt(currentSshPassword) : currentSshPassword)
+            : encryptConnectionSecret(sshPasswordInput);
           const updateRes = await queryPostgres(`
             UPDATE mc_center.master_connection
             SET env_id = $1,
@@ -521,12 +565,12 @@ class EtlService {
                 database_name = $7,
                 db_schema = $8,
                 username = $9,
-                password = CASE WHEN $10 = '__UNCHANGED__' OR $10 = '' THEN password ELSE $10 END,
+                password = $10,
                 use_ssh_tunnel = $11,
                 ssh_host = $12,
                 ssh_port = $13,
                 ssh_user = $14,
-                ssh_password = CASE WHEN $15 = '__UNCHANGED__' OR $15 = '' THEN ssh_password ELSE $15 END,
+                ssh_password = $15,
                 is_active = $16,
                 updated_at = CURRENT_TIMESTAMP
             WHERE connection_id = $17
@@ -541,20 +585,22 @@ class EtlService {
             conn.database_name || '',
             conn.db_schema || 'dbo',
             conn.username || '',
-            conn.password || '',
+            encryptedPassword,
             Boolean(conn.use_ssh_tunnel),
             conn.ssh_host || null,
             parseInt(conn.ssh_port, 10) || 22,
             conn.ssh_user || null,
-            conn.ssh_password || '',
+            encryptedSshPassword,
             conn.is_active !== false,
             parseInt(conn.connection_id, 10),
           ]);
           if (updateRes.rows[0]) {
-            savedConns.push(updateRes.rows[0]);
+            savedConns.push(maskConnectionSecrets(updateRes.rows[0]));
             keptConnIds.push(updateRes.rows[0].connection_id);
           }
         } else {
+          const encryptedPassword = encryptConnectionSecret(conn.password);
+          const encryptedSshPassword = encryptConnectionSecret(conn.ssh_password);
           const insertRes = await queryPostgres(`
             INSERT INTO mc_center.master_connection (
               env_id, connection_name, db_type, db_role, host, port, database_name,
@@ -571,16 +617,16 @@ class EtlService {
             conn.database_name || '',
             conn.db_schema || 'dbo',
             conn.username || '',
-            conn.password || '',
+            encryptedPassword,
             Boolean(conn.use_ssh_tunnel),
             conn.ssh_host || null,
             parseInt(conn.ssh_port, 10) || 22,
             conn.ssh_user || null,
-            conn.ssh_password || '',
+            encryptedSshPassword,
             conn.is_active !== false,
           ]);
           if (insertRes.rows[0]) {
-            savedConns.push(insertRes.rows[0]);
+            savedConns.push(maskConnectionSecrets(insertRes.rows[0]));
             keptConnIds.push(insertRes.rows[0].connection_id);
           }
         }
@@ -882,8 +928,8 @@ class EtlService {
     if (!connection_name || !host) throw new Error('Nama Koneksi dan Host wajib diisi.');
     if (!env_id) throw new Error('Environment wajib dipilih.');
 
-    const encPassword = password ? (isEncrypted(password) ? password : encrypt(password)) : '';
-    const encSshPassword = ssh_password ? (isEncrypted(ssh_password) ? ssh_password : encrypt(ssh_password)) : '';
+    const encPassword = encryptConnectionSecret(password);
+    const encSshPassword = encryptConnectionSecret(ssh_password);
 
     try {
       const res = await queryPostgres(`
@@ -957,21 +1003,17 @@ class EtlService {
     } catch (_) {}
 
     let finalPassword = null;
-    if (password === '••••••••' || password === undefined || password === null) {
-      finalPassword = existingPass;
-    } else if (password === '') {
-      finalPassword = '';
+    if (password === '••••••••' || password === '__UNCHANGED__' || password === undefined || password === null || password === '') {
+      finalPassword = existingPass && !isEncrypted(existingPass) ? encrypt(existingPass) : existingPass;
     } else {
-      finalPassword = isEncrypted(password) ? password : encrypt(password);
+      finalPassword = encryptConnectionSecret(password);
     }
 
     let finalSshPassword = null;
-    if (ssh_password === '••••••••' || ssh_password === undefined || ssh_password === null) {
-      finalSshPassword = existingSshPass;
-    } else if (ssh_password === '') {
-      finalSshPassword = '';
+    if (ssh_password === '••••••••' || ssh_password === '__UNCHANGED__' || ssh_password === undefined || ssh_password === null || ssh_password === '') {
+      finalSshPassword = existingSshPass && !isEncrypted(existingSshPass) ? encrypt(existingSshPass) : existingSshPass;
     } else {
-      finalSshPassword = isEncrypted(ssh_password) ? ssh_password : encrypt(ssh_password);
+      finalSshPassword = encryptConnectionSecret(ssh_password);
     }
 
     try {

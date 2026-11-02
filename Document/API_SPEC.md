@@ -1,6 +1,6 @@
 # Spesifikasi REST API MCC-PROCSI
 
-> Terakhir diperbarui: 29 Oktober 2026 · Sumber kebenaran: [`src/routes/api.js`](../src/routes/api.js) (88 route, prefix `/api`)
+> Terakhir diperbarui: 29 Oktober 2026 · Sumber kebenaran: [`src/routes/api.js`](../src/routes/api.js) (90 route, prefix `/api`)
 
 ## 1. Konvensi
 
@@ -9,6 +9,7 @@
 - **Format respons sukses**: `{ "success": true, "data": ..., "message": "..." }`
 - **Format respons gagal**: `{ "success": false, "error": "pesan", "message": "pesan" }`
 - **Kode status**: `200` OK, `201` dibuat, `400` input salah/ditolak guard, `401` token tidak ada/invalid/akun nonaktif, `403` peran tidak cukup, `429` rate limit, `500` error server.
+- **Endpoint API tidak dikenal**: mengembalikan `404` dengan JSON `{ "success": false, "error": "..." }`, bukan halaman HTML.
 - **Peran** (kolom *Akses*):
   - `Auth` = semua pengguna login (SUPERADMIN, OPERATOR, VIEWER)
   - `OPS` = `OPERATIONS` → SUPERADMIN + OPERATOR
@@ -51,6 +52,15 @@ Content-Type: application/json
 ```
 
 Field `username/captchaId/captchaAnswer/full_name/email` melewati `sqlInjectionGuard` (harus string ≤255 karakter, pola SQLi ditolak dengan 400).
+
+### Audit Trail
+
+| Method | Path | Akses | Keterangan |
+|---|---|---|---|
+| POST | `/audit-trail/menu` | Auth | Catat menu yang dibuka; hanya menu aktif yang boleh diakses pengguna |
+| GET | `/audit-trail` | VIEWER, SUPERADMIN | Riwayat aktivitas API dan menu; VIEWER dibatasi assignment client/environment atau aktivitas sendiri |
+
+`GET /api/audit-trail?search=<kata>&limit=50&offset=0` mengembalikan aktivitas dengan paginasi; `limit` dibatasi maksimum 100. Tabel audit menyimpan nama/kode menu aktif ketika tersedia, selain aktor, role, jenis aksi, template endpoint, status HTTP, scope client/environment, IP, user-agent, dan durasi. Body, query string, token, password, serta kredensial tidak disimpan. Login gagal dicatat dengan username percobaan dan role `UNKNOWN`.
 
 ## 3. Health & Konteks (`/api/health`, `/api/context`, `/api/settings`)
 

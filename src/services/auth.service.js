@@ -1,5 +1,6 @@
 const { queryPostgres } = require('../config/postgres');
 const { signToken, hashPassword, verifyPassword } = require('../utils/jwt');
+const { ensureAuditTrailInfrastructure } = require('./audit-trail.service');
 
 class AuthService {
   /**
@@ -572,6 +573,7 @@ class AuthService {
   }
 
   async getRolePermissions(roleId) {
+    await ensureAuditTrailInfrastructure();
     if (!roleId) return [];
     const rid = parseInt(roleId, 10);
     const res = await queryPostgres(

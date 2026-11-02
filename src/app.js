@@ -13,6 +13,7 @@ const apiRoutes = require('./routes/api');
 const { getPostgresPool } = require('./config/postgres');
 const { closeAllSqlServerPools } = require('./config/sqlserver');
 const { closeTunnel } = require('./config/tunnel');
+const { auditTrailMiddleware } = require('./services/audit-trail.service');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -105,7 +106,14 @@ app.use('/api', (req, res, next) => {
   res.set('Expires', '0');
   res.set('Surrogate-Control', 'no-store');
   next();
-}, apiRoutes);
+}, auditTrailMiddleware, apiRoutes);
+
+app.use('/api', (req, res) => {
+  res.status(404).json({
+    success: false,
+    error: `Endpoint API ${req.method} ${req.path} tidak ditemukan.`,
+  });
+});
 
 // Fallback route untuk Single Page Application (kompatibel Express 5)
 app.use((req, res, next) => {

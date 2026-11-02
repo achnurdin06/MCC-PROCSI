@@ -43,16 +43,24 @@ class AuthController {
 
   // Login
   async login(req, res) {
-    if (this._rejectInvalidCaptcha(req, res)) return;
+    if (this._rejectInvalidCaptcha(req, res)) {
+      req.auditActor = { username: req.body?.username, roleCode: 'UNKNOWN' };
+      req.auditAction = 'LOGIN_FAILED';
+      return;
+    }
     try {
       const { username, password } = req.body;
       const result = await authService.login(username, password);
+      req.auditActor = result.user;
+      req.auditAction = 'LOGIN';
       res.json({
         success: true,
         data: result,
         message: `Selamat datang kembali, ${result.user.fullName}!`,
       });
     } catch (err) {
+      req.auditActor = { username: req.body?.username, roleCode: 'UNKNOWN' };
+      req.auditAction = 'LOGIN_FAILED';
       res.status(400).json({
         success: false,
         error: err.message,

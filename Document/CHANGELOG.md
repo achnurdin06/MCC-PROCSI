@@ -11,6 +11,7 @@ Format mengikuti [Keep a Changelog](https://keepachangelog.com/id-ID/1.1.0/). Ta
 - **Cakupan aplikasi**: dideskripsikan sebagai platform migrasi **multi-database → PostgreSQL** (README, AGENTS, ARCHITECTURE, USER_GUIDE, `<title>`, `package.json`). Driver yang aktif saat ini: SQL Server dan PostgreSQL.
 
 ### Diperbaiki
+- **Respons Audit Trail bukan JSON**: frontend kini mengenali respons HTML/non-JSON dan menampilkan pesan yang menyarankan restart server bila endpoint belum dimuat; API yang tidak dikenal kini selalu mengembalikan JSON `404` alih-alih halaman HTML bawaan Express.
 - **Status database Source/Target mengikuti environment**: badge header hanya menampilkan koneksi ber-role SOURCE/TARGET yang aktif pada environment terpilih. `/api/health` kini melaporkan PostgreSQL database kontrol aplikasi secara terpisah dan tidak lagi menyebutnya sebagai database TARGET.
 - **Role / Menu / Matrix Menu tidak berpengaruh**: API mengirim profil user dalam camelCase (`roleCode`, `roleId`, ...) sedangkan UI membaca snake_case (`role_code`, `role_id`), sehingga `applyMenuPermissions` salah mengenali role dan hak akses tidak diterapkan. Kini profil dinormalisasi (`normalizeAuthUser`).
 - Perubahan matriks kini ikut berlaku pada sesi yang sedang aktif tanpa login ulang: `refreshUserPermissions()` dipanggil setelah simpan matriks, saat tab browser kembali aktif, dan setiap 60 detik.
@@ -22,6 +23,10 @@ Format mengikuti [Keep a Changelog](https://keepachangelog.com/id-ID/1.1.0/). Ta
 - Form entri/edit melengkapi field yang kurang: `business_keys`, `error_policy` (`FAIL_ALL`/`ALLOW_PARTIAL`, default `FAIL_ALL`) pada Migration Config, serta tampilan Client/Environment pada Migration Config (terkunci, otomatis mengikuti Client/Env di header saat tambah data; saat edit nilai record dipertahankan). Form tabel turunan tidak lagi menampilkan Client/Environment; nilainya mengikuti Client/Env yang sedang dipilih saat data dibuat.
 
 ### Ditambahkan
+- **Audit Trail**: menu baca untuk `VIEWER` dan `SUPERADMIN` mencatat aktivitas API pengguna termasuk login berhasil/gagal; data request sensitif (body, query string, token, password, kredensial) tidak disimpan. VIEWER dibatasi berdasarkan assignment client/environment atau aktivitas sendiri.
+- **Konteks menu dan paginasi Audit Trail**: aktivitas API kini memuat nama/kode menu yang sedang dibuka, perpindahan menu dicatat sebagai `MENU_OPEN`, pencarian turut mencakup menu, serta tabel menyediakan ukuran halaman 25/50/100, nomor halaman, dan navigasi pertama/terakhir.
+- **Proteksi kredensial Master Connection**: jalur wizard dan penyimpanan environment kini mengenkripsi password database serta SSH menggunakan AES-256-GCM `ENC:v1:`. Password lama pada update dipertahankan (dan plaintext lama dimigrasikan ke ciphertext saat disentuh); respons hasil simpan tetap dimasking.
+- **Tombol Tour**: ukuran ikon disamakan dengan Settings (48×48 px desktop dan sama-sama memenuhi layout responsif mobile).
 - **Tombol Duplikat (📋) pada tab Convert Rules, Target Config, dan Master Lookup** (Migration Config): membuka form tambah data yang terisi dari baris sumber. Primary key dikosongkan; pada Master Lookup `lookup_name` diberi akhiran `_copy` agar tidak bentrok. `app.js` naik ke `?v=5.7`.
 - **Fitur Tour Interaktif (Product Tour)**: dialog otomatis setelah login untuk mengajak pengguna mengikuti tur pengenalan aplikasi langkah demi langkah (Source Data ➔ Migration Config ➔ Workflow Canvas Studio ➔ Hasil Migrasi & Berita Acara ➔ System Administration / Pengaturan).
   - Bersifat murni *read-only* (hanya berpindah menu dan menyorot elemen, tidak menekan tombol aksi atau mengeksekusi migrasi).

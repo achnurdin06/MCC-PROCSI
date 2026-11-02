@@ -302,12 +302,13 @@ Dua guard: `requireAdmin` (`SUPERADMIN`) dan `requireOperations` (`SUPERADMIN` +
 | :--- | :--- |
 | SQL read-only guard | `assertReadOnlySelect` & `assertSafeIdentifier` di `src/utils/sql-guard.js` untuk validator/precheck/browse |
 | Input guard | `sqlInjectionGuard` (`input-guard.middleware.js`): hanya string, ≤ 255 karakter, pola SQLi ditolak |
-| Tabel terlarang | `BLOCKED_BROWSE_TABLES`: `sys_users`, `sys_roles`, `master_connection` |
+| Tabel terlarang | `BLOCKED_BROWSE_TABLES`: `sys_users`, `sys_roles`, `master_connection`, `audit_trail` |
 | SSRF | `testConnection` memvalidasi host tujuan |
 | Helmet/CSP | CSP aktif; `script-src` masih memuat `'unsafe-inline'`, `'unsafe-eval'`, dan CDN Tailwind (**risiko diterima** selama frontend memakai inline script & Tailwind CDN); HSTS hanya di `production` |
 | CORS | Allowlist via `CORS_ALLOWED_ORIGINS` |
 | Reverse proxy | `trust proxy` diatur lewat `TRUST_PROXY` |
 | Kredensial | Password DB/SSH dimask pada response; file `config/hop-configs/` diberi izin `0600` dan di-`.gitignore` |
+| Audit trail | Request API terautentikasi dan login berhasil/gagal dicatat tanpa body, query string, token, password, atau kredensial; menu baca hanya untuk `VIEWER` dan `SUPERADMIN`, dengan scope assignment |
 | Error handling | Error handler dengan correlation-ID; detail internal tidak dibocorkan ke klien |
 | Dependensi | `npm audit` = 0 vulnerability |
 

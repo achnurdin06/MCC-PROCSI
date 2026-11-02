@@ -11,7 +11,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
   <link rel="icon" type="image/webp" href="img/logo-sisi.webp?v=2">
-  <link rel="stylesheet" href="css/style.css?v=4.8">
+  <link rel="stylesheet" href="css/style.css?v=5.0">
   <link rel="stylesheet" href="css/flow-canvas.css?v=1.8">
   <link rel="stylesheet" href="css/userguide-modern.css?v=1.2">
   <script src="https://cdn.tailwindcss.com"></script>
@@ -534,7 +534,7 @@
             </div>
           </div>
 
-          <button id="btn-start-tour" class="btn btn-secondary btn-sm" type="button" title="Mulai tour panduan aplikasi">🧭 Tour</button>
+          <button id="btn-start-tour" class="btn btn-secondary btn-icon" type="button" aria-label="Mulai tour panduan aplikasi" title="Mulai tour panduan aplikasi">🧭</button>
 
           <!-- Tombol Setting Header (Ukuran sama dengan icon refresh, tanpa teks Setting) -->
           <button id="btn-open-settings" class="btn btn-secondary btn-icon hidden" style="display: none;" title="Pengaturan Sistem (Client, Env, & Multi-Connection)">
@@ -603,6 +603,14 @@
         <div class="tab-label-group">
           <span class="tab-title">4. Hasil Migrasi (Pipeline 3-Tier)</span>
           <span class="tab-sub">Source ➔ Staging ➔ Target</span>
+        </div>
+      </button>
+
+      <button class="nav-tab-btn" data-tab="tab-audit" id="nav-btn-audit">
+        <span class="tab-icon">📜</span>
+        <div class="tab-label-group">
+          <span class="tab-title">Audit Trail</span>
+          <span class="tab-sub">Riwayat aktivitas sistem</span>
         </div>
       </button>
 
@@ -1939,6 +1947,62 @@
             </div>
           </div>
         </details>
+      </section>
+
+      <!-- ============================================================== -->
+      <!-- TAB: AUDIT TRAIL                                               -->
+      <!-- ============================================================== -->
+      <section id="tab-audit" class="tab-pane">
+        <div class="panel-card">
+          <div class="panel-header flex-between flex-wrap">
+            <div>
+              <h2 class="panel-title">📜 Audit Trail</h2>
+              <p class="panel-desc">Riwayat menu yang dibuka dan aktivitas API. Isi request, password, token, dan kredensial tidak disimpan.</p>
+            </div>
+            <div class="panel-actions">
+              <input id="audit-search" type="search" class="search-input" placeholder="Cari pengguna, menu, aktivitas, endpoint...">
+              <button id="btn-audit-refresh" class="btn btn-secondary btn-sm" type="button">🔄 Refresh</button>
+            </div>
+          </div>
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Waktu</th>
+                  <th>Pengguna</th>
+                  <th>Menu</th>
+                  <th>Aktivitas</th>
+                  <th>Endpoint</th>
+                  <th>Status</th>
+                  <th>Client / Env</th>
+                  <th>IP</th>
+                  <th>Durasi</th>
+                </tr>
+              </thead>
+              <tbody id="audit-trail-tbody">
+                <tr><td colspan="9" class="text-center py-8 text-muted">Pilih menu Audit Trail untuk memuat riwayat.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="table-pagination-bar audit-pagination-bar">
+            <div class="flex-gap-2 items-center">
+              <label for="audit-page-size" class="text-xs text-muted">Baris per halaman</label>
+              <select id="audit-page-size" class="select-header" aria-label="Jumlah baris audit per halaman">
+                <option value="25">25</option>
+                <option value="50" selected>50</option>
+                <option value="100">100</option>
+              </select>
+              <span id="audit-pagination-info" class="pagination-info">Belum ada data</span>
+            </div>
+            <div class="flex-gap-2 items-center">
+              <button id="btn-audit-first" class="btn btn-secondary btn-sm" type="button" aria-label="Halaman pertama" disabled>«</button>
+              <button id="btn-audit-prev" class="btn btn-secondary btn-sm" type="button" disabled>‹ Sebelumnya</button>
+              <div id="audit-page-buttons" class="flex-gap-2" aria-label="Halaman audit"></div>
+              <button id="btn-audit-next" class="btn btn-secondary btn-sm" type="button" disabled>Berikutnya ›</button>
+              <button id="btn-audit-last" class="btn btn-secondary btn-sm" type="button" aria-label="Halaman terakhir" disabled>»</button>
+            </div>
+          </div>
+        </div>
       </section>
 
       <!-- ============================================================== -->
@@ -5357,7 +5421,7 @@ WHERE v.is_deleted = 0;</code></pre>
   <!-- Floating Toast Notification Container (Pojok Kanan Atas) -->
   <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-  <script src="js/app.js?v=5.8"></script>
+  <script src="js/app.js?v=5.11"></script>
   <script src="js/flow-canvas.js?v=1.7"></script>
   <script src="js/helpdesk-bot.js?v=1.3"></script>
   <script src="js/product-tour.js?v=1.2"></script>
