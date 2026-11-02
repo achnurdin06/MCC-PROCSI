@@ -569,21 +569,19 @@
       typing.remove();
       const d = json && json.data;
       if (!d) throw new Error('Respons health tidak valid');
-      const line = (name, db) => {
-        if (!db) return `- **${name}**: tidak ada data`;
-        const status = db.connected ? '🟢 Terhubung' : '🔴 TERPUTUS';
-        const extra = db.connected ? ` (latensi ${db.latencyMs} ms)` : db.error ? ` - ${db.error}` : '';
-        return `- **${name}**: ${status}${extra}`;
-      };
+      const db = d.applicationDatabase;
+      const status = db?.connected ? '🟢 Terhubung' : '🔴 TERPUTUS';
+      const extra = db?.connected
+        ? ` (latensi ${db.latencyMs} ms)`
+        : db?.error ? ` - ${db.error}` : '';
       const lines = [
-        '**Hasil pemeriksaan koneksi:**',
-        line('Database Sumber', d.sqlserver),
-        line('Database Target (PostgreSQL)', d.postgres),
-        ''
+        '**Hasil pemeriksaan database aplikasi:**',
+        `- **PostgreSQL kontrol (${db?.database || 'mc_center'})**: ${status}${extra}`,
+        '- Status SOURCE dan TARGET mengikuti environment yang dipilih; lihat indikator koneksi di header atau menu Master Connection.',
       ];
-      lines.push(d.bothConnected
-        ? 'Semua koneksi normal. Jika masalah berlanjut, jelaskan gejalanya agar saya bantu telusuri.'
-        : 'Ada koneksi yang terputus. Periksa VPN/jaringan, SSH tunnel, dan firewall, lalu coba lagi. Bila tetap gagal, hubungi DBA.');
+      lines.push(db?.connected
+        ? 'Database kontrol aplikasi normal. Jika masalah berlanjut pada SOURCE/TARGET, periksa konfigurasi dan jaringan environment yang dipilih.'
+        : 'Database kontrol aplikasi belum terhubung. Periksa APP_DB_* pada file env server; untuk SOURCE/TARGET, periksa Master Connection environment.');
       appendMessage('bot', lines.join('\n'));
     } catch (err) {
       typing.remove();

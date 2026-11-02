@@ -102,7 +102,7 @@ class DagEngineService extends EventEmitter {
         connRes.rows.forEach(c => {
           const role = (c.db_role || '').toUpperCase();
           const type = (c.db_type || '').toUpperCase();
-          if (role === 'SOURCE' || type === 'MSSQL') {
+          if (role === 'SOURCE' && type === 'MSSQL') {
             hasSourceConn = true;
             if (c.database_name) srcDb = c.database_name;
             if (c.host) srcHost = c.host;
@@ -121,16 +121,8 @@ class DagEngineService extends EventEmitter {
           }
         });
       } else {
-        // Fallback hanya jika tidak ada envId sama sekali
-        hasSourceConn = true;
+        // Environment dan koneksi sumber wajib dipilih melalui Master Connection.
         hasTargetConn = true;
-        srcHost = process.env.MSSQL_SERVER || null;
-        srcPort = parseInt(process.env.MSSQL_PORT, 10) || 1433;
-        srcDb = process.env.MSSQL_DATABASE || null;
-        srcSchema = 'dbo';
-        srcUseSsh = true;
-        srcSshHost = process.env.MSSQL_SSH_HOST || process.env.MSSQL_SERVER || null;
-        srcSshPort = 22;
         tgtHost = process.env.APP_DB_HOST || process.env.PG_HOST || null;
         tgtPort = parseInt(process.env.APP_DB_PORT || process.env.PG_PORT, 10) || 5432;
         tgtDb = process.env.APP_DB_NAME || process.env.PG_DATABASE || null;
@@ -1158,7 +1150,7 @@ class DagEngineService extends EventEmitter {
 
     if (isBatchAll) {
       let q = `
-        SELECT config_id, name_config, exec_order, src_schema, src_view, tgt_schema, tgt_table, stg_table, is_active, error_policy, business_keys, pk_columns
+        SELECT config_id, env_id, name_config, exec_order, src_schema, src_view, tgt_schema, tgt_table, stg_table, is_active, error_policy, business_keys, pk_columns
         FROM mc_center.migration_config
         WHERE is_active = true
       `;
@@ -1166,6 +1158,10 @@ class DagEngineService extends EventEmitter {
       if (clientId) {
         qParams.push(parseInt(clientId, 10));
         q += ` AND (client_id = $${qParams.length} OR client_id IS NULL)`;
+      }
+      if (envId) {
+        qParams.push(parseInt(envId, 10));
+        q += ` AND (env_id = $${qParams.length} OR env_id IS NULL)`;
       }
       q += ` ORDER BY exec_order ASC, config_id ASC`;
       const cfgRes = await queryPostgres(q, qParams);
@@ -1175,11 +1171,13 @@ class DagEngineService extends EventEmitter {
       }
     } else {
       const cfgRes = await queryPostgres(`
-        SELECT config_id, name_config, exec_order, src_schema, src_view, tgt_schema, tgt_table, stg_table, is_active, error_policy, business_keys, pk_columns
+        SELECT config_id, env_id, name_config, exec_order, src_schema, src_view, tgt_schema, tgt_table, stg_table, is_active, error_policy, business_keys, pk_columns
         FROM mc_center.migration_config
-        WHERE is_active = true AND config_id = ANY($1::int[])
+        WHERE is_active = true
+          AND config_id = ANY($1::int[])
+          AND ($2::int IS NULL OR env_id = $2 OR env_id IS NULL)
         ORDER BY exec_order ASC, config_id ASC
-      `, [targetConfigIds]);
+      `, [targetConfigIds, envId ? parseInt(envId, 10) : null]);
       targetConfigs = cfgRes.rows;
       if (targetConfigs.length === 0 && flowId !== 'flow_3_rollback' && flowId !== 'flow_4_purge' && flowId !== 'flow_2_post') {
         throw new Error(`Konfigurasi aktif dengan ID [${targetConfigIds.join(', ')}] tidak ditemukan.`);

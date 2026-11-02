@@ -5,11 +5,13 @@ Format mengikuti [Keep a Changelog](https://keepachangelog.com/id-ID/1.1.0/). Ta
 ## [Belum dirilis] — branch `dev`
 
 ### Diubah (penyamaran nilai dev, versi Node, cakupan multi-database)
+- **Konfigurasi SQL Server dipindah sepenuhnya ke Master Connection**: `.env.development`, `.env.example`, dan panduan tidak lagi memuat kredensial MSSQL; query sumber memilih koneksi aktif sesuai environment dan SSH tunnel memakai port lokal dinamis per koneksi.
 - **Node.js minimum `> v26.12.1`**: `engines.node` di `package.json` menjadi `>=26.12.2`; README, ARCHITECTURE, DEPLOYMENT_RUNBOOK, security diselaraskan.
 - **Nilai dev tidak lagi di-hardcode di `src/`**: IP, user SSH, port dan nama database dev di `tunnel.js`, `dag-engine.service.js`, `etl.service.js`, `pipeline.service.js`, `source.service.js`, `error-formatter.js`, `app.js`, `index.html` dan `public/js/app.js` diganti nilai dari `process.env` atau placeholder generik. Port default wizard menjadi 5432.
 - **Cakupan aplikasi**: dideskripsikan sebagai platform migrasi **multi-database → PostgreSQL** (README, AGENTS, ARCHITECTURE, USER_GUIDE, `<title>`, `package.json`). Driver yang aktif saat ini: SQL Server dan PostgreSQL.
 
 ### Diperbaiki
+- **Status database Source/Target mengikuti environment**: badge header hanya menampilkan koneksi ber-role SOURCE/TARGET yang aktif pada environment terpilih. `/api/health` kini melaporkan PostgreSQL database kontrol aplikasi secara terpisah dan tidak lagi menyebutnya sebagai database TARGET.
 - **Role / Menu / Matrix Menu tidak berpengaruh**: API mengirim profil user dalam camelCase (`roleCode`, `roleId`, ...) sedangkan UI membaca snake_case (`role_code`, `role_id`), sehingga `applyMenuPermissions` salah mengenali role dan hak akses tidak diterapkan. Kini profil dinormalisasi (`normalizeAuthUser`).
 - Perubahan matriks kini ikut berlaku pada sesi yang sedang aktif tanpa login ulang: `refreshUserPermissions()` dipanggil setelah simpan matriks, saat tab browser kembali aktif, dan setiap 60 detik.
 - Guard navigasi `isTabAllowedForUser()` di `switchMainTab` agar tab yang tidak diizinkan tidak bisa dibuka lewat state tersimpan (`antam_active_main_tab`).
@@ -20,6 +22,7 @@ Format mengikuti [Keep a Changelog](https://keepachangelog.com/id-ID/1.1.0/). Ta
 - Form entri/edit melengkapi field yang kurang: `business_keys`, `error_policy` (`FAIL_ALL`/`ALLOW_PARTIAL`, default `FAIL_ALL`) pada Migration Config, serta tampilan Client/Environment pada Migration Config (terkunci, otomatis mengikuti Client/Env di header saat tambah data; saat edit nilai record dipertahankan). Form tabel turunan tidak lagi menampilkan Client/Environment; nilainya mengikuti Client/Env yang sedang dipilih saat data dibuat.
 
 ### Ditambahkan
+- **Tombol Duplikat (📋) pada tab Convert Rules, Target Config, dan Master Lookup** (Migration Config): membuka form tambah data yang terisi dari baris sumber. Primary key dikosongkan; pada Master Lookup `lookup_name` diberi akhiran `_copy` agar tidak bentrok. `app.js` naik ke `?v=5.7`.
 - **Fitur Tour Interaktif (Product Tour)**: dialog otomatis setelah login untuk mengajak pengguna mengikuti tur pengenalan aplikasi langkah demi langkah (Source Data ➔ Migration Config ➔ Workflow Canvas Studio ➔ Hasil Migrasi & Berita Acara ➔ System Administration / Pengaturan).
   - Bersifat murni *read-only* (hanya berpindah menu dan menyorot elemen, tidak menekan tombol aksi atau mengeksekusi migrasi).
   - Filter akses cerdas: langkah untuk menu yang tidak diizinkan oleh hak akses pengguna (mis. menu System Administration bagi non-admin) dilewati secara otomatis.

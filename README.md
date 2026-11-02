@@ -103,8 +103,8 @@ Aplikasi memiliki sistem deteksi otomatis lingkungan (*Dynamic Environment Loade
 
 | Kondisi / Lokasi | Git Branch Aktif | File Konfigurasi | Mode Runtime | Keterangan |
 | :--- | :--- | :--- | :--- | :--- |
-| **Lokal / Staging Server** | `dev` / branch fitur | `.env.development` | `development` (`DEV`) | SSH Tunnel SQL Server aktif (`MSSQL_USE_SSH_TUNNEL=true`) |
-| **Server On-Premise / Prod** | `main` / `master` / `workstation-main` | `.env.production` | `production` (`PROD`) | Koneksi langsung intranet (`MSSQL_USE_SSH_TUNNEL=false`), CSP & HSTS aktif |
+| **Lokal / Staging Server** | `dev` / branch fitur | `.env.development` | `development` (`DEV`) | Source SQL Server diatur per environment pada Master Connection |
+| **Server On-Premise / Prod** | `main` / `master` / `workstation-main` | `.env.production` | `production` (`PROD`) | Koneksi source langsung atau via SSH di Master Connection; CSP & HSTS aktif |
 
 > **Catatan Overriding Manual:**
 > Anda dapat mengesampingkan deteksi branch dengan menyetel variabel `NODE_ENV` secara eksplisit, misalnya:
@@ -134,7 +134,7 @@ Aplikasi memiliki sistem deteksi otomatis lingkungan (*Dynamic Environment Loade
 ### Global Context & Master Connection
 | Method | Endpoint | Hak Akses | Deskripsi |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/api/health` | Publik | Status koneksi database PostgreSQL & SQL Server |
+| `GET` | `/api/health` | Publik | Status PostgreSQL database kontrol aplikasi dari `APP_DB_*` |
 | `GET` | `/api/context/status` | Publik | Status inisialisasi master data sistem |
 | `POST` | `/api/context/init-wizard` | SUPERADMIN | Wizard inisialisasi client & environment pertama |
 | `GET` | `/api/context/clients` | Authenticated | Daftar master client |
@@ -317,7 +317,7 @@ cp .env.example .env.development
 nano .env.development
 ```
 
-#### Contoh Konfigurasi `.env.development` Lengkap:
+#### Contoh Konfigurasi `.env.development`:
 
 ```ini
 # ==============================================================================
@@ -351,27 +351,6 @@ PG_SSL=false
 PG_SSL_REJECT_UNAUTHORIZED=false
 
 # ==============================================================================
-# 2. DATABASE SUMBER & SSH TUNNEL BASTION (Dev)
-# Pada server dev/testing, koneksi ke sumber umumnya melalui SSH Bastion
-# ==============================================================================
-MSSQL_SERVER=127.0.0.1
-MSSQL_PORT=11433
-MSSQL_USER=<USER_SQLSERVER_DEV>
-MSSQL_PASSWORD=<PASSWORD_SQLSERVER_DEV>
-MSSQL_DATABASE=<NAMA_DATABASE_SUMBER>
-MSSQL_ENCRYPT=false
-MSSQL_TRUST_SERVER_CERTIFICATE=true
-MSSQL_CONNECTION_TIMEOUT=15000
-
-# Aktifkan SSH Tunnel untuk server development
-MSSQL_USE_SSH_TUNNEL=true
-MSSQL_SSH_HOST=<HOST_SSH_BASTION>
-MSSQL_SSH_PORT=22
-MSSQL_SSH_USER=<USER_SSH_BASTION>
-MSSQL_SSH_PASSWORD=<PASSWORD_SSH_BASTION>
-LOCAL_TUNNEL_PORT=11433
-
-# ==============================================================================
 # 3. KUNCI KRIPTOGRAFI WAJIB (KEAMANAN TINGGI)
 # Generate kunci 64-karakter dengan: openssl rand -hex 32
 # ==============================================================================
@@ -388,6 +367,8 @@ ENCRYPTION_MASTER_KEY=<HASIL_OPENSSL_RAND_HEX_32>
 CORS_ALLOWED_ORIGINS=http://localhost:3000,http://<IP_ATAU_DOMAIN_DEV>
 TRUST_PROXY=loopback
 ```
+
+Koneksi SQL Server sumber dan SSH bastion **tidak dimasukkan ke file env**. Setelah membuat client dan environment pada wizard, daftarkan koneksi `SOURCE` di menu **Master Connection**. Isi host/port SQL Server dan kredensialnya; bila memakai bastion, aktifkan SSH tunnel dan isi host, port, user, serta password SSH pada form koneksi. Host SQL Server harus dapat dijangkau dari bastion. Port tunnel lokal dibuat otomatis oleh aplikasi.
 
 > ⚠️ **PENTING - Generate Kunci Kriptografi Mandiri:**
 > Jalankan perintah berikut di terminal server untuk mendapatkan kunci acak berkekuatan tinggi:
@@ -568,12 +549,16 @@ Jalankan pengujian kesehatan dari terminal server:
    {
      "success": true,
      "data": {
-       "sqlserver": { "connected": true, ... },
-       "postgres": { "connected": true, ... },
-       "bothConnected": true
+       "applicationDatabase": {
+         "role": "Application Control Database (PostgreSQL)",
+         "schema": "mc_center",
+         "connected": true
+       },
+       "ready": true
      }
    }
    ```
+   Pemeriksaan koneksi SOURCE/TARGET dilakukan terpisah melalui menu Master Connection atau `GET /api/context/environments/:id/health` setelah autentikasi.
 
 2. **Uji Akses Browser:**
    Buka alamat domain atau IP Server: `http://mcc-dev.antam.com`
@@ -613,7 +598,7 @@ Jika sewaktu-waktu Anda mengonfigurasi **Server Production On-Premise**:
 2. Gunakan berkas konfigurasi **`.env.production`** (dengan `NODE_ENV=production`, `APP_ENV=PROD`).
 3. Jalankan instalasi dependensi produksi murni: `npm ci --omit=dev`.
 4. Jalankan PM2 dengan profil produksi: `pm2 start ecosystem.config.js --env production`.
-5. Pada jaringan produksi intranet direct, biasanya SSH tunnel tidak diperlukan (`MSSQL_USE_SSH_TUNNEL=false`).
+5. Atur koneksi SQL Server langsung atau via SSH tunnel pada menu **Master Connection** untuk environment produksi yang dipilih.
 Panduan lengkap operasional produksi tersedia di [Document/DEPLOYMENT_RUNBOOK.md](./Document/DEPLOYMENT_RUNBOOK.md).
 
 ---
@@ -642,4 +627,3 @@ Seluruh dokumentasi teknis berada di folder [Document/](./Document/README.md). M
 
 ## 📄 Lisensi & Hak Cipta
 Aplikasi ini dikembangkan untuk keperluan audit, migrasi data, dan rekonsiliasi sistem **PT Antam Tbk** bekerjasama dengan tim **SISI (PT Sinergi Informatika Semen Indonesia)**. Seluruh hak cipta dilindungi undang-undang.
-

@@ -1,5 +1,5 @@
-const { checkSqlServerConnection, querySqlServer } = require('../config/sqlserver');
-const { checkPostgresConnection, queryPostgres } = require('../config/postgres');
+const { querySqlServer } = require('../config/sqlserver');
+const { checkPostgresConnection, DB_CONTROL_SCHEMA, queryPostgres } = require('../config/postgres');
 
 /**
  * Validasi dan bersihkan nama tabel / kolom / schema guna menghindari SQL injection
@@ -14,24 +14,18 @@ const BLOCKED_BROWSE_TABLES = new Set(['sys_users', 'sys_roles', 'master_connect
 
 class MigrationService {
   /**
-   * Cek status koneksi kedua database
+   * Health publik hanya memeriksa database kontrol aplikasi dari konfigurasi server.
    */
   async getHealthStatus() {
-    const [sqlServerStatus, pgStatus] = await Promise.all([
-      checkSqlServerConnection(),
-      checkPostgresConnection(),
-    ]);
+    const applicationDatabaseStatus = await checkPostgresConnection();
 
     return {
-      sqlserver: {
-        role: 'Source Database (MSSQL)',
-        ...sqlServerStatus,
+      applicationDatabase: {
+        role: 'Application Control Database (PostgreSQL)',
+        schema: DB_CONTROL_SCHEMA,
+        ...applicationDatabaseStatus,
       },
-      postgres: {
-        role: 'Target Database (PostgreSQL)',
-        ...pgStatus,
-      },
-      bothConnected: sqlServerStatus.connected && pgStatus.connected,
+      ready: Boolean(applicationDatabaseStatus.connected),
       timestamp: new Date().toISOString(),
     };
   }

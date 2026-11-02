@@ -41,10 +41,10 @@ Remote: `origin` (GitHub `achnurdin06/mig-antam`) dan `sisi` (GitLab workstation
 ## 4. Smoke Test Pasca-Rilis
 
 ```bash
-curl -s http://127.0.0.1:3000/api/health          # bothConnected: true
+curl -s http://127.0.0.1:3000/api/health          # data.applicationDatabase.connected=true
 curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3000/api/etl/runs   # harus 401 tanpa token
 ```
-Lalu di browser: halaman login + captcha tampil → login → menu sesuai role → refresh halaman (sesi harus tetap login) → Source Data memuat daftar view.
+Lalu di browser: halaman login + captcha tampil → login → menu sesuai role → refresh halaman (sesi harus tetap login) → pilih environment dan periksa **Master Connection / Health** untuk memastikan SOURCE SQL Server serta TARGET PostgreSQL terhubung → Source Data memuat daftar view.
 
 ## 5. Backup & Pemulihan
 
@@ -70,8 +70,8 @@ Pemulihan: `pg_restore -c -n mc_center -d <NAMA_DB_TARGET> mc_center_<tanggal>.d
 
 | Gejala | Diagnosa | Tindakan |
 |---|---|---|
-| `/api/health` → `sqlserver.connected=false` | SSH tunnel/VPN putus, kredensial berubah | Uji koneksi di *Master Connection*; cek `ssh` manual ke bastion; restart app jika tunnel macet |
-| `/api/health` → `postgres.connected=false` | DB down / firewall | `psql` dari server; cek `pg_hba.conf`, `APP_DB_*` |
+| `/api/health` → `data.applicationDatabase.connected=false` | PostgreSQL database kontrol aplikasi down / firewall | `psql` dari server; cek `pg_hba.conf`, `APP_DB_*` |
+| SOURCE/TARGET environment terputus | Koneksi sesuai environment gagal / kredensial berubah | Uji koneksi di *Master Connection* untuk environment terpilih; cek SSH/VPN, host, port, dan firewall |
 | Log SSE tidak muncul real-time di browser | Buffering Nginx | Pastikan blok `location ~* ^/api/flows/stream/` aktif; `nginx -t && systemctl reload nginx` |
 | User sah mendapat 429 | Rate limit login (10/mnt/IP+user) atau `TRUST_PROXY` salah | Tunggu 1 menit; periksa `TRUST_PROXY` |
 | Semua user terlempar ke login | `JWT_SECRET` berubah / token kedaluwarsa (8 jam) | Wajar setelah rotasi; login ulang |

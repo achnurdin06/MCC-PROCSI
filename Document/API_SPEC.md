@@ -56,7 +56,7 @@ Field `username/captchaId/captchaAnswer/full_name/email` melewati `sqlInjectionG
 
 | Method | Path | Akses | Keterangan |
 |---|---|---|---|
-| GET | `/health` | Publik | Status koneksi SQL Server & PostgreSQL + latensi |
+| GET | `/health` | Publik | Status database kontrol aplikasi PostgreSQL dari `APP_DB_*`; tidak menguji SOURCE/TARGET environment |
 | GET | `/context/status` | Publik/opsional token | Apakah wizard inisialisasi diperlukan |
 | POST | `/context/init-wizard` | ADMIN | Inisialisasi client + environment + koneksi |
 | GET | `/context/clients` | Auth | |

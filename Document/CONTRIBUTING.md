@@ -52,7 +52,7 @@ Tipe: `feat`, `fix`, `docs`, `refactor`, `security`, `chore`, `test`.
 
 Belum ada test suite otomatis; verifikasi manual terstruktur:
 
-1. `npm run dev` lalu `curl http://localhost:3000/api/health` → `bothConnected: true`.
+1. `npm run dev` lalu `curl http://localhost:3000/api/health` → `data.applicationDatabase.connected: true`; koneksi SOURCE/TARGET diverifikasi lewat environment terpilih.
 2. Uji endpoint yang diubah dengan `curl` + token (login via `/api/auth/captcha` → `/api/auth/login`), termasuk kasus **tanpa token (401)** dan **role tidak cukup (403)**.
 3. Perubahan UI: uji di browser, termasuk **refresh halaman** (sesi harus bertahan) dan tiga role.
 4. Perubahan flow/fungsi SQL: jalankan Flow 1→2→3 pada satu config di DB **dev** dan cocokkan dengan [TESTING_REPORT.md](./TESTING_REPORT.md).

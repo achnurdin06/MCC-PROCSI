@@ -40,14 +40,15 @@ Folder server produksi **harus** berisi checkout branch `main` + `.env.productio
 | `APP_DB_HOST`, `APP_DB_PORT`, `APP_DB_USER`, `APP_DB_PASSWORD`, `APP_DB_NAME` | Ya | Koneksi PostgreSQL database aplikasi |
 | `APP_DB_SCHEMA` | Tidak | Default `mc_center` |
 | `APP_DB_MAX_POOL` | Tidak | Ukuran pool (default 10) |
-| `PG_HOST/PORT/USER/PASSWORD/DATABASE` | Tidak | Alias kompatibilitas mundur |
+| `PG_HOST/PORT/USER/PASSWORD/DATABASE` | Tidak | Alias kompatibilitas mundur untuk koneksi PostgreSQL |
 | `PG_CONNECTION_TIMEOUT_MILLIS` | Tidak | Timeout koneksi (ms) |
 | `PG_SSL`, `PG_SSL_REJECT_UNAUTHORIZED` | Tidak | TLS ke PostgreSQL |
 
-### Source SQL Server (fallback default)
-Koneksi per client/environment utama diatur di UI (tabel `master_connection`). Variabel berikut hanya fallback:
+### Database sumber SQL Server
+Koneksi SQL Server **tidak dikonfigurasi melalui `.env`**. Atur koneksi pada menu **Master Connection** untuk setiap client dan environment: host, port, database, username/password, serta detail SSH tunnel bila diperlukan. Untuk eksekusi ETL, gunakan tepat satu koneksi SOURCE SQL Server aktif per environment; konfigurasi migration tidak menyimpan pemetaan koneksi sumber per tabel. Kredensial disimpan terenkripsi menggunakan `ENCRYPTION_MASTER_KEY`. Pastikan user layanan dapat menjangkau SQL Server secara langsung atau dapat menjangkau bastion SSH.
 
-`MSSQL_SERVER`, `MSSQL_PORT`, `MSSQL_USER`, `MSSQL_PASSWORD`, `MSSQL_DATABASE`, `MSSQL_ENCRYPT`, `MSSQL_TRUST_SERVER_CERTIFICATE`, `MSSQL_CONNECTION_TIMEOUT`, `MSSQL_USE_SSH_TUNNEL`, `MSSQL_SSH_HOST`, `MSSQL_SSH_PORT`, `MSSQL_SSH_USER`, `MSSQL_SSH_PASSWORD`, `LOCAL_TUNNEL_PORT` (port lokal forward, default `11433`).
+Saat request memilih `connection_id`, `env_id`, `config_id`, atau `run_id`, aplikasi menentukan koneksi SOURCE aktif dari `master_connection`. SSH tunnel memakai port lokal dinamis per koneksi; tidak perlu menetapkan `LOCAL_TUNNEL_PORT`.
+Health check `/api/health` hanya menguji PostgreSQL database kontrol aplikasi (`APP_DB_*`). Koneksi SOURCE dan TARGET ditampilkan serta diuji berdasarkan role koneksi pada environment terpilih melalui `/api/context/environments/:id/health`.
 
 ### Keamanan (WAJIB)
 | Variabel | Syarat | Dampak bila salah |
@@ -69,6 +70,7 @@ Generate: `openssl rand -hex 32`. **Gunakan nilai berbeda untuk dev dan prod.** 
 |---|---|---|
 | `NODE_ENV` / `APP_ENV` | development / DEV | production / PROD |
 | DB aplikasi | `<NAMA_DB_DEV>` (`<HOST_DEV>:<PORT>`) | DB prod on-prem |
+| Koneksi SQL Server SOURCE | Master Connection pada environment DEV | Master Connection pada environment PROD |
 | `JWT_SECRET`, `ENCRYPTION_MASTER_KEY` | unik dev | unik prod |
 | `CORS_ALLOWED_ORIGINS` | kosong | domain resmi HTTPS |
 | `TRUST_PROXY` | `loopback` | sesuai Nginx |
@@ -88,4 +90,5 @@ Generate: `openssl rand -hex 32`. **Gunakan nilai berbeda untuk dev dan prod.** 
 | Lokal memakai DB produksi | Branch lokal `main` | Checkout `dev` atau jalankan `npm run start:dev` |
 | Server prod memuat env dev | Branch bukan `main`, atau `NODE_ENV` tidak diset | Checkout `main` atau `npm run start:prod` / `NODE_ENV=production` di PM2 |
 | Rate limit memblokir semua user | `TRUST_PROXY` salah → semua request terlihat dari IP proxy | Setel `TRUST_PROXY` sesuai jumlah hop proxy |
-| `ECONNREFUSED 127.0.0.1:11433` | SSH tunnel gagal | Cek kredensial/host SSH di `master_connection`, lalu `/api/health` |
+| Koneksi SOURCE tidak ditemukan | Environment belum memiliki koneksi SOURCE SQL Server aktif | Atur dan uji koneksi di menu Master Connection untuk environment yang dipilih |
+| SSH tunnel atau koneksi SOURCE gagal | Host/port SQL Server tidak terjangkau, atau detail bastion salah | Uji host/port SQL Server dari bastion; periksa host, port, user, dan password SSH pada Master Connection |
