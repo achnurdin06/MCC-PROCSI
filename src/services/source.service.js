@@ -102,7 +102,7 @@ class SourceService {
             AND ep.name = 'MS_Description'
           WHERE t.TABLE_SCHEMA = '${schemaName}' AND t.TABLE_TYPE = 'VIEW'
           ORDER BY t.TABLE_NAME
-        `);
+        `, {}, connectionId);
         views = viewsQuery.recordset || [];
       } catch (e) {
         const viewsQuery = await querySqlServer(`
@@ -110,7 +110,7 @@ class SourceService {
           FROM INFORMATION_SCHEMA.TABLES
           WHERE TABLE_SCHEMA = '${schemaName}' AND TABLE_TYPE = 'VIEW'
           ORDER BY TABLE_NAME
-        `);
+        `, {}, connectionId);
         views = viewsQuery.recordset || [];
       }
     } else {
@@ -231,7 +231,9 @@ class SourceService {
             try {
               if (dbType === 'MSSQL') {
                 const countQuery = querySqlServer(
-                  `SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; SELECT COUNT_BIG(1) AS total FROM [${schemaName}].[${cleanName}]`
+                  `SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED; SELECT COUNT_BIG(1) AS total FROM [${schemaName}].[${cleanName}]`,
+                  {},
+                  connectionId
                 );
                 const timeoutPromise = new Promise((_, reject) =>
                   setTimeout(() => reject(new Error('Hitung baris timeout (4s)')), 4000)
@@ -329,7 +331,7 @@ class SourceService {
         FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = '${schemaName}' AND TABLE_NAME = '${cleanView}'
         ORDER BY ORDINAL_POSITION
-      `);
+      `, {}, connectionId);
       columns = colQuery.recordset.map((c) => ({
         name: c.COLUMN_NAME,
         type: c.DATA_TYPE,
@@ -344,7 +346,7 @@ class SourceService {
       }
 
       try {
-        const countRes = await querySqlServer(`SELECT COUNT_BIG(1) AS total FROM [${schemaName}].[${cleanView}]`);
+        const countRes = await querySqlServer(`SELECT COUNT_BIG(1) AS total FROM [${schemaName}].[${cleanView}]`, {}, connectionId);
         total = parseInt(countRes.recordset[0]?.total, 10) || 0;
 
         const firstCol = columns[0].name;
@@ -353,7 +355,7 @@ class SourceService {
           ORDER BY [${firstCol}]
           OFFSET ${offset} ROWS
           FETCH NEXT ${limitNum} ROWS ONLY
-        `);
+        `, {}, connectionId);
         rows = dataRes.recordset;
       } catch (err) {
         bindingError = err.message;
@@ -450,7 +452,7 @@ class SourceService {
       if (dbType === 'MSSQL') {
         const defRes = await querySqlServer(`
           SELECT OBJECT_DEFINITION(OBJECT_ID('[${schemaName}].[${cleanView}]')) AS definition
-        `);
+        `, {}, connectionId);
         dbDefinition = defRes.recordset[0]?.definition || null;
       } else {
         const defRes = await queryPostgres(`
@@ -490,7 +492,7 @@ class SourceService {
           WHERE ep.major_id = OBJECT_ID(QUOTENAME('${schemaName}') + '.' + QUOTENAME('${cleanView}'))
             AND ep.minor_id = 0
             AND ep.name = 'MS_Description'
-        `);
+        `, {}, connectionId);
         dbDescription = epRes.recordset[0]?.description || null;
       } else {
         const descRes = await queryPostgres(`
@@ -609,7 +611,7 @@ class SourceService {
 
     if (dbType === 'MSSQL') {
       const ddlStatement = `CREATE OR ALTER VIEW [${effSchema}].[${cleanView}] AS\n${cleanQuery}`;
-      await querySqlServer(ddlStatement);
+      await querySqlServer(ddlStatement, {}, connection_id);
     } else {
       // PostgreSQL
       const ddlStatement = `CREATE OR REPLACE VIEW "${effSchema}"."${cleanView}" AS\n${cleanQuery}`;
@@ -657,15 +659,15 @@ class SourceService {
         // Jika query memiliki klausa WITH (CTE), jalankan parse metadata langsung
         if (/^\s*WITH\s+/i.test(cleanQuery)) {
           const testSql = `SET FMTONLY ON;\n${cleanQuery};\nSET FMTONLY OFF;`;
-          res = await querySqlServer(testSql);
+          res = await querySqlServer(testSql, {}, connectionId);
         } else {
           try {
             const testSql = `SELECT TOP 1 * FROM (\n${cleanQuery}\n) AS __syntax_validation_subquery`;
-            res = await querySqlServer(testSql);
+            res = await querySqlServer(testSql, {}, connectionId);
           } catch (subErr) {
             // Fallback ke SET FMTONLY jika pembungkusan subquery terkendala klausa ORDER BY
             const testSql = `SET FMTONLY ON;\n${cleanQuery};\nSET FMTONLY OFF;`;
-            res = await querySqlServer(testSql);
+            res = await querySqlServer(testSql, {}, connectionId);
           }
         }
         const durationMs = Date.now() - startTime;
@@ -732,7 +734,7 @@ class SourceService {
     const schemaName = conn ? assertSafeSchema(conn.db_schema, dbType === 'MSSQL' ? 'dbo' : 'public') : 'dbo';
 
     if (dbType === 'MSSQL') {
-      await querySqlServer(`DROP VIEW IF EXISTS [${schemaName}].[${cleanView}]`);
+      await querySqlServer(`DROP VIEW IF EXISTS [${schemaName}].[${cleanView}]`, {}, connectionId);
     } else {
       await queryPostgres(`DROP VIEW IF EXISTS "${schemaName}"."${cleanView}"`);
     }
@@ -769,14 +771,14 @@ class SourceService {
         FROM INFORMATION_SCHEMA.TABLES
         WHERE TABLE_SCHEMA = '${schemaName}' AND TABLE_TYPE = 'VIEW'
         ORDER BY TABLE_NAME
-      `);
+      `, {}, connectionId);
 
       for (const row of viewsQuery.recordset) {
         const cleanName = sanitizeIdentifier(row.name);
         if (!cleanName) continue;
 
         try {
-          const defRes = await querySqlServer(`SELECT OBJECT_DEFINITION(OBJECT_ID('[${schemaName}].[${cleanName}]')) AS definition`);
+          const defRes = await querySqlServer(`SELECT OBJECT_DEFINITION(OBJECT_ID('[${schemaName}].[${cleanName}]')) AS definition`, {}, connectionId);
           let def = defRes.recordset[0]?.definition;
           if (def) {
             const cleanSql = this.extractSelectQuery(def);

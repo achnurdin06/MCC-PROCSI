@@ -1694,7 +1694,9 @@ async function resolveEnvironmentConnections(envId) {
     const healthData = json.data;
     state.activeSourceConnection = healthData.source;
     state.activeTargetConnection = healthData.target;
-    state.selectedSourceConnectionId = healthData.source?.connection_id || null;
+    state.selectedSourceConnectionId = String(healthData.source?.db_type || '').toUpperCase() === 'MSSQL'
+      ? healthData.source.connection_id
+      : null;
 
     updateHeaderConnectionUI(healthData.source, healthData.target);
   } catch (err) {
@@ -2300,7 +2302,7 @@ async function loadSourceViews(forceRefresh = false) {
 
   if (!state.selectedSourceConnectionId) {
     if (tbody) {
-      tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-amber font-medium">⚠️ Belum ada koneksi SOURCE (SQL Server) yang terdaftar untuk Environment ini.<br><span class="text-xs text-muted">Silakan buka menu <strong>Setting ⚙️ ➔ 3. Master Connection</strong> untuk menambahkan koneksi database sumber.</span></td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-amber font-medium">⚠️ Belum ada koneksi SOURCE SQL Server aktif untuk Environment ini.<br><span class="text-xs text-muted">Silakan buka menu <strong>Setting ⚙️ ➔ 3. Master Connection</strong> untuk mengaktifkan koneksi database sumber.</span></td></tr>`;
     }
     const resetValues = [
       ['kpi-source-views-count', '0'],
@@ -4684,7 +4686,9 @@ async function populateConfigDatalists() {
   let views = state.source?.views || [];
   if (views.length === 0) {
     try {
-      const res = await fetch('/api/source/views');
+      const connectionId = state.selectedSourceConnectionId;
+      const connectionParam = connectionId ? `?connection_id=${encodeURIComponent(connectionId)}` : '';
+      const res = await fetch(`/api/source/views${connectionParam}`);
       const json = await res.json();
       if (json.success && json.data?.views) {
         views = json.data.views;
@@ -8084,15 +8088,23 @@ async function loadSourceConnectionsSelect(envId = null) {
     if (!json.success) return;
 
     const allConns = json.data || [];
-    // Prioritaskan koneksi bertipe SOURCE
-    const sourceConns = allConns.filter((c) => c.db_role === 'SOURCE');
-    state.sourceConnectionsList = sourceConns.length > 0 ? sourceConns : allConns;
+    state.sourceConnectionsList = allConns.filter((connection) => (
+      String(connection.db_role || '').toUpperCase() === 'SOURCE'
+      && String(connection.db_type || '').toUpperCase() === 'MSSQL'
+      && (
+        connection.is_active === true
+        || connection.is_active === 1
+        || String(connection.is_active).toLowerCase() === 'true'
+        || String(connection.is_active) === '1'
+      )
+    ));
 
-    if (state.sourceConnectionsList.length > 0) {
-      state.selectedSourceConnectionId = state.sourceConnectionsList[0].connection_id;
-    } else {
-      state.selectedSourceConnectionId = null;
-    }
+    const selectedConnection = state.sourceConnectionsList.find(
+      (connection) => String(connection.connection_id) === String(state.selectedSourceConnectionId)
+    );
+    state.selectedSourceConnectionId = selectedConnection?.connection_id
+      || state.sourceConnectionsList[0]?.connection_id
+      || null;
 
     const optionsHtml = state.sourceConnectionsList.map((c) => {
       const selected = String(c.connection_id) === String(state.selectedSourceConnectionId) ? 'selected' : '';
