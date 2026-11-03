@@ -4789,6 +4789,24 @@ window.testPrecheckQuery = async function (fieldName) {
 /**
  * Point 5: Duplikat / Clone Migration Config
  */
+function makeUniqueCopyName(value, existingValues) {
+  const base = String(value || '').trim();
+  if (!base) return '';
+
+  const existing = new Set(
+    existingValues
+      .filter((name) => name !== null && name !== undefined)
+      .map((name) => String(name).trim().toLowerCase())
+  );
+  let candidate = `${base}_copy`;
+  let suffix = 2;
+  while (existing.has(candidate.toLowerCase())) {
+    candidate = `${base}_copy_${suffix}`;
+    suffix += 1;
+  }
+  return candidate;
+}
+
 window.cloneConfig = function (configId) {
   const configs = state.config.masters?.migration_config || [];
   const src = configs.find((c) => c.config_id == configId);
@@ -4800,7 +4818,10 @@ window.cloneConfig = function (configId) {
   delete cloneData.config_id;
   cloneData.name_config = `${cloneData.name_config || 'Config'} (Copy)`;
   if (cloneData.stg_table) {
-    cloneData.stg_table = `${cloneData.stg_table}_copy`;
+    cloneData.stg_table = makeUniqueCopyName(
+      cloneData.stg_table,
+      configs.map((config) => config.stg_table)
+    );
   }
   showToast(`📋 Menyalin konfigurasi #${configId} sebagai data baru...`, 'info', 2000);
   openUniversalForm('migration_config', null, cloneData);
@@ -4837,7 +4858,14 @@ window.cloneLookup = function (lookupName) {
     showToast(`Lookup '${lookupName}' tidak ditemukan.`, 'error');
     return;
   }
-  const cloneData = { ...src, lookup_name: `${src.lookup_name}_copy` };
+  const lookups = state.config.masters?.migration_lookup || [];
+  const cloneData = {
+    ...src,
+    lookup_name: makeUniqueCopyName(
+      src.lookup_name,
+      lookups.map((lookup) => lookup.lookup_name)
+    ),
+  };
   showToast(`📋 Menyalin lookup '${lookupName}' sebagai data baru...`, 'info', 2000);
   openUniversalForm('migration_lookup', null, cloneData);
 };
