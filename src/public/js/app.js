@@ -2288,6 +2288,23 @@ window.testPingConnection = async function (connId) {
 // =========================================================================
 // MODUL 1: SOURCE DATA (SQL SERVER VIEWS & VIEW CREATOR)
 // =========================================================================
+function getSourceConnectionContext() {
+  return {
+    connection_id: state.selectedSourceConnectionId || null,
+    client_id: state.selectedClientId || null,
+    env_id: state.selectedEnvId || null,
+  };
+}
+
+function sourceConnectionContextQuery(separator = '?') {
+  const params = new URLSearchParams();
+  Object.entries(getSourceConnectionContext()).forEach(([key, value]) => {
+    if (value) params.set(key, value);
+  });
+  const query = params.toString();
+  return query ? `${separator}${query}` : '';
+}
+
 async function loadSourceViews(forceRefresh = false) {
   // Performance optimization: jika sudah ada data di memory dan bukan force refresh, render instan!
   if (!forceRefresh && state.source.views && state.source.views.length > 0) {
@@ -2320,9 +2337,7 @@ async function loadSourceViews(forceRefresh = false) {
   }
 
   try {
-    let connParam = `?connection_id=${state.selectedSourceConnectionId}`;
-    if (state.selectedClientId) connParam += `&client_id=${state.selectedClientId}`;
-    if (state.selectedEnvId) connParam += `&env_id=${state.selectedEnvId}`;
+    let connParam = sourceConnectionContextQuery();
     if (forceRefresh) connParam += `&refresh=true`;
 
     const res = await fetch(`/api/source/views${connParam}`);
@@ -2656,7 +2671,7 @@ async function loadModalSourceViewData() {
   schemaTbody.innerHTML = `<tr><td colspan="6" class="text-center py-6 text-muted">Memuat skema kolom...</td></tr>`;
 
   try {
-    const connParam = state.selectedSourceConnectionId ? `&connection_id=${state.selectedSourceConnectionId}` : '';
+    const connParam = sourceConnectionContextQuery('&');
     const page = state.source.modalPage || 1;
     const limit = state.source.modalLimit || 25;
     const url = `/api/source/view-data?view=${encodeURIComponent(viewName)}&page=${page}&limit=${limit}${connParam}`;
@@ -2850,7 +2865,7 @@ async function loadModalSourceViewDdl() {
   ddlCodeEl.textContent = 'Memuat definisi DDL...';
 
   try {
-    const connParam = state.selectedSourceConnectionId ? `&connection_id=${state.selectedSourceConnectionId}` : '';
+    const connParam = sourceConnectionContextQuery('&');
     const res = await fetch(`/api/source/view-definition?view=${encodeURIComponent(viewName)}${connParam}`);
     const json = await res.json();
     if (!json.success) throw new Error(json.error);
@@ -3463,7 +3478,7 @@ async function openViewEditor(existingViewName = null) {
     updateVeQueryStats();
 
     try {
-      const connParam = state.selectedSourceConnectionId ? `&connection_id=${state.selectedSourceConnectionId}` : '';
+      const connParam = sourceConnectionContextQuery('&');
       const res = await fetch(`/api/source/view-definition?view=${encodeURIComponent(existingViewName)}${connParam}`);
       const json = await res.json();
       if (json.success && json.data) {
@@ -3521,6 +3536,7 @@ async function validateViewQuery() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         query_sql: rawQuery,
+        ...getSourceConnectionContext(),
         connection_id: document.getElementById('ve-connection-id')?.value || state.selectedSourceConnectionId,
       }),
     });
@@ -3587,6 +3603,7 @@ async function saveOrExecuteView() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        ...getSourceConnectionContext(),
         connection_id: document.getElementById('ve-connection-id')?.value || state.selectedSourceConnectionId,
         schema_name: document.getElementById('ve-schema-name')?.value.trim() || 'dbo',
         view_name: viewName,
@@ -3610,7 +3627,7 @@ async function saveOrExecuteView() {
 
 window.quickSyncView = async function (viewName) {
   try {
-    const connParam = state.selectedSourceConnectionId ? `&connection_id=${state.selectedSourceConnectionId}` : '';
+    const connParam = sourceConnectionContextQuery('&');
     const defRes = await fetch(`/api/source/view-definition?view=${encodeURIComponent(viewName)}${connParam}`);
     const defJson = await defRes.json();
     const querySql = defJson.data?.querySql || extractSelectQueryFrontend(defJson.data?.sqlServerDefinition);
@@ -3624,10 +3641,10 @@ window.quickSyncView = async function (viewName) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        ...getSourceConnectionContext(),
         schema_name: 'dbo',
         view_name: viewName,
         query_sql: querySql,
-        connection_id: state.selectedSourceConnectionId,
         description: `Disinkronkan otomatis dari SQL Server [dbo].[${viewName}]`,
       }),
     });
@@ -3652,7 +3669,7 @@ async function syncAllViews() {
     const res = await fetch('/api/source/sync-all-views', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ connection_id: state.selectedSourceConnectionId }),
+      body: JSON.stringify(getSourceConnectionContext()),
     });
     const json = await res.json();
     if (!json.success) throw new Error(json.error);
@@ -4626,7 +4643,7 @@ async function executeDeleteConfirm() {
   try {
     let url = '';
     if (type === 'source_view') {
-      const connParam = state.selectedSourceConnectionId ? `?connection_id=${state.selectedSourceConnectionId}` : '';
+      const connParam = sourceConnectionContextQuery();
       url = `/api/source/drop-view/${encodeURIComponent(id)}${connParam}`;
     } else if (['migration_config', 'migration_convert_rule', 'migration_target_config', 'migration_lookup'].includes(type)) {
       url = `/api/etl/configs/${type}/${encodeURIComponent(id)}`;
@@ -4686,8 +4703,7 @@ async function populateConfigDatalists() {
   let views = state.source?.views || [];
   if (views.length === 0) {
     try {
-      const connectionId = state.selectedSourceConnectionId;
-      const connectionParam = connectionId ? `?connection_id=${encodeURIComponent(connectionId)}` : '';
+      const connectionParam = sourceConnectionContextQuery();
       const res = await fetch(`/api/source/views${connectionParam}`);
       const json = await res.json();
       if (json.success && json.data?.views) {
