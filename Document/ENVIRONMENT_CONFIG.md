@@ -48,6 +48,7 @@ Folder server produksi **harus** berisi checkout branch `main` + `.env.productio
 Koneksi SQL Server **tidak dikonfigurasi melalui `.env`**. Atur koneksi pada menu **Master Connection** untuk setiap client dan environment: host, port, database, username/password, serta detail SSH tunnel bila diperlukan. Untuk eksekusi ETL, gunakan tepat satu koneksi SOURCE SQL Server aktif per environment; konfigurasi migration tidak menyimpan pemetaan koneksi sumber per tabel. Kredensial disimpan terenkripsi menggunakan `ENCRYPTION_MASTER_KEY`. Pastikan user layanan dapat menjangkau SQL Server secara langsung atau dapat menjangkau bastion SSH.
 
 Saat request memilih `connection_id`, `env_id`, `config_id`, atau `run_id`, aplikasi menentukan koneksi SOURCE aktif dari `master_connection`. SSH tunnel memakai port lokal dinamis per koneksi; tidak perlu menetapkan `LOCAL_TUNNEL_PORT`.
+Endpoint Source Data memvalidasi bahwa koneksi SOURCE aktif yang dipilih memang milik `env_id` dan `client_id` pada request. Pilih pasangan client/environment yang benar; koneksi dari environment lain akan ditolak.
 Health check `/api/health` hanya menguji PostgreSQL database kontrol aplikasi (`APP_DB_*`). Koneksi SOURCE dan TARGET ditampilkan serta diuji berdasarkan role koneksi pada environment terpilih melalui `/api/context/environments/:id/health`.
 
 ### Keamanan (WAJIB)
