@@ -1587,18 +1587,20 @@ form.modal-box-form {
   min-width: 0;
   background: #334155;
   padding: 2.5rem 1.5rem 4rem 1.5rem;
-  overflow-y: auto;
+  overflow: auto;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
 }
 
 .ba-page-sheet {
   background: #ffffff;
   color: #111827;
   width: 210mm;
+  height: 297mm;
   min-height: 297mm;
-  max-width: 100%;
+  max-width: none;
+  flex: 0 0 auto;
   margin: 0 auto 3rem auto;
   padding: 20mm 22mm 16mm 22mm;
   box-shadow: 0 15px 45px rgba(0, 0, 0, 0.4);
@@ -1616,8 +1618,9 @@ form.modal-box-form {
 .ba-page-sheet.ba-page-landscape,
 .ba-page-sheet.ba-page-attachment {
   width: 297mm;
+  height: 210mm;
   min-height: 210mm;
-  max-width: 98%;
+  max-width: none;
   padding: 16mm 22mm 14mm 22mm;
 }
 
@@ -3368,6 +3371,7 @@ textarea.form-input {
   }
 
   .modal-box.modal-ba-official {
+    height: auto !important;
     max-width: 100% !important;
     width: 100% !important;
     max-height: none !important;
@@ -3385,20 +3389,30 @@ textarea.form-input {
   .ba-document-body {
     display: block !important;
     width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    flex: none !important;
     margin: 0 !important;
     padding: 0 !important;
     background: transparent !important;
     overflow: visible !important;
   }
 
-  /* Exact 1-to-1 page sheet mapping matching live preview (Print Blank Page Prevention) */
+  .ba-split-wrapper {
+    height: auto !important;
+  }
+
+  /* Keep printed sheets just inside the physical page to avoid rounding spillover. */
   .ba-page-sheet {
     width: 210mm !important;
-    height: 296mm !important; /* Calibrated to fit 297mm A4 without creating trailing blank page */
+    height: 296mm !important;
+    min-height: 296mm !important;
     max-height: 296.5mm !important;
     box-sizing: border-box !important;
     padding: 16mm 20mm 14mm 20mm !important;
     margin: 0 auto !important;
+    flex: 0 0 auto !important;
     box-shadow: none !important;
     border-radius: 0 !important;
     background: #ffffff !important;
@@ -3424,7 +3438,8 @@ textarea.form-input {
   .ba-page-sheet.ba-page-landscape,
   .ba-page-sheet.ba-page-attachment {
     width: 297mm !important;
-    height: 209mm !important; /* Calibrated for A4 landscape */
+    height: 209mm !important;
+    min-height: 209mm !important;
     max-height: 209.5mm !important;
     padding: 14mm 20mm 12mm 20mm !important;
     page: landscape-sheet !important;
