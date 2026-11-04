@@ -7646,9 +7646,9 @@ function renderBaDocument() {
   if (summaryTbody) {
     if (selectedConfigs.length === 0) {
       summaryTbody.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-muted">Belum ada konfigurasi yang dipilih untuk ringkasan migrasi.</td></tr>`;
-      renderBaSummaryContinuation([]);
+      renderBaSummaryContinuation();
     } else {
-      const groups = [];
+      const rows = [];
       selectedConfigs.forEach((cfg, cfgIdx) => {
         const name = cfg.nameConfig || cfg.modName || `Config #${cfg.configId}`;
         const targets = (cfg.targets && cfg.targets.length > 0) ? cfg.targets : [{
@@ -7659,55 +7659,43 @@ function renderBaDocument() {
           sumBefore: cfg.sumBefore ?? null,
           sumAfter: cfg.target?.rows ?? cfg.staging?.rows ?? 0
         }];
-        const spanCount = targets.length;
-        let groupHtml = '';
 
-        targets.forEach((t, tIdx) => {
-          const isFirst = tIdx === 0;
-          const firstCols = isFirst ? `
-            <td style="text-align: center; font-weight: 600; vertical-align: middle;" rowspan="${spanCount}">${cfgIdx + 1}</td>
-            <td style="font-weight: 600; vertical-align: middle;" rowspan="${spanCount}">${escapeHtml(name)}</td>
-          ` : '';
-
-          const lastCol = isFirst ? `
-            <td style="text-align: center; vertical-align: middle;" rowspan="${spanCount}">${escapeHtml(rowsNote)}</td>
-          ` : '';
-
+        targets.forEach((t) => {
           const srcVal = (t.sumSource !== null && t.sumSource !== undefined) ? formatNumber(t.sumSource) : (cfg.source?.rows !== undefined ? formatNumber(cfg.source.rows) : '-');
           const stgVal = (t.sumStaging !== null && t.sumStaging !== undefined) ? formatNumber(t.sumStaging) : (cfg.staging?.rows !== undefined ? formatNumber(cfg.staging.rows) : '-');
           const beforeVal = (t.sumBefore !== null && t.sumBefore !== undefined) ? formatNumber(t.sumBefore) : '-';
           const afterVal = (t.sumAfter !== null && t.sumAfter !== undefined) ? formatNumber(t.sumAfter) : '-';
 
-          groupHtml += `
+          rows.push(`
             <tr>
-              ${firstCols}
+              <td style="text-align: center; font-weight: 600; vertical-align: middle;">${cfgIdx + 1}</td>
+              <td style="font-weight: 600; vertical-align: middle;">${escapeHtml(name)}</td>
               <td><strong style="color: #059669;">${escapeHtml(t.schema ? `${t.schema}.${t.table}` : t.table)}</strong></td>
               <td style="text-align: center; font-weight: bold; color: #059669;">${srcVal}</td>
               <td style="text-align: center; font-weight: bold; color: #059669;">${stgVal}</td>
               <td style="text-align: center; font-weight: bold; color: #059669;">${beforeVal}</td>
               <td style="text-align: center; font-weight: bold; color: #059669;">${afterVal}</td>
-              ${lastCol}
+              <td style="text-align: center; vertical-align: middle;">${escapeHtml(rowsNote)}</td>
             </tr>
-          `;
+          `);
         });
-        groups.push({ html: groupHtml, count: spanCount });
       });
 
-      // Pecah baris ringkasan ke halaman lanjutan bila melebihi kapasitas halaman 1
-      const summaryPages = [[]];
-      let used = 0;
-      let cap = BA_SUMMARY_ROWS_FIRST_PAGE;
-      groups.forEach((g) => {
-        if (used > 0 && used + g.count > cap) {
-          summaryPages.push([]);
-          used = 0;
-          cap = BA_SUMMARY_ROWS_NEXT_PAGE;
+      summaryTbody.innerHTML = '';
+      renderBaSummaryContinuation();
+      const firstPage = document.querySelector('#ba-printable-area > .ba-page-1');
+      let currentPage = { sheet: firstPage, tbody: summaryTbody };
+
+      rows.forEach((rowHtml) => {
+        currentPage.tbody.insertAdjacentHTML('beforeend', rowHtml);
+        const row = currentPage.tbody.lastElementChild;
+
+        if (!isBaSummaryRowWithinPage(currentPage.sheet, row)) {
+          row.remove();
+          currentPage = createBaSummaryContinuation(firstPage);
+          currentPage.tbody.insertAdjacentHTML('beforeend', rowHtml);
         }
-        summaryPages[summaryPages.length - 1].push(g.html);
-        used += g.count;
       });
-      summaryTbody.innerHTML = summaryPages[0].join('');
-      renderBaSummaryContinuation(summaryPages.slice(1));
     }
   }
 
@@ -7733,39 +7721,54 @@ function renderBaDocument() {
 
 const BA_ATT_ROWS_FIRST_PAGE = 11;
 const BA_ATT_ROWS_NEXT_PAGE = 15;
-const BA_SUMMARY_ROWS_FIRST_PAGE = 6;
-const BA_SUMMARY_ROWS_NEXT_PAGE = 22;
 
-function renderBaSummaryContinuation(extraPages) {
+function renderBaSummaryContinuation() {
   const area = document.getElementById('ba-printable-area');
-  const page1 = area?.querySelector('.ba-page-sheet.ba-page-1');
-  if (!area || !page1) return;
+  if (!area) return;
   area.querySelectorAll(':scope > .ba-generated-sheet').forEach((el) => el.remove());
-  if (!extraPages.length) return;
+}
+
+function createBaSummaryContinuation(page1) {
+  const area = document.getElementById('ba-printable-area');
+  if (!area || !page1) throw new Error('Area pratinjau ringkasan Berita Acara tidak tersedia.');
 
   const headerHtml = page1.querySelector('.ba-sisi-header')?.outerHTML.replace(/\sid="[^"]*"/g, '') || '';
   const footerHtml = page1.querySelector('.ba-sisi-footer')?.outerHTML || '';
   const theadHtml = page1.querySelector('.ba-summary-full-table thead')?.innerHTML || '';
-
-  let anchor = page1;
-  extraPages.forEach((groups) => {
-    const sheet = document.createElement('div');
-    sheet.className = 'ba-page-sheet ba-page-summary-cont ba-generated-sheet';
-    sheet.innerHTML = `
-      ${headerHtml}
-      <div class="ba-agreement-block">
-        <p class="ba-paragraph mb-1"><strong>Hasil kegiatan migrasi data (lanjutan):</strong></p>
-        <div class="ba-summary-table-wrap">
-          <table class="ba-official-table ba-summary-full-table">
-            <thead>${theadHtml}</thead>
-            <tbody>${groups.join('')}</tbody>
-          </table>
-        </div>
+  const sheet = document.createElement('div');
+  sheet.className = 'ba-page-sheet ba-page-summary-cont ba-generated-sheet';
+  sheet.innerHTML = `
+    ${headerHtml}
+    <div class="ba-agreement-block">
+      <p class="ba-paragraph mb-1"><strong>Hasil kegiatan migrasi data (lanjutan):</strong></p>
+      <div class="ba-summary-table-wrap">
+        <table class="ba-official-table ba-summary-full-table">
+          <thead>${theadHtml}</thead>
+          <tbody class="ba-summary-cont-tbody"></tbody>
+        </table>
       </div>
-      ${footerHtml}`;
-    anchor.after(sheet);
-    anchor = sheet;
-  });
+    </div>
+    ${footerHtml}`;
+  const existingPages = area.querySelectorAll(':scope > .ba-page-summary-cont.ba-generated-sheet');
+  const anchor = existingPages[existingPages.length - 1] || page1;
+  anchor.after(sheet);
+  return { sheet, tbody: sheet.querySelector('.ba-summary-cont-tbody') };
+}
+
+function isBaSummaryRowWithinPage(sheet, row) {
+  if (!sheet || !row) return false;
+  const footer = sheet.querySelector('.ba-sisi-footer');
+  if (!footer) return false;
+
+  const pageBottom = sheet.getBoundingClientRect().bottom;
+  const footerRect = footer.getBoundingClientRect();
+  const rowBottom = row.getBoundingClientRect().bottom;
+  const bottomPadding = parseFloat(getComputedStyle(sheet).paddingBottom) || 0;
+  const contentBottom = pageBottom - bottomPadding;
+
+  return rowBottom <= footerRect.top - 8
+    && footerRect.bottom <= contentBottom + 1
+    && rowBottom <= contentBottom + 1;
 }
 
 function renderBaAttachmentTable() {

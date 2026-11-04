@@ -11,6 +11,7 @@ Format mengikuti [Keep a Changelog](https://keepachangelog.com/id-ID/1.1.0/). Ta
 - **Cakupan aplikasi**: dideskripsikan sebagai platform migrasi **multi-database → PostgreSQL** (README, AGENTS, ARCHITECTURE, USER_GUIDE, `<title>`, `package.json`). Driver yang aktif saat ini: SQL Server dan PostgreSQL.
 
 ### Diperbaiki
+- **Preview dan cetak PDF Berita Acara untuk ringkasan migrasi berukuran besar**: pembagian ringkasan kini mengikuti tinggi baris pada lembar A4 sebenarnya, dan batas tinggi kontainer modal tidak lagi memotong halaman PDF. Cache `app.js` dinaikkan ke `?v=5.13`.
 - **Respons Audit Trail bukan JSON**: frontend kini mengenali respons HTML/non-JSON dan menampilkan pesan yang menyarankan restart server bila endpoint belum dimuat; API yang tidak dikenal kini selalu mengembalikan JSON `404` alih-alih halaman HTML bawaan Express.
 - **Status database Source/Target mengikuti environment**: badge header hanya menampilkan koneksi ber-role SOURCE/TARGET yang aktif pada environment terpilih. `/api/health` kini melaporkan PostgreSQL database kontrol aplikasi secara terpisah dan tidak lagi menyebutnya sebagai database TARGET.
 - **Role / Menu / Matrix Menu tidak berpengaruh**: API mengirim profil user dalam camelCase (`roleCode`, `roleId`, ...) sedangkan UI membaca snake_case (`role_code`, `role_id`), sehingga `applyMenuPermissions` salah mengenali role dan hak akses tidak diterapkan. Kini profil dinormalisasi (`normalizeAuthUser`).
