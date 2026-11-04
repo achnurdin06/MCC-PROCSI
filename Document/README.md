@@ -40,7 +40,8 @@ Jika Anda adalah AI yang baru masuk ke sesi kerja proyek ini, baca dokumen dalam
 4. [Document/MIGRATION_FLOWS.md §8](./MIGRATION_FLOWS.md#8-kelemahan-yang-diketahui-status-mitigasi--roadmap) (matriks kelemahan Flow 1–4, status mitigasi, dan roadmap P0–P3)
 
 ### 5. 🧑‍💼 Jalur Operator & Pengguna Akhir
-1. [Document/USER_GUIDE.md](./USER_GUIDE.md) (Buku Panduan Operasional Sistem / User Guide lengkap dari Menu 0 s/d 6, SOP, dan FAQ)
+1. [Document/TUTORIAL_PANDUAN_MIGRASI.md](./TUTORIAL_PANDUAN_MIGRASI.md) (Tutorial Bergambar End-to-End: Mulai dari Source Data, 4 Master Config, Canvas Studio Flows 1-4, Rekonsiliasi, hingga Cetak Berita Acara)
+2. [Document/USER_GUIDE.md](./USER_GUIDE.md) (Buku Panduan Operasional Sistem / User Guide lengkap dari Menu 0 s/d 6, SOP, dan FAQ)
 
 ---
 
@@ -48,6 +49,7 @@ Jika Anda adalah AI yang baru masuk ke sesi kerja proyek ini, baca dokumen dalam
 
 | Dokumen | Target Pembaca | Deskripsi Singkat | Status |
 | :--- | :--- | :--- | :---: |
+| [TUTORIAL_PANDUAN_MIGRASI.md](./TUTORIAL_PANDUAN_MIGRASI.md) | Operator, Admin, Data Eng | Panduan tutorial bergambar langkah-demi-langkah siklus migrasi lengkap (Source ➔ BA) | Aktif (Baru) |
 | [AGENTS.md](./AGENTS.md) | AI Assistant, Tech Lead | Context primer untuk AI: struktur modul, golden rules, gotchas, DoD | Aktif |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | Developer, Architect | Arsitektur teknis 3-tier, diagram alir, DAG state, single instance | Aktif |
 | [API_SPEC.md](./API_SPEC.md) | Developer, Frontend, QA | Spesifikasi lengkap 88 rute API Express, RBAC level, conventions | Aktif |

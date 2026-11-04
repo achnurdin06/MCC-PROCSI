@@ -11,7 +11,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet">
   <link rel="icon" type="image/webp" href="img/logo-sisi.webp?v=2">
-  <link rel="stylesheet" href="css/style.css?v=5.0">
+  <link rel="stylesheet" href="css/style.css?v=5.21">
   <link rel="stylesheet" href="css/flow-canvas.css?v=1.8">
   <link rel="stylesheet" href="css/userguide-modern.css?v=1.2">
   <script src="https://cdn.tailwindcss.com"></script>
@@ -4075,9 +4075,13 @@ WHERE v.is_deleted = 0;</code></pre>
             <button id="btn-export-stg-csv" class="btn btn-secondary btn-sm" title="Unduh lampiran data dalam format CSV">
               <span>📥</span> <span>CSV</span>
             </button>
-            <button id="btn-print-ba" class="btn btn-primary btn-sm btn-print-primary" title="Cetak atau Simpan sebagai PDF">
+            <button id="btn-print-ba" class="btn btn-primary btn-sm btn-print-primary" title="Cetak Berita Acara (portrait) atau simpan sebagai PDF">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
-              <span>Cetak PDF</span>
+              <span>Cetak BA</span>
+            </button>
+            <button id="btn-print-ba-lampiran" class="btn btn-secondary btn-sm" title="Cetak lampiran (landscape) sebagai cetakan terpisah">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+              <span>Cetak Lampiran</span>
             </button>
             <button id="btn-close-ba" class="modal-close" title="Tutup dialog">&times;</button>
           </div>
@@ -4407,7 +4411,8 @@ WHERE v.is_deleted = 0;</code></pre>
             <div class="ba-editor-btn-row">
               <button id="btn-ba-reset-defaults" class="btn btn-secondary btn-sm" title="Kembalikan semua nilai isian ke standar default">🔄 Default</button>
               <button id="btn-ba-apply-changes" class="btn btn-emerald btn-sm" title="Terapkan perubahan form ke pratinjau dokumen">👁️ Terapkan</button>
-              <button id="btn-ba-print-now" class="btn btn-primary btn-sm" title="Cetak atau Simpan sebagai PDF">🖨️ Cetak PDF</button>
+              <button id="btn-ba-print-now" class="btn btn-primary btn-sm" title="Cetak Berita Acara (portrait) atau simpan sebagai PDF">🖨️ Cetak BA</button>
+              <button id="btn-ba-print-lampiran-now" class="btn btn-secondary btn-sm" title="Cetak lampiran (landscape) sebagai cetakan terpisah">🖨️ Cetak Lampiran</button>
             </div>
           </div>
         </div>
@@ -4489,14 +4494,14 @@ WHERE v.is_deleted = 0;</code></pre>
                     <table class="ba-official-table ba-summary-full-table">
                       <thead>
                         <tr>
-                          <th style="width: 36px; text-align: center;">No</th>
-                          <th style="width: 130px;">Name</th>
-                          <th>Final Target (PG vendor)</th>
-                          <th style="width: 85px; text-align: center;">sum source</th>
-                          <th style="width: 85px; text-align: center;">sum staging</th>
-                          <th style="width: 105px; text-align: center;">sum before target</th>
-                          <th style="width: 105px; text-align: center;">sum after target</th>
-                          <th style="width: 90px; text-align: center;">Keterangan</th>
+                          <th style="width: 5%; text-align: center;">No</th>
+                          <th style="width: 17%;">Name</th>
+                          <th style="width: 22%;">Final Target (PG vendor)</th>
+                          <th style="width: 11%; text-align: center;">sum source</th>
+                          <th style="width: 11%; text-align: center;">sum staging</th>
+                          <th style="width: 12%; text-align: center;">sum before target</th>
+                          <th style="width: 12%; text-align: center;">sum after target</th>
+                          <th style="width: 10%; text-align: center;">Keterangan</th>
                         </tr>
                       </thead>
                       <tbody id="ba-view-summary-tbody">
@@ -5421,7 +5426,7 @@ WHERE v.is_deleted = 0;</code></pre>
   <!-- Floating Toast Notification Container (Pojok Kanan Atas) -->
   <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-  <script src="js/app.js?v=5.13"></script>
+  <script src="js/app.js?v=5.30"></script>
   <script src="js/flow-canvas.js?v=1.7"></script>
   <script src="js/helpdesk-bot.js?v=1.3"></script>
   <script src="js/product-tour.js?v=1.2"></script>

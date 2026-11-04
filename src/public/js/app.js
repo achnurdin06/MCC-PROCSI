@@ -6871,6 +6871,117 @@ function renderLogoContent(mode, url, height = 40) {
   return getAntamLogoSvg(height);
 }
 
+function updateBaPreviewSheetAlignment(area = document.getElementById('ba-printable-area')) {
+  if (!area) return;
+  const portraitScale = parseFloat(area.style.getPropertyValue('--ba-zp')) || 1;
+  const landscapeScale = parseFloat(area.style.getPropertyValue('--ba-zl')) || 1;
+
+  area.querySelectorAll('.ba-page-sheet').forEach((sheet) => {
+    const sheetScale = sheet.matches('.ba-page-landscape, .ba-page-attachment')
+      ? landscapeScale
+      : portraitScale;
+    sheet.classList.toggle('ba-page-zoomed', sheetScale < 1);
+  });
+
+  const attachmentWrapper = area.querySelector('#ba-lampiran-wrapper');
+  if (attachmentWrapper) {
+    const isZoomed = landscapeScale < 1;
+    attachmentWrapper.classList.toggle('ba-lampiran-zoomed', isZoomed);
+    if (isZoomed) {
+      const landscapeWidth = 297 * 96 / 25.4;
+      const landscapeHeight = 210 * 96 / 25.4;
+      const pageGap = (parseFloat(getComputedStyle(document.documentElement).fontSize) || 16) * 3;
+      const pageCount = attachmentWrapper.querySelectorAll('.ba-page-attachment').length;
+      attachmentWrapper.style.setProperty('--ba-lampiran-preview-width', `${landscapeWidth * landscapeScale}px`);
+      attachmentWrapper.style.setProperty('--ba-lampiran-page-gap', `${pageGap - landscapeHeight * (1 - landscapeScale)}px`);
+      attachmentWrapper.style.setProperty('--ba-lampiran-preview-height', `${pageCount * (landscapeHeight * landscapeScale + pageGap)}px`);
+    }
+  }
+}
+
+function printBaDocument(mode = 'ba') {
+  const isAttachmentMode = mode === 'lampiran';
+  const modal = document.getElementById('modal-berita-acara');
+  if (!modal) throw new Error('Dokumen Berita Acara tidak tersedia untuk dicetak.');
+
+  const printModal = modal.cloneNode(true);
+  printModal.classList.remove('hidden');
+  const attachmentWrapper = printModal.querySelector('#ba-lampiran-wrapper');
+  if (!attachmentWrapper) throw new Error('Lampiran Berita Acara tidak tersedia untuk dicetak.');
+  if (isAttachmentMode && attachmentWrapper.style.display === 'none') {
+    throw new Error('Aktifkan opsi "Sertakan Lampiran" terlebih dahulu.');
+  }
+
+  attachmentWrapper.remove();
+  let printHost = null;
+  if (isAttachmentMode) {
+    // Cetakan lampiran hanya memuat halaman landscape; halaman BA portrait dicetak terpisah.
+    attachmentWrapper.querySelectorAll('.ba-page-break').forEach((pageBreak) => pageBreak.remove());
+    attachmentWrapper.querySelector('.ba-page-attachment')?.classList.add('ba-print-first-sheet');
+    printHost = document.createElement('div');
+    printHost.id = 'ba-print-attachment-host';
+    printHost.appendChild(attachmentWrapper);
+  }
+
+  const styles = [...document.head.querySelectorAll('link[rel="stylesheet"], style')]
+    .map((element) => element.outerHTML)
+    .join('');
+  const printFrame = document.createElement('iframe');
+  printFrame.title = 'Cetak Berita Acara';
+  printFrame.setAttribute('aria-hidden', 'true');
+  printFrame.tabIndex = -1;
+  printFrame.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;border:0;opacity:0;pointer-events:none;z-index:-1;';
+
+  const printDocument = `<!doctype html>
+    <html lang="${document.documentElement.lang || 'id'}">
+      <head><base href="${document.baseURI}">${styles}<style>@page { size: A4 ${isAttachmentMode ? 'landscape' : 'portrait'}; margin: 0; }</style></head>
+      <body>${printHost ? printHost.outerHTML : printModal.outerHTML}</body>
+    </html>`;
+
+  const printReady = new Promise((resolve, reject) => {
+    const handlePrintFrameLoad = async () => {
+      const printDocument = printFrame.contentDocument;
+      if (!printDocument?.getElementById(isAttachmentMode ? 'ba-print-attachment-host' : 'ba-printable-area')) return;
+
+      printFrame.removeEventListener('load', handlePrintFrameLoad);
+      const printWindow = printFrame.contentWindow;
+      if (!printWindow) {
+        printFrame.remove();
+        reject(new Error('Jendela cetak Berita Acara tidak dapat dibuka.'));
+        return;
+      }
+
+      const cleanup = () => printFrame.remove();
+
+      try {
+        await printDocument.fonts.ready;
+        await Promise.all(Array.from(printDocument.images, (image) => {
+          if (image.complete) return Promise.resolve();
+          return new Promise((resolveImage) => {
+            image.addEventListener('load', resolveImage, { once: true });
+            image.addEventListener('error', resolveImage, { once: true });
+          });
+        }));
+
+        printWindow.addEventListener('afterprint', cleanup, { once: true });
+        window.addEventListener('afterprint', cleanup, { once: true });
+        printWindow.focus();
+        printWindow.print();
+        resolve();
+      } catch (error) {
+        cleanup();
+        reject(error);
+      }
+    };
+
+    printFrame.addEventListener('load', handlePrintFrameLoad);
+    printFrame.srcdoc = printDocument;
+    document.body.appendChild(printFrame);
+  });
+
+  return printReady;
+}
+
 function getIndonesianDateDetails(dateObj) {
   const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
   const months = [
@@ -6925,12 +7036,17 @@ function initBaPreviewZoom() {
   let scale = 1;
 
   const apply = () => {
-    const avail = Math.max(area.clientWidth - 24, 200);
+    const styles = getComputedStyle(area);
+    const horizontalPadding = (parseFloat(styles.paddingLeft) || 0) + (parseFloat(styles.paddingRight) || 0);
+    const avail = Math.max(area.clientWidth - horizontalPadding - 16, 200);
     const port = 210 * 96 / 25.4;
     const land = 297 * 96 / 25.4;
     const fitPort = avail / port;
-    area.style.setProperty('--ba-zp', Math.min(fitPort * scale, 3));
-    area.style.setProperty('--ba-zl', Math.min((avail / land) * scale, 3));
+    const portraitScale = Math.min(fitPort * scale, 3);
+    const landscapeScale = Math.min((avail / land) * scale, 3);
+    area.style.setProperty('--ba-zp', portraitScale);
+    area.style.setProperty('--ba-zl', landscapeScale);
+    updateBaPreviewSheetAlignment(area);
     label.textContent = `${Math.round(scale * 100)}%`;
   };
   const setScale = (v) => {
@@ -7004,15 +7120,18 @@ function initBeritaAcaraEvents() {
   }
 
   // Print buttons
-  const btnPrintTop = document.getElementById('btn-print-ba');
-  const btnPrintBtm = document.getElementById('btn-ba-print-now');
-  [btnPrintTop, btnPrintBtm].forEach((btn) => {
-    if (btn) {
-      btn.addEventListener('click', () => {
-        renderBaDocument();
-        window.print();
-      });
-    }
+  const printHandler = (mode) => () => {
+    renderBaDocument();
+    printBaDocument(mode).catch((error) => {
+      console.error('Gagal membuka cetak Berita Acara:', error);
+      showToast(`Gagal membuka cetak Berita Acara: ${error.message}`, 'error');
+    });
+  };
+  ['btn-print-ba', 'btn-ba-print-now'].forEach((id) => {
+    document.getElementById(id)?.addEventListener('click', printHandler('ba'));
+  });
+  ['btn-print-ba-lampiran', 'btn-ba-print-lampiran-now'].forEach((id) => {
+    document.getElementById(id)?.addEventListener('click', printHandler('lampiran'));
   });
 
   // Export CSV
@@ -7690,7 +7809,7 @@ function renderBaDocument() {
         currentPage.tbody.insertAdjacentHTML('beforeend', rowHtml);
         const row = currentPage.tbody.lastElementChild;
 
-        if (!isBaSummaryRowWithinPage(currentPage.sheet, row)) {
+        if (!isBaRowWithinSheet(currentPage.sheet, row)) {
           row.remove();
           currentPage = createBaSummaryContinuation(firstPage);
           currentPage.tbody.insertAdjacentHTML('beforeend', rowHtml);
@@ -7717,10 +7836,8 @@ function renderBaDocument() {
   if (includeAtt) {
     renderBaAttachmentTable();
   }
+  updateBaPreviewSheetAlignment();
 }
-
-const BA_ATT_ROWS_FIRST_PAGE = 11;
-const BA_ATT_ROWS_NEXT_PAGE = 15;
 
 function renderBaSummaryContinuation() {
   const area = document.getElementById('ba-printable-area');
@@ -7728,11 +7845,44 @@ function renderBaSummaryContinuation() {
   area.querySelectorAll(':scope > .ba-generated-sheet').forEach((el) => el.remove());
 }
 
+function prepareBaSheetClone(clone) {
+  const svgIds = new Map();
+  const cloneSuffix = Math.random().toString(36).slice(2, 8);
+
+  clone.querySelectorAll('svg [id]').forEach((element, index) => {
+    const oldId = element.id;
+    const newId = `${oldId}_ba_${cloneSuffix}_${index}`;
+    svgIds.set(oldId, newId);
+    element.id = newId;
+  });
+
+  clone.querySelectorAll('[id]').forEach((element) => {
+    if (!element.closest('svg')) element.removeAttribute('id');
+  });
+
+  if (svgIds.size > 0) {
+    clone.querySelectorAll('*').forEach((element) => {
+      Array.from(element.attributes).forEach((attribute) => {
+        let value = attribute.value;
+        svgIds.forEach((newId, oldId) => {
+          value = value.replaceAll(`url(#${oldId})`, `url(#${newId})`);
+          if (value === `#${oldId}`) value = `#${newId}`;
+        });
+        if (value !== attribute.value) element.setAttribute(attribute.name, value);
+      });
+    });
+  }
+
+  return clone;
+}
+
 function createBaSummaryContinuation(page1) {
   const area = document.getElementById('ba-printable-area');
   if (!area || !page1) throw new Error('Area pratinjau ringkasan Berita Acara tidak tersedia.');
 
-  const headerHtml = page1.querySelector('.ba-sisi-header')?.outerHTML.replace(/\sid="[^"]*"/g, '') || '';
+  const header = page1.querySelector('.ba-sisi-header')?.cloneNode(true);
+  if (header) prepareBaSheetClone(header);
+  const headerHtml = header?.outerHTML || '';
   const footerHtml = page1.querySelector('.ba-sisi-footer')?.outerHTML || '';
   const theadHtml = page1.querySelector('.ba-summary-full-table thead')?.innerHTML || '';
   const sheet = document.createElement('div');
@@ -7755,7 +7905,7 @@ function createBaSummaryContinuation(page1) {
   return { sheet, tbody: sheet.querySelector('.ba-summary-cont-tbody') };
 }
 
-function isBaSummaryRowWithinPage(sheet, row) {
+function isBaRowWithinSheet(sheet, row) {
   if (!sheet || !row) return false;
   const footer = sheet.querySelector('.ba-sisi-footer');
   if (!footer) return false;
@@ -7763,12 +7913,31 @@ function isBaSummaryRowWithinPage(sheet, row) {
   const pageBottom = sheet.getBoundingClientRect().bottom;
   const footerRect = footer.getBoundingClientRect();
   const rowBottom = row.getBoundingClientRect().bottom;
-  const bottomPadding = parseFloat(getComputedStyle(sheet).paddingBottom) || 0;
-  const contentBottom = pageBottom - bottomPadding;
 
-  return rowBottom <= footerRect.top - 8
-    && footerRect.bottom <= contentBottom + 1
-    && rowBottom <= contentBottom + 1;
+  return rowBottom <= footerRect.top - 35
+    && footerRect.bottom <= pageBottom - 1;
+}
+
+function createBaAttachmentSection(sheet, section, continued) {
+  const wrapper = sheet.querySelector('.ba-official-att-wrapper');
+  if (!wrapper) throw new Error('Area tabel lampiran Berita Acara tidak tersedia.');
+
+  const sectionElement = document.createElement('div');
+  sectionElement.className = 'ba-lampiran-section';
+  sectionElement.innerHTML = `
+    <div class="ba-lampiran-section-head">
+      <span>${escapeHtml(section.title)}${continued ? ' (lanjutan)' : ''}</span>
+      <span class="ba-lampiran-section-total">Total: ${formatNumber(section.total)} Baris</span>
+    </div>
+    <table class="ba-official-att-table">
+      <thead><tr>${section.headHtml}</tr></thead>
+      <tbody></tbody>
+    </table>`;
+  wrapper.appendChild(sectionElement);
+  return {
+    element: sectionElement,
+    tbody: sectionElement.querySelector('tbody')
+  };
 }
 
 function renderBaAttachmentTable() {
@@ -7837,53 +8006,52 @@ function renderBaAttachmentTable() {
     return { title, total, headHtml: fallbackHead, rows };
   });
 
-  // Distribusi ke beberapa halaman landscape
-  const pages = [[]];
-  let capacity = BA_ATT_ROWS_FIRST_PAGE;
-  const newPage = () => { pages.push([]); capacity = BA_ATT_ROWS_NEXT_PAGE; };
-
-  sections.forEach((sec) => {
-    let offset = 0;
-    let continued = false;
-    do {
-      const overhead = 2; // judul section + header tabel
-      if (capacity < overhead + 2 && pages[pages.length - 1].length > 0) newPage();
-      const take = Math.max(1, Math.min(sec.rows.length - offset, capacity - overhead));
-      pages[pages.length - 1].push({ sec, from: offset, to: offset + take, continued });
-      offset += take;
-      capacity -= overhead + take;
-      continued = true;
-      if (offset < sec.rows.length) newPage();
-    } while (offset < sec.rows.length);
-  });
-
-  const renderPage = (items) => items.map(({ sec, from, to, continued }) => `
-    <div class="ba-lampiran-section">
-      <div class="ba-lampiran-section-head">
-        <span>${escapeHtml(sec.title)}${continued ? ' (lanjutan)' : ''}</span>
-        <span class="ba-lampiran-section-total">Total: ${formatNumber(sec.total)} Baris</span>
-      </div>
-      <table class="ba-official-att-table">
-        <thead><tr>${sec.headHtml}</tr></thead>
-        <tbody>${sec.rows.slice(from, to).join('')}</tbody>
-      </table>
-    </div>`).join('');
-
-  host.innerHTML = renderPage(pages[0]);
-
+  host.replaceChildren();
   let anchor = baseSheet;
-  pages.slice(1).forEach((items, i) => {
-    const clone = baseSheet.cloneNode(true);
+  let currentSheet = baseSheet;
+  const createNextPage = () => {
+    const clone = prepareBaSheetClone(baseSheet.cloneNode(true));
     clone.removeAttribute('id');
-    clone.querySelectorAll('[id]').forEach((el) => el.removeAttribute('id'));
     clone.classList.add('ba-generated-sheet');
     const title = clone.querySelector('.ba-lampiran-main-title');
     if (title) title.textContent = 'LAMPIRAN HASIL MIGRASI DATA (LANJUTAN)';
-    clone.querySelector('.ba-official-att-wrapper').innerHTML = renderPage(items);
+    clone.querySelector('.ba-official-att-wrapper').replaceChildren();
     anchor.after(clone);
     anchor = clone;
+    currentSheet = clone;
+  };
+
+  sections.forEach((section) => {
+    let pageSection = createBaAttachmentSection(currentSheet, section, false);
+    let hasSectionRows = false;
+
+    section.rows.forEach((rowHtml) => {
+      pageSection.tbody.insertAdjacentHTML('beforeend', rowHtml);
+      let row = pageSection.tbody.lastElementChild;
+      if (isBaRowWithinSheet(currentSheet, row)) {
+        hasSectionRows = true;
+        return;
+      }
+
+      row.remove();
+      const continued = hasSectionRows;
+      if (!hasSectionRows) pageSection.element.remove();
+      createNextPage();
+      pageSection = createBaAttachmentSection(currentSheet, section, continued);
+      pageSection.tbody.insertAdjacentHTML('beforeend', rowHtml);
+      row = pageSection.tbody.lastElementChild;
+
+      if (!isBaRowWithinSheet(currentSheet, row)) {
+        const message = 'Satu baris lampiran terlalu tinggi untuk dimuat bersama footer pada halaman A4 landscape.';
+        console.error(message, { section: section.title, row: row.textContent });
+        showToast(message, 'error');
+        throw new Error(message);
+      }
+      hasSectionRows = true;
+    });
   });
-  baseSheet.dataset.pages = String(pages.length);
+
+  baseSheet.dataset.pages = String(wrapper.querySelectorAll('.ba-page-attachment').length);
 }
 
 function exportStagingCsv() {
