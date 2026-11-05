@@ -7541,7 +7541,13 @@ function renderConfigChecklist() {
       modName,
       srcView: p.source?.view || '',
       tgtTable: p.target?.table || '',
-      rows: getPostedTargets(p.configId).reduce((sum, t) => sum + (Number(t.sumAfter) || 0), 0)
+      rows: getPostedTargets(p.configId).reduce((sum, t) => {
+        const after = Number(t.sumAfter);
+        const before = Number(t.sumBefore);
+        if (t.sumAfter == null || Number.isNaN(after)) return sum;
+        // Jumlah dimigrasi = selisih baris target sebelum dan sesudah posting
+        return sum + (t.sumBefore == null || Number.isNaN(before) ? after : Math.max(0, after - before));
+      }, 0)
     });
   });
 
