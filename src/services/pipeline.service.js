@@ -834,15 +834,8 @@ class PipelineService {
       } catch (e) {}
     }
 
-    // 2. Lampiran: hanya baris yang sudah dimigrasi (PK staging ada di tabel target)
-    const pkCols = String(cfg.pk_columns || '')
-      .split(',')
-      .map((c) => sanitizeIdentifier(c.trim()))
-      .filter(Boolean);
-    let stgColumns = [];
-    let stgRowsData = [];
-    let migratedTotal = 0;
-
+    // 2. Lampiran per target pada master migration_target_config:
+    //    hanya baris yang sudah dimigrasi (PK staging ada di tabel target)
     const loadColumns = async (schema, table) => {
       const colsQuery = await queryPostgres(`
         SELECT column_name, data_type
@@ -853,36 +846,83 @@ class PipelineService {
       return (colsQuery.rows || []).map((c) => ({ name: c.column_name, type: c.data_type }));
     };
 
-    if (cleanStgTable && cleanTgtTable && pkCols.length > 0) {
-      try {
-        stgColumns = await loadColumns(cleanStgSchema, cleanStgTable);
-        const tgtColNames = (await loadColumns(cleanTgtSchema, cleanTgtTable)).map((c) => c.name);
-        if (pkCols.every((c) => tgtColNames.includes(c) && stgColumns.some((x) => x.name === c))) {
-          const joinCond = pkCols.map((c) => `t."${c}" = s."${c}"`).join(' AND ');
-          const fromSql = `FROM "${cleanStgSchema}"."${cleanStgTable}" s WHERE EXISTS (SELECT 1 FROM "${cleanTgtSchema}"."${cleanTgtTable}" t WHERE ${joinCond})`;
-          const cntRes = await queryPostgres(`SELECT COUNT(*) AS total ${fromSql}`);
-          migratedTotal = parseInt(cntRes.rows[0]?.total, 10) || 0;
-          const dataRes = await queryPostgres(`SELECT s.* ${fromSql} ORDER BY 1 LIMIT 500`);
-          stgRowsData = dataRes.rows || [];
-        }
-      } catch (e) {}
+    const buildAttachment = async (tgtSchema, tgtTable, pkColumns) => {
+      const pkCols = String(pkColumns || '')
+        .split(',')
+        .map((c) => sanitizeIdentifier(c.trim()))
+        .filter(Boolean);
+      let columns = [];
+      let rows = [];
+      let total = 0;
+
+      if (cleanStgTable && tgtTable && pkCols.length > 0) {
+        try {
+          const stgCols = await loadColumns(cleanStgSchema, cleanStgTable);
+          const tgtColNames = (await loadColumns(tgtSchema, tgtTable)).map((c) => c.name);
+          if (pkCols.every((c) => tgtColNames.includes(c) && stgCols.some((x) => x.name === c))) {
+            const joinCond = pkCols.map((c) => `t."${c}" = s."${c}"`).join(' AND ');
+            const fromSql = `FROM "${cleanStgSchema}"."${cleanStgTable}" s WHERE EXISTS (SELECT 1 FROM "${tgtSchema}"."${tgtTable}" t WHERE ${joinCond})`;
+            const cntRes = await queryPostgres(`SELECT COUNT(*) AS total ${fromSql}`);
+            total = parseInt(cntRes.rows[0]?.total, 10) || 0;
+            if (total > 0) {
+              // Tampilkan kolom tabel target agar lampiran sesuai struktur target
+              const sharedCols = (await loadColumns(tgtSchema, tgtTable));
+              const pkSelect = pkCols.map((c) => `s."${c}"`).join(', ');
+              const dataRes = await queryPostgres(
+                `SELECT t.* FROM "${tgtSchema}"."${tgtTable}" t WHERE (${pkCols.map((c) => `t."${c}"`).join(', ')}) IN (SELECT ${pkSelect} ${fromSql}) ORDER BY 1 LIMIT 500`
+              );
+              columns = sharedCols;
+              rows = dataRes.rows || [];
+            }
+          }
+        } catch (e) {}
+      }
+
+      // Staging sudah dibersihkan setelah posting: ambil langsung dari tabel target
+      if (rows.length === 0 && tgtTable) {
+        try {
+          const tgtColumns = await loadColumns(tgtSchema, tgtTable);
+          if (tgtColumns.length > 0) {
+            const hasFlag = tgtColumns.some((c) => c.name === 'migration');
+            const where = hasFlag ? `WHERE "migration" = '1'` : '';
+            const cntRes = await queryPostgres(`SELECT COUNT(*) AS total FROM "${tgtSchema}"."${tgtTable}" ${where}`);
+            total = parseInt(cntRes.rows[0]?.total, 10) || 0;
+            const dataRes = await queryPostgres(`SELECT * FROM "${tgtSchema}"."${tgtTable}" ${where} ORDER BY 1 LIMIT 500`);
+            columns = tgtColumns;
+            rows = dataRes.rows || [];
+          }
+        } catch (e) {}
+      }
+
+      return { schema: tgtSchema, table: tgtTable, totalRecords: total, displayedRecords: rows.length, columns, rows };
+    };
+
+    let targetConfigs = [];
+    try {
+      const tcRes = await queryPostgres(
+        `SELECT target_config_id, exec_order, tgt_schema, tgt_table, pk_columns
+         FROM mc_center.migration_target_config
+         WHERE config_id = $1 AND is_active = true
+         ORDER BY exec_order, target_config_id`,
+        [cfg.config_id]
+      );
+      targetConfigs = tcRes.rows || [];
+    } catch (e) {}
+    if (targetConfigs.length === 0 && cleanTgtTable) {
+      targetConfigs = [{ target_config_id: null, exec_order: 1, tgt_schema: cleanTgtSchema, tgt_table: cleanTgtTable, pk_columns: cfg.pk_columns }];
     }
 
-    // Staging sudah dibersihkan setelah posting: ambil langsung dari tabel target
-    if (stgRowsData.length === 0 && cleanTgtTable) {
-      try {
-        const tgtColumns = await loadColumns(cleanTgtSchema, cleanTgtTable);
-        if (tgtColumns.length > 0) {
-          stgColumns = tgtColumns;
-          const hasFlag = tgtColumns.some((c) => c.name === 'migration');
-          const where = hasFlag ? `WHERE "migration" = '1'` : '';
-          const cntRes = await queryPostgres(`SELECT COUNT(*) AS total FROM "${cleanTgtSchema}"."${cleanTgtTable}" ${where}`);
-          migratedTotal = parseInt(cntRes.rows[0]?.total, 10) || 0;
-          const dataRes = await queryPostgres(`SELECT * FROM "${cleanTgtSchema}"."${cleanTgtTable}" ${where} ORDER BY 1 LIMIT 500`);
-          stgRowsData = dataRes.rows || [];
-        }
-      } catch (e) {}
+    const targetAttachments = [];
+    for (const tc of targetConfigs) {
+      const tSchema = sanitizeIdentifier(tc.tgt_schema) || 'vendor';
+      const tTable = sanitizeIdentifier(tc.tgt_table);
+      if (!tTable) continue;
+      const att = await buildAttachment(tSchema, tTable, tc.pk_columns || cfg.pk_columns);
+      targetAttachments.push({ targetConfigId: tc.target_config_id, execOrder: tc.exec_order || 1, ...att });
     }
+
+    const primaryAtt = targetAttachments.find((a) => a.table === cleanTgtTable) || targetAttachments[0]
+      || { totalRecords: 0, displayedRecords: 0, columns: [], rows: [] };
 
     // 3. Fetch conversion rules
     let rules = [];
@@ -942,11 +982,12 @@ class PipelineService {
       stagingAttachment: {
         schema: cleanStgSchema,
         table: cleanStgTable,
-        totalRecords: migratedTotal,
-        displayedRecords: stgRowsData.length,
-        columns: stgColumns,
-        rows: stgRowsData,
+        totalRecords: primaryAtt.totalRecords,
+        displayedRecords: primaryAtt.displayedRecords,
+        columns: primaryAtt.columns,
+        rows: primaryAtt.rows,
       },
+      targetAttachments,
     };
   }
 

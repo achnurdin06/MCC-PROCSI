@@ -7918,33 +7918,58 @@ function renderBaAttachmentTable() {
   const preferredCols = ['name', 'nama', 'group', 'customer', 'vendor', 'employee', 'buyer_document', 'id_number', 'tax_id', 'tax_payer_type', 'tipe_vendor', 'email', 'status', 'sap_code'];
 
 
-  // Susun data tiap config menjadi { title, total, headHtml, rows: [html] }
-  const sections = selectedConfigs.map((cfg, idx) => {
-    const attData = cfg.stagingAttachment || (cfg.configId === state.beritaAcaraData?.config?.configId ? state.beritaAcaraData?.stagingAttachment : null);
-    const realRows = attData?.rows;
-    const title = `${idx + 1}. ${cfg.modName || cfg.target?.table || cfg.source?.view || 'Data Migrasi'}${cfg.target?.table ? ` (${cfg.target.table})` : ''}`;
-    const total = attData?.totalRecords ?? cfg.target?.rows ?? 0;
+  // Susun seksi lampiran per target dari master target config yang berstatus POSTED
+  const sections = [];
+  let secIdx = 1;
 
-    if (realRows && realRows.length > 0) {
-      const cols = attData.columns || [];
-      const activeCols = cols.filter((c) => preferredCols.includes(c.name.toLowerCase()))
-        .concat(cols.filter((c) => !preferredCols.includes(c.name.toLowerCase())))
-        .slice(0, 10);
-      const headHtml = `<th style="width: 36px; text-align: center;">No</th>${activeCols.map((c) => `<th>${escapeHtml(c.name.replace(/_/g, ' ').toUpperCase())}</th>`).join('')}`;
-      const rows = realRows.slice(0, 500).map((r, rIdx) => {
-        const cells = activeCols.map((c) => {
-          const val = r[c.name];
-          if (val === null || val === undefined) return '<span style="color: #94a3b8; font-style: italic;">-</span>';
-          if (typeof val === 'boolean') return val ? 'Yes' : 'No';
-          return escapeHtml(String(val));
-        }).join('</td><td>');
-        return `<tr><td style="text-align: center; font-weight: 600;">${rIdx + 1}</td><td>${cells}</td></tr>`;
-      });
-      return { title, total, headHtml, rows };
-    }
+  selectedConfigs.forEach((cfg) => {
+    const postedTargets = cfg.targets && cfg.targets.length > 0
+      ? cfg.targets
+      : getPostedTargets(cfg.configId);
 
-    // Tidak ada data yang dimigrasi: jangan tampilkan data contoh
-    return { title, total: 0, headHtml: `<th>Keterangan</th>`, rows: ['<tr><td style="text-align: center; color: #64748b;">Tidak ada data yang dimigrasi (POSTED) untuk konfigurasi ini.</td></tr>'] };
+    const targetAtts = cfg.targetAttachments || (cfg.configId === state.beritaAcaraData?.config?.configId ? state.beritaAcaraData?.targetAttachments : null) || [];
+    const fallbackAtt = cfg.stagingAttachment || (cfg.configId === state.beritaAcaraData?.config?.configId ? state.beritaAcaraData?.stagingAttachment : null);
+
+    // Iterasi setiap target berstatus POSTED sesuai master target config
+    postedTargets.forEach((tgt) => {
+      const matchedAtt = targetAtts.find((a) => a.table && tgt.table && a.table.toLowerCase() === tgt.table.toLowerCase())
+        || (targetAtts.length === 1 ? targetAtts[0] : null)
+        || fallbackAtt;
+
+      const realRows = matchedAtt?.rows;
+      const title = `${secIdx}. ${cfg.modName || 'Data Migrasi'} - ${tgt.schema ? `${tgt.schema}.` : ''}${tgt.table || 'Target'}`;
+      secIdx += 1;
+
+      const deltaMigrated = (tgt.sumAfter != null && tgt.sumBefore != null)
+        ? Math.max(0, Number(tgt.sumAfter) - Number(tgt.sumBefore))
+        : (tgt.sumAfter != null ? Number(tgt.sumAfter) : (matchedAtt?.totalRecords ?? 0));
+      const total = matchedAtt?.totalRecords || deltaMigrated || 0;
+
+      if (realRows && realRows.length > 0) {
+        const cols = matchedAtt.columns || [];
+        const activeCols = cols.filter((c) => preferredCols.includes(c.name.toLowerCase()))
+          .concat(cols.filter((c) => !preferredCols.includes(c.name.toLowerCase())))
+          .slice(0, 10);
+        const headHtml = `<th style="width: 36px; text-align: center;">No</th>${activeCols.map((c) => `<th>${escapeHtml(c.name.replace(/_/g, ' ').toUpperCase())}</th>`).join('')}`;
+        const rows = realRows.slice(0, 500).map((r, rIdx) => {
+          const cells = activeCols.map((c) => {
+            const val = r[c.name];
+            if (val === null || val === undefined) return '<span style="color: #94a3b8; font-style: italic;">-</span>';
+            if (typeof val === 'boolean') return val ? 'Yes' : 'No';
+            return escapeHtml(String(val));
+          }).join('</td><td>');
+          return `<tr><td style="text-align: center; font-weight: 600;">${rIdx + 1}</td><td>${cells}</td></tr>`;
+        });
+        sections.push({ title, total, headHtml, rows });
+      } else {
+        sections.push({
+          title,
+          total: 0,
+          headHtml: `<th>Keterangan</th>`,
+          rows: ['<tr><td style="text-align: center; color: #64748b;">Tidak ada data yang dimigrasi (POSTED) untuk target ini.</td></tr>']
+        });
+      }
+    });
   });
 
   host.replaceChildren();
@@ -7998,7 +8023,7 @@ function renderBaAttachmentTable() {
 function exportStagingCsv() {
   const activeConfigs = getSelectedConfigsData();
   const firstCfg = activeConfigs[0];
-  const attData = firstCfg?.stagingAttachment || state.beritaAcaraData?.stagingAttachment;
+  const attData = firstCfg?.targetAttachments?.[0] || firstCfg?.stagingAttachment || state.beritaAcaraData?.targetAttachments?.[0] || state.beritaAcaraData?.stagingAttachment;
   const rows = attData?.rows || [];
 
   if (!rows || rows.length === 0) {
