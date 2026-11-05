@@ -834,41 +834,52 @@ class PipelineService {
       } catch (e) {}
     }
 
-    // 2. Fetch Staging Data Attachment (Lampiran Data Staging)
+    // 2. Lampiran: hanya baris yang sudah dimigrasi (PK staging ada di tabel target)
+    const pkCols = String(cfg.pk_columns || '')
+      .split(',')
+      .map((c) => sanitizeIdentifier(c.trim()))
+      .filter(Boolean);
     let stgColumns = [];
     let stgRowsData = [];
-    if (cleanStgTable) {
-      try {
-        const stgColsQuery = await queryPostgres(`
-          SELECT column_name, data_type 
-          FROM information_schema.columns
-          WHERE table_schema = $1 AND table_name = $2
-          ORDER BY ordinal_position
-        `, [cleanStgSchema, cleanStgTable]);
-        stgColumns = (stgColsQuery.rows || []).map((c) => ({ name: c.column_name, type: c.data_type }));
+    let migratedTotal = 0;
 
-        const stgDataQuery = await queryPostgres(
-          `SELECT * FROM "${cleanStgSchema}"."${cleanStgTable}" ORDER BY 1 LIMIT 500`
-        );
-        stgRowsData = stgDataQuery.rows || [];
+    const loadColumns = async (schema, table) => {
+      const colsQuery = await queryPostgres(`
+        SELECT column_name, data_type
+        FROM information_schema.columns
+        WHERE table_schema = $1 AND table_name = $2
+        ORDER BY ordinal_position
+      `, [schema, table]);
+      return (colsQuery.rows || []).map((c) => ({ name: c.column_name, type: c.data_type }));
+    };
+
+    if (cleanStgTable && cleanTgtTable && pkCols.length > 0) {
+      try {
+        stgColumns = await loadColumns(cleanStgSchema, cleanStgTable);
+        const tgtColNames = (await loadColumns(cleanTgtSchema, cleanTgtTable)).map((c) => c.name);
+        if (pkCols.every((c) => tgtColNames.includes(c) && stgColumns.some((x) => x.name === c))) {
+          const joinCond = pkCols.map((c) => `t."${c}" = s."${c}"`).join(' AND ');
+          const fromSql = `FROM "${cleanStgSchema}"."${cleanStgTable}" s WHERE EXISTS (SELECT 1 FROM "${cleanTgtSchema}"."${cleanTgtTable}" t WHERE ${joinCond})`;
+          const cntRes = await queryPostgres(`SELECT COUNT(*) AS total ${fromSql}`);
+          migratedTotal = parseInt(cntRes.rows[0]?.total, 10) || 0;
+          const dataRes = await queryPostgres(`SELECT s.* ${fromSql} ORDER BY 1 LIMIT 500`);
+          stgRowsData = dataRes.rows || [];
+        }
       } catch (e) {}
     }
 
-    // Fallback ke target table jika staging kosong namun target ada
+    // Staging sudah dibersihkan setelah posting: ambil langsung dari tabel target
     if (stgRowsData.length === 0 && cleanTgtTable) {
       try {
-        const tgtColsQuery = await queryPostgres(`
-          SELECT column_name, data_type 
-          FROM information_schema.columns
-          WHERE table_schema = $1 AND table_name = $2
-          ORDER BY ordinal_position
-        `, [cleanTgtSchema, cleanTgtTable]);
-        if (tgtColsQuery.rows && tgtColsQuery.rows.length > 0) {
-          stgColumns = tgtColsQuery.rows.map((c) => ({ name: c.column_name, type: c.data_type }));
-          const tgtDataQuery = await queryPostgres(
-            `SELECT * FROM "${cleanTgtSchema}"."${cleanTgtTable}" ORDER BY 1 LIMIT 500`
-          );
-          stgRowsData = tgtDataQuery.rows || [];
+        const tgtColumns = await loadColumns(cleanTgtSchema, cleanTgtTable);
+        if (tgtColumns.length > 0) {
+          stgColumns = tgtColumns;
+          const hasFlag = tgtColumns.some((c) => c.name === 'migration');
+          const where = hasFlag ? `WHERE "migration" = '1'` : '';
+          const cntRes = await queryPostgres(`SELECT COUNT(*) AS total FROM "${cleanTgtSchema}"."${cleanTgtTable}" ${where}`);
+          migratedTotal = parseInt(cntRes.rows[0]?.total, 10) || 0;
+          const dataRes = await queryPostgres(`SELECT * FROM "${cleanTgtSchema}"."${cleanTgtTable}" ${where} ORDER BY 1 LIMIT 500`);
+          stgRowsData = dataRes.rows || [];
         }
       } catch (e) {}
     }
@@ -931,7 +942,7 @@ class PipelineService {
       stagingAttachment: {
         schema: cleanStgSchema,
         table: cleanStgTable,
-        totalRecords: stgRows,
+        totalRecords: migratedTotal,
         displayedRecords: stgRowsData.length,
         columns: stgColumns,
         rows: stgRowsData,

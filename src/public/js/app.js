@@ -6786,29 +6786,6 @@ const STANDARD_BA_DEFAULTS = {
   logoRightHeight: 42
 };
 
-// Fallback sample data lampiran jika database belum memiliki data (persis lampiran PDF halaman 3-4)
-const SAMPLE_BP_ATTACHMENT_ROWS = [
-  { name: 'PT ADHIGUNA MITRA NIAGA', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '032721300063000', taxType: '04_04 - DPP Nilai Lain' },
-  { name: 'ADNAN BUYUNG NASUTION & PARTNERS', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '018165845062000', taxType: '04_04 - DPP Nilai Lain' },
-  { name: 'PT AGUNG SOLUSI TRANS', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '033240854021000', taxType: '04_04 - DPP Nilai Lain' },
-  { name: 'AHMAD FARIS MUSTOFA', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'NATIONAL ID', idNumber: '725116800525000', taxId: '725116800525000', taxType: '04_04 - DPP Nilai Lain' },
-  { name: 'PT ARFA EXPLORINDO NUSANTARA', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '864434576423000', taxType: '04_04 - DPP Nilai Lain' },
-  { name: 'PT ARGA BANGUN BANGSA', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '022904791013000', taxType: '04_04 - DPP Nilai Lain' },
-  { name: 'ASSEGAF HAMZAH & PARTNERS', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '020418687062000', taxType: '04_04 - DPP Nilai Lain' },
-  { name: 'PT BINUANG MITRA BERSAMA BLOK DUA', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '709910145732000', taxType: '04_04 - DPP Nilai Lain' },
-  { name: 'PT BRAVO SATRIA PERKASA (GRAHA BSP)', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '021106182007000', taxType: '04_04 - DPP Nilai Lain' },
-  { name: 'CAFE GLASS', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '068658749606000', taxType: '04_04 - DPP Nilai Lain' },
-  { name: 'CAHYO MURTIATMO', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'NATIONAL ID', idNumber: '245373972505000', taxId: '245373972505000', taxType: '04_04 - DPP Nilai Lain' },
-  { name: 'CIPTA PIRANTI SEJAHTERA', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '754067908029000', taxType: '04_04 - DPP Nilai Lain' },
-  { name: 'CV CITRAMEDIA', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '028243830614000', taxType: '04_04 - DPP Nilai Lain' },
-  { name: 'CV LINTANG MARGA', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '738267467604000', taxType: '04_04 - DPP Nilai Lain' },
-  { name: 'CV LIONA SEJAHTERA', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '030712335606000', taxType: '04_04 - DPP Nilai Lain' },
-  { name: 'CV TANJUNG DUREN', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '25069378432000', taxType: '04_04 - DPP Nilai Lain' },
-  { name: 'DANA PENSIUN SEMEN GRESIK (DPSG)', group: 'Affiliated Company', customer: 'Yes', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '011335239641000', taxType: '04_04 - DPP Nilai Lain' },
-  { name: 'DRS. YULIANTO', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'NATIONAL ID', idNumber: '245449541542000', taxId: '245449541542000', taxType: '04_04 - DPP Nilai Lain' },
-  { name: 'PT DUTAKOM WIBAWA PUTRA', group: 'Third Party', customer: 'Yes', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'TIN', idNumber: '-', taxId: '017395369631000', taxType: '04_04 - DPP Nilai Lain' },
-  { name: 'DWI W RAHMAWATI', group: 'Third Party', customer: 'No', vendor: 'Yes', employee: 'No', salesRep: 'No', buyerDoc: 'NATIONAL ID', idNumber: '086623022612000', taxId: '086623022612000', taxType: '04_04 - DPP Nilai Lain' }
-];
 
 // Vector Logo Generators
 function getAntamLogoSvg(height = 40) {
@@ -7305,7 +7282,7 @@ function initBeritaAcaraEvents() {
           else parent.classList.remove('selected');
         }
       });
-      onConfigSelectionChanged([mainId]);
+      onConfigSelectionChanged(getPostedTargets(mainId).length > 0 ? [mainId] : []);
     });
   }
 
@@ -7317,10 +7294,18 @@ function initBeritaAcaraEvents() {
   });
 }
 
+// Target yang sudah berstatus POSTED (dimigrasi) untuk sebuah config, dari data pipeline terbaru
+function getPostedTargets(configId) {
+  const pl = (state.pipeline?.pipelines || []).find((p) => p.configId === configId);
+  return (pl?.targets || []).filter((t) => t.actionStatus === 'POSTED');
+}
+
 function getSelectedConfigsData() {
   const ids = state.beritaAcaraSelectedConfigs || [];
   const list = [];
   ids.forEach((id) => {
+    const postedTargets = getPostedTargets(id);
+    if (postedTargets.length === 0) return;
     let cfg = state.beritaAcaraConfigsCache[id];
     const pl = (state.pipeline?.pipelines || []).find((p) => p.configId === id);
     const masterCfg = (state.config?.masters?.migration_config || []).find((m) => m.config_id === id);
@@ -7353,9 +7338,7 @@ function getSelectedConfigsData() {
     if (cfg) {
       cfg.nameConfig = nameConfig || cfg.nameConfig || modName;
       cfg.modName = modName;
-      if (pl && pl.targets && (!cfg.targets || cfg.targets.length === 0)) {
-        cfg.targets = pl.targets;
-      }
+      cfg.targets = postedTargets;
       list.push(cfg);
     }
   });
@@ -7394,11 +7377,6 @@ window.openBeritaAcara = async function (configId) {
     if (fp && !fp.classList.contains('collapsed')) document.getElementById('btn-toggle-ba-form')?.click();
   }
 
-  // Set selected config
-  if (!state.beritaAcaraSelectedConfigs || state.beritaAcaraSelectedConfigs.length === 0 || !state.beritaAcaraSelectedConfigs.includes(targetId)) {
-    state.beritaAcaraSelectedConfigs = [targetId];
-  }
-
   try {
     // Pastikan list pipeline termuat untuk opsi checklist
     if (!state.pipeline.pipelines || state.pipeline.pipelines.length === 0) {
@@ -7409,6 +7387,14 @@ window.openBeritaAcara = async function (configId) {
           state.pipeline.pipelines = pJson.data.pipelines;
         }
       } catch (pe) {}
+    }
+
+    // Set selected config: hanya masukkan targetId jika berstatus POSTED
+    if (!state.beritaAcaraSelectedConfigs || state.beritaAcaraSelectedConfigs.length === 0 || !state.beritaAcaraSelectedConfigs.includes(targetId)) {
+      state.beritaAcaraSelectedConfigs = getPostedTargets(targetId).length > 0 ? [targetId] : [];
+    } else {
+      // Saring ulang: buang config lama yang sudah tidak POSTED
+      state.beritaAcaraSelectedConfigs = state.beritaAcaraSelectedConfigs.filter((id) => getPostedTargets(id).length > 0);
     }
 
     const res = await fetch(`/api/reconciliation/berita-acara?configId=${targetId}`);
@@ -7538,64 +7524,33 @@ function renderConfigChecklist() {
   const container = document.getElementById('ba_config_selector_list');
   if (!container) return;
 
-  // Kumpulkan list konfigurasi unik
+  // Hanya config yang sudah POSTED (dimigrasi) yang dapat dipilih
   const configsMap = new Map();
 
-  // Dari pipeline summary
-  if (state.pipeline?.pipelines) {
-    state.pipeline.pipelines.forEach((p) => {
-      let modName = p.nameConfig || p.name_config || p.target?.table?.replace(/_/g, ' ').toUpperCase() || `Config #${p.configId}`;
-      if (!p.nameConfig && !p.name_config) {
-        if (p.target?.table?.toLowerCase().includes('vendor')) modName = 'Vendor';
-        else if (p.target?.table?.toLowerCase().includes('akta')) modName = 'Akta Perusahaan';
-        else if (p.target?.table?.toLowerCase().includes('address')) modName = 'Vendor Address';
-      }
+  (state.pipeline?.pipelines || []).forEach((p) => {
+    if (getPostedTargets(p.configId).length === 0) return;
+    let modName = p.nameConfig || p.name_config || p.target?.table?.replace(/_/g, ' ').toUpperCase() || `Config #${p.configId}`;
+    if (!p.nameConfig && !p.name_config) {
+      if (p.target?.table?.toLowerCase().includes('vendor')) modName = 'Vendor';
+      else if (p.target?.table?.toLowerCase().includes('akta')) modName = 'Akta Perusahaan';
+      else if (p.target?.table?.toLowerCase().includes('address')) modName = 'Vendor Address';
+    }
 
-      configsMap.set(p.configId, {
-        configId: p.configId,
-        modName,
-        srcView: p.source?.view || '',
-        tgtTable: p.target?.table || '',
-        rows: p.target?.rows || p.staging?.rows || 0
-      });
+    configsMap.set(p.configId, {
+      configId: p.configId,
+      modName,
+      srcView: p.source?.view || '',
+      tgtTable: p.target?.table || '',
+      rows: getPostedTargets(p.configId).reduce((sum, t) => sum + (Number(t.sumAfter) || 0), 0)
     });
-  }
-
-  // Dari master migration_config
-  if (state.config?.masters?.migration_config) {
-    state.config.masters.migration_config.forEach((c) => {
-      if (!configsMap.has(c.config_id)) {
-        let modName = c.name_config || (c.tgt_table || '').replace(/_/g, ' ').toUpperCase() || `Config #${c.config_id}`;
-        if (!c.name_config) {
-          if (c.tgt_table?.toLowerCase().includes('vendor')) modName = 'Vendor';
-          else if (c.tgt_table?.toLowerCase().includes('akta')) modName = 'Akta Perusahaan';
-          else if (c.tgt_table?.toLowerCase().includes('address')) modName = 'Vendor Address';
-        }
-
-        configsMap.set(c.config_id, {
-          configId: c.config_id,
-          modName,
-          srcView: c.src_view || '',
-          tgtTable: c.tgt_table || '',
-          rows: 0
-        });
-      }
-    });
-  }
-
-  // Fallback jika belum ada
-  if (configsMap.size === 0) {
-    const curId = state.beritaAcaraData?.config?.configId || 1;
-    configsMap.set(curId, {
-      configId: curId,
-      modName: state.beritaAcaraData?.config?.target?.table || 'Business Partner',
-      srcView: state.beritaAcaraData?.config?.source?.view || 'v_migration_vendor',
-      tgtTable: state.beritaAcaraData?.config?.target?.table || 'slave_vendors',
-      rows: state.beritaAcaraData?.config?.target?.rows || 663
-    });
-  }
+  });
 
   const allConfigs = Array.from(configsMap.values()).sort((a, b) => a.configId - b.configId);
+
+  if (allConfigs.length === 0) {
+    container.innerHTML = '<div class="text-2xs text-muted py-2">Belum ada konfigurasi berstatus POSTED yang dapat dicetak.</div>';
+    return;
+  }
 
   container.innerHTML = allConfigs.map((c) => {
     const isChecked = state.beritaAcaraSelectedConfigs.includes(c.configId);
@@ -7955,23 +7910,14 @@ function renderBaAttachmentTable() {
   }
 
   const preferredCols = ['name', 'nama', 'group', 'customer', 'vendor', 'employee', 'buyer_document', 'id_number', 'tax_id', 'tax_payer_type', 'tipe_vendor', 'email', 'status', 'sap_code'];
-  const fallbackHead = `
-    <th style="width: 36px; text-align: center;">No</th>
-    <th>Name</th>
-    <th>Group</th>
-    <th style="text-align: center; width: 65px;">Customer</th>
-    <th style="text-align: center; width: 60px;">Vendor</th>
-    <th style="text-align: center; width: 65px;">Employee</th>
-    <th>ID Number</th>
-    <th>Tax ID</th>
-    <th>Tax Payer Type</th>`;
+
 
   // Susun data tiap config menjadi { title, total, headHtml, rows: [html] }
   const sections = selectedConfigs.map((cfg, idx) => {
     const attData = cfg.stagingAttachment || (cfg.configId === state.beritaAcaraData?.config?.configId ? state.beritaAcaraData?.stagingAttachment : null);
     const realRows = attData?.rows;
     const title = `${idx + 1}. ${cfg.modName || cfg.target?.table || cfg.source?.view || 'Data Migrasi'}${cfg.target?.table ? ` (${cfg.target.table})` : ''}`;
-    const total = cfg.target?.rows || cfg.staging?.rows || 0;
+    const total = attData?.totalRecords ?? cfg.target?.rows ?? 0;
 
     if (realRows && realRows.length > 0) {
       const cols = attData.columns || [];
@@ -7991,19 +7937,8 @@ function renderBaAttachmentTable() {
       return { title, total, headHtml, rows };
     }
 
-    const rows = SAMPLE_BP_ATTACHMENT_ROWS.slice(0, 500).map((r, rIdx) => `
-      <tr>
-        <td style="text-align: center; font-weight: 600;">${rIdx + 1}</td>
-        <td><strong>${escapeHtml(r.name)}</strong></td>
-        <td>${escapeHtml(r.group)}</td>
-        <td style="text-align: center;">${escapeHtml(r.customer)}</td>
-        <td style="text-align: center;">${escapeHtml(r.vendor)}</td>
-        <td style="text-align: center;">${escapeHtml(r.employee)}</td>
-        <td class="font-mono">${escapeHtml(r.idNumber)}</td>
-        <td class="font-mono">${escapeHtml(r.taxId)}</td>
-        <td>${escapeHtml(r.taxType)}</td>
-      </tr>`);
-    return { title, total, headHtml: fallbackHead, rows };
+    // Tidak ada data yang dimigrasi: jangan tampilkan data contoh
+    return { title, total: 0, headHtml: `<th>Keterangan</th>`, rows: ['<tr><td style="text-align: center; color: #64748b;">Tidak ada data yang dimigrasi (POSTED) untuk konfigurasi ini.</td></tr>'] };
   });
 
   host.replaceChildren();
@@ -8058,9 +7993,7 @@ function exportStagingCsv() {
   const activeConfigs = getSelectedConfigsData();
   const firstCfg = activeConfigs[0];
   const attData = firstCfg?.stagingAttachment || state.beritaAcaraData?.stagingAttachment;
-  const rows = (attData && attData.rows && attData.rows.length > 0)
-    ? attData.rows
-    : SAMPLE_BP_ATTACHMENT_ROWS;
+  const rows = attData?.rows || [];
 
   if (!rows || rows.length === 0) {
     alert('Tidak ada data lampiran untuk diekspor.');
